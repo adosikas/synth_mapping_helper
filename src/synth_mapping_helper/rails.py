@@ -69,10 +69,10 @@ def merge_rails(notes: SINGLE_COLOR_NOTES) -> None:
         current_rail_end = nodes[-1, 2]
 
 
-def interpolate_nodes(
+def interpolate_nodes_linear(
     data: "numpy array (n, 3)", interval: float
 ) -> "numpy array (n, 3)":
-    """places nodes at defined interval along the rail, interpolating between existing nodes"""
+    """places nodes at defined interval along the rail, interpolating linearly between existing nodes"""
     if data.shape[0] == 1:  # ignore single nodes
         return data
     new_z = np.arange(data[0, 2], data[-1, 2], interval)

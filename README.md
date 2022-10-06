@@ -9,7 +9,7 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
     * Rotation
     * Scaling / Mirroring
 * Changing colors
-* Pattern generation (TODO: needs to be exposed via cli)
+* Pattern generation
     * Spirals/Zigzags
     * Spike/Buzz-Rails
 * Rail manipulation
@@ -28,7 +28,6 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 ### Planned Features
 * Support for walls
 * Tiling/Stacking operations
-* Command line interface
 
 ### Maybe
 * GUI
@@ -37,13 +36,27 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 
 ## How to Install and use
 
-### TL;DR / Command prompt users:
+### Advanced users
 * Install via `pip3 install synth_mapping_helper` (requires python 3.9 or higher)
 * See `python3 -m synth_mapping_helper.cli -h` for usage
-* Feel free to experiment with extending functionality by using the module functions directly
+* Feel free to experiment with extending functionality by using the module functions directly. If you have something that you think could help other mappers, please make a PR
 
 ### Windows
+Installation:
+
 * Install Python 3.10 via the store: https://apps.microsoft.com/store/detail/python-310/9PJPW5LDXLZ5
 * Download the windows_helpers.zip from the releases and double-click `install.bat` to download the library and dependencies
-* Drag Text files like `merge_rails.txt` or `example_rotate.txt` onto `smh.bat` to execute the actions line by line
-* Run `show_help.bat` to learn which options are supported and make your own library of actions
+
+Usage:
+
+* Copy the notes from the editor
+* Drag an action text file like `merge_rails.txt` or `spiralize.txt` onto `smh.bat` to execute.
+* Paste the result into the editor
+
+Making your own actions:
+
+* Run `show_help.bat` to learn which options are supported
+* You can specify multiple different operations in the same line, they will be chained in the order they *appear in the help* (ordering of options in the line has no effect).
+* If you want a different order, or want to do the same operation multiple times (ie different offsets for two colors), each action file can contain multiple lines which are executed in sequence
+* Each line is an independent command, so ie a pivot specified in the first line does not affect the second lines
+* If you made a particularly useful action, feel free to share it so it can be added to the examples

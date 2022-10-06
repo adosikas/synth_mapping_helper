@@ -4,7 +4,7 @@ import numpy as np
 def angle_to_xy(angles: "numpy array like") -> "numpy array like":
     """convert a angles in degrees to x and y coordinates"""
     rad_angles = np.radians(angles)
-    return np.stack((np.cos(angles), np.sin(angles)), -1)
+    return np.stack((np.cos(rad_angles), np.sin(rad_angles)), -1)
 
 
 # pattern generation
@@ -17,7 +17,7 @@ def spiral(
     fidelity: float, length: float, start_angle: float = 0
 ) -> "numpy array (n, 2)":
     """spiral with radius 1"""
-    rot = np.arange(length) / fidelity  # 1 = 360°
+    rot = np.arange(length) / fidelity  # in rotations, ie 1.0 = 360°
     if length % 1:
         # add a partial angle at the end
         rot = np.concatenate((rot, [(length / fidelity)]))

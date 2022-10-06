@@ -1,0 +1,1 @@
+--interpolate=1/4 --spikes=2 --radius=2 --start-angle=90

@@ -1,0 +1,1 @@
+--interpolate=1/8 --spiral=8 --radius=2 --start-angle=45
