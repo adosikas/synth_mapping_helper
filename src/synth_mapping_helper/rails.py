@@ -1,6 +1,6 @@
 import numpy as np
 
-from synth_format import DataContainer, SINGLE_COLOR_NOTES
+from .synth_format import DataContainer, SINGLE_COLOR_NOTES
 
 # How far last node and start note can be spaced for two rails to be merged
 MERGE_ACCURACY_GRID = 1 / 8

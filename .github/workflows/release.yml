@@ -24,3 +24,11 @@ jobs:
         run: |
           python setup.py sdist bdist_wheel
           twine upload --repository pypi dist/*
+      - name: Package Windows helpers
+        run: |
+          zip -r windows_helpers.zip windows_helpers
+      - name: Upload Windows helpers
+          uses: ncipollo/release-action@v1
+          with:
+            artifacts: "windows_helpers.zip"
+            token: ${{ secrets.GITHUB_TOKEN }}
