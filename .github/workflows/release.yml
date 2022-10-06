@@ -17,13 +17,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install setuptools wheel twine
-      - name: Build and publish
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          python setup.py sdist bdist_wheel
-          twine upload --repository pypi dist/*
       - name: Package Windows helpers
         run: |
           zip -r windows_helpers.zip windows_helpers
@@ -33,3 +26,10 @@ jobs:
           artifacts: "windows_helpers.zip"
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          python setup.py sdist bdist_wheel
+          twine upload --repository pypi dist/*
