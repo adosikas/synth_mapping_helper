@@ -5,10 +5,9 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setuptools.setup(
     name='synth_mapping_helper',
-    author='Tom Chen',
-    author_email='tomchen.org@gmail.com',
-    description='Example PyPI (Python Package Index) Package',
-    keywords='example, pypi, package',
+    author='adosikas',
+    author_email='',
+    description='Toolbox for manipulating the JSON-Format used by Synth Riders Beatmap Editor in the clipboard',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://github.com/adosikas/synth_mapping_helper',

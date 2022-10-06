@@ -1,6 +1,6 @@
 # Synth Mapping Helper
 
-Toolbox for manipulating the JSON-Format used by *Synth Rider Beatmap Editor* in the clipboard.
+Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* in the clipboard.
 
 ## Features
 
@@ -25,7 +25,7 @@ Toolbox for manipulating the JSON-Format used by *Synth Rider Beatmap Editor* in
 
 ### Planned Features
 * Support for walls
-* Tiling operations
+* Tiling/Stacking operations
 * Command line interface
 
 ### Maybe
@@ -35,8 +35,8 @@ Toolbox for manipulating the JSON-Format used by *Synth Rider Beatmap Editor* in
 
 ## How to Install
 
-Linux / TL;DR: `pip3 install synth_mapping_helper`
+Linux / TL;DR: `pip3 install synth_mapping_helper`, requires python 3.9 or higher
 
 ### Windows
-* Install Python via the store: https://apps.microsoft.com/store/detail/python-310/9PJPW5LDXLZ5
+* Install Python 3.10 via the store: https://apps.microsoft.com/store/detail/python-310/9PJPW5LDXLZ5
 * Open a command prompt and run `pip3 install synth_mapping_helper`
