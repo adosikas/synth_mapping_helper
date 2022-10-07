@@ -1,0 +1,1 @@
+--rotate=15 -o=0,0,1/4 --outset=0.1 --stack-count=30

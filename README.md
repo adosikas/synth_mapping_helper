@@ -4,10 +4,12 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 
 ## Features
 
-* Movement in XY and Time:
-    * Translation
-    * Rotation
-    * Scaling / Mirroring
+* Movement in XY and Time:  
+    Note: All operation can be done in regards to grid center, a pivot point, or the start of rails
+    * Rotate
+    * Scale and mirror
+    * Outset (moving outwards/away by a fixed distance)
+    * Offset (Translate/Move)
 * Changing colors
 * Pattern generation
     * Spirals/Zigzags
@@ -26,8 +28,7 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
     * Notes/Rails seperated by color and as `n x 3` numpy-arrays
 
 ### Planned Features
-* Support for walls
-* Tiling/Stacking operations
+* Convert between rails and single notes
 
 ### Maybe
 * GUI
