@@ -42,7 +42,7 @@ def split_rails(notes: SINGLE_COLOR_NOTES) -> None:
             current_rail_end = remainder[-1, 2]
 
 
-def merge_rails(notes: SINGLE_COLOR_NOTES) -> None:
+def merge_sequential_rails(notes: SINGLE_COLOR_NOTES) -> None:
     """merges rails where end and start a very close"""
     current_rail_start = None
     current_rail_end = None
@@ -53,7 +53,7 @@ def merge_rails(notes: SINGLE_COLOR_NOTES) -> None:
 
         if (
             current_rail_end is not None
-            and time < current_rail_end + MERGE_ACCURACY_BEAT
+            and time <= current_rail_end + MERGE_ACCURACY_BEAT
         ):
             previous_nodes = notes[current_rail_start]
             if np.isclose(
@@ -65,8 +65,62 @@ def merge_rails(notes: SINGLE_COLOR_NOTES) -> None:
                 notes[time] = nodes[:1]
                 current_rail_end = nodes[-1, 2]
                 continue
+    
         current_rail_start = time
         current_rail_end = nodes[-1, 2]
+
+def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float) -> None:
+    """merges rails"""
+    current_rail_start = None
+    current_rail_end = None
+    for time in sorted(notes):
+        nodes = notes[time]
+        if nodes.shape[0] == 1:  # ignore single nodes
+            continue
+
+        if (
+            current_rail_end is None
+            or time > current_rail_end + max_interval
+        ):
+            current_rail_start = time
+            current_rail_end = nodes[-1, 2]
+        else:
+            previous_nodes = notes[current_rail_start]
+            # when start and end are close, remove end node of previous rail before joining
+            if np.isclose(
+                previous_nodes[-1, 2], nodes[0, 2], atol=MERGE_ACCURACY_BEAT
+            ) and np.allclose(
+                previous_nodes[-1, :2], nodes[0, :2], atol=MERGE_ACCURACY_GRID
+            ):
+                previous_nodes = previous_nodes[:-1]
+
+            notes[current_rail_start] = np.concatenate((previous_nodes, nodes))
+            notes[time] = nodes[:1]
+            current_rail_end = nodes[-1, 2]
+
+def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float) -> None:
+    """Turn single notes into rails"""
+    current_rail_start = None
+    current_rail_end = None
+    for time in sorted(notes):
+        nodes = notes[time]
+
+        if nodes.shape[0] != 1:  # existing rails are ignored and reset 
+            current_rail_start = None
+            current_rail_end = None
+            continue
+
+        if (
+            current_rail_end is None
+            or time > current_rail_end + max_interval + MERGE_ACCURACY_BEAT
+        ):
+            current_rail_start = time
+            current_rail_end = nodes[-1, 2]
+        else:
+            notes[current_rail_start] = np.concatenate((notes[current_rail_start], nodes))
+            # delete single notes
+            del notes[time]
+            current_rail_end = nodes[-1, 2]
 
 
 def interpolate_nodes_linear(
@@ -83,3 +137,13 @@ def interpolate_nodes_linear(
     new_x = np.interp(new_z, data[:, 2], data[:, 0])
     new_y = np.interp(new_z, data[:, 2], data[:, 1])
     return np.stack((new_x, new_y, new_z), -1)
+
+
+def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> None:
+    """Turn all rails into single notes"""
+    for time in sorted(notes):
+        nodes = notes[time]
+        if nodes.shape[0] == 1:  # ignore single nodes
+            continue
+        for node in nodes[int(keep_rail):]:  # when keeping the rail, don't overwrite the start with a single note
+            notes[node[2]] = node[np.newaxis]

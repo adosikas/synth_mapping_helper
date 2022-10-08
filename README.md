@@ -4,20 +4,23 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 
 ## Features
 
+* Filter by note and wall types for all operations
+* Changing colors
 * Movement in XY and Time:  
     Note: All operation can be done in regards to grid center, a pivot point, or the start of rails
     * Rotate
     * Scale and mirror
     * Outset (moving outwards/away by a fixed distance)
     * Offset (Translate/Move)
-* Changing colors
 * Pattern generation
     * Spirals/Zigzags
     * Spike/Buzz-Rails
+    * Stacking patterns with movement
 * Rail manipulation
     * Merging
     * Splitting
     * Interpolation
+    * Convert between single notes and rails
 * Cross-Platform (Windows, Linux)
     * For Windows, supports drag and drop actions (fully usable without command prompt)
 * Imports directly from clipboard, and export to it
@@ -26,9 +29,6 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
     * Time in measures (starting from start of selection)
     * Angles in degrees (positive=counterclockwise)
     * Notes/Rails seperated by color and as `n x 3` numpy-arrays
-
-### Planned Features
-* Convert between rails and single notes
 
 ### Maybe
 * GUI
