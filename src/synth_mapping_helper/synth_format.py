@@ -56,6 +56,9 @@ class DataContainer:
     both: SINGLE_COLOR_NOTES
     walls: WALLS
 
+    # Note: None of these functions are allowed to *modify* the dicts, instead they must create new dicts
+    # This avoids requring deep copies for everything
+
     def apply_for_notes(self, f, *args, types: list = NOTE_TYPES, **kwargs) -> None:
         for t in types:
             if t not in NOTE_TYPES:
@@ -87,8 +90,7 @@ class DataContainer:
         for t in types:
             if t not in NOTE_TYPES:
                 continue
-            notes = getattr(self, t)
-            f(notes, *args, **kwargs)
+            setattr(self, t, f(getattr(self, t), *args, **kwargs))
 
     def filtered(self, types: list = ALL_TYPES) -> "DataContainer":
         note_dicts = [

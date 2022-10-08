@@ -101,6 +101,7 @@ def get_parser():
     parser.add_argument("--invert-filter", action="store_true", help="Invert filter so everything *but* the filter is affected")
 
     preproc_group = parser.add_argument_group("pre-processing")
+    preproc_group.add_argument("-b", "--bpm", type=_parse_fraction, help="Change BPM without changing timing")
     preproc_group.add_argument("--delete-others", action="store_true", help="Delete everything that doesn't match the filter")
     preproc_group.add_argument("--connect-singles", type=_parse_fraction, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
     preproc_group.add_argument("--merge-rails", type=_parse_fraction, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
@@ -152,6 +153,10 @@ def main(options):
         abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
 
     # preprocessing
+    if options.bpm:
+        bpm_scale = [1, 1, options.bpm / data.bpm]
+        data.apply_for_all(movement.scale, bpm_scale, types=filter_types)
+
     if options.delete_others:
         data = data.filtered(types=filter_types)
     if options.connect_singles:
@@ -171,6 +176,14 @@ def main(options):
         # existing notes always have priority
         changed |= getattr(data, options.change_notes)
         setattr(data, options.change_notes, changed)
+
+    if options.change_walls:
+        new_type = synth_format.WALL_TYPES[options.change_walls][0]
+        def _change_wall_type(wall: "numpy array (1, 5)") -> "numpy array (1, 5)":
+            new_wall = wall.copy()
+            new_wall[..., 3] = new_type
+            return new_wall
+        data.apply_for_walls(_change_wall_type, types=filter_types)
 
     # rail patterns
     if options.interpolate:

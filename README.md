@@ -6,6 +6,7 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 
 * Filter by note and wall types for all operations
 * Changing colors
+* Change BPM indepenent of note timing
 * Movement in XY and Time:  
     Note: All operation can be done in regards to grid center, a pivot point, or the start of rails
     * Rotate
@@ -28,12 +29,14 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
     * Position in editor grid coordinates (+x=right, +y=up)
     * Time in measures (starting from start of selection)
     * Angles in degrees (positive=counterclockwise)
-    * Notes/Rails seperated by color and as `n x 3` numpy-arrays
+    * Notes/Rails seperated by color and as `n x 3` numpy-arrays (x, y, time)
+    * Walls as `1 x 5` numpy-arrays (x, y, time, type, rotation)
+    * Walls positions are adjusted to match their rotation center
 
 ### Maybe
 * GUI
-* Smoothing
 * Momentum analysis
+* Automatic smoothing
 
 ## How to Install and use
 

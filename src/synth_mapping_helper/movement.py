@@ -1,5 +1,7 @@
 import numpy as np
 
+# Note: None of these functions are allowed to *modify* the input array instance. Returning the same array (if nothing needed to be changed) is allowed.
+
 # movement
 def offset(data: "numpy array (n, m)", offset_3d: "numpy array (3)") -> "numpy array (n, 3+)":
     """translate positions"""

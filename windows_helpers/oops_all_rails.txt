@@ -1,0 +1,2 @@
+--rails-to-singles
+--connect-singles=1
