@@ -6,13 +6,14 @@ def angle_to_xy(angles: "numpy array like") -> "numpy array like":
     rad_angles = np.radians(angles)
     return np.stack((np.cos(rad_angles), np.sin(rad_angles)), -1)
 
-
-# pattern generation
 def random_ring(count: int) -> "numpy array (n, 2)":
     """random positons along a ring of radius 1"""
-    return angle_to_xy(np.random.rand(count) * 360)
+    return angle_to_xy(np.random.random_sample((count,)) * 360)
 
+def random_xy(count: int, min: "numpy array (2)", max: "numpy array (2)") -> "numpy array (n, 2)":
+    return np.random.random_sample((count, 2)) * (max - min) + min
 
+# pattern generation
 def spiral(
     fidelity: float, length: float, start_angle: float = 0
 ) -> "numpy array (n, 2)":

@@ -11,7 +11,38 @@ def _parse_fraction(val: str) -> float:
         return float(a) / float(b)
     return float(val)
 
-def _parse_position(val: str) -> list[int]:
+def _parse_range(val: str) -> tuple[float, float]:
+    if ":" not in val:
+        return (0, _parse_fraction(val))
+    split = val.split(":")
+    if len(split) != 2:
+        raise ValueError("Must be in the form 'max' or 'min:max'")
+    try:
+        min = _parse_fraction(split[0])
+    except ValueError:
+        raise ValueError("Error parsing minimum")
+    try:
+        max = _parse_fraction(split[1])
+    except ValueError:
+        raise ValueError("Error parsing maximum")
+    return (min, max)
+
+def _parse_xy_range(val: str) -> tuple[tuple[float, float], tuple[float, float]]:
+    split = val.split(",")
+    if len(split) != 2:
+        raise ValueError("Must be in the form X_RANGE,Y_RANGE")
+    try:
+        x = _parse_range(split[0])
+    except ValueError:
+        raise ValueError("Error parsing x range")
+    try:
+        y = _parse_range(split[1])
+    except ValueError:
+        raise ValueError("Error parsing y range")
+    return np.array((x, y)).transpose()
+
+
+def _parse_position(val: str) -> tuple[float, float, float]:
     split = val.split(",")
     if len(split) != 3:
         raise ValueError("Must be in the form x,y,t")
@@ -27,7 +58,7 @@ def _parse_position(val: str) -> list[int]:
         t = _parse_fraction(split[2])
     except ValueError:
         raise ValueError("Error parsing t")
-    return [x,y,t]
+    return (x,y,t)
 
 def _movement_helper(data: synth_format.DataContainer, base_func, relative_func, pivot_func, relative: bool, pivot: list[int], *args, **kwargs) -> None:
     """pick the right function depending on relative or pivot being set"""
@@ -93,7 +124,7 @@ def get_parser():
     movement_group.add_argument("--outset", type=_parse_fraction, metavar="DISTANCE", help="Move outwards")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
-
+    movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X axis")
 
     postproc_group = parser.add_argument_group("post-processing")
     postproc_group.add_argument("--split-rails", action="store_true", help="Split rails at single notes")
@@ -168,9 +199,18 @@ def main(options):
         stacking = data.filtered(types=filter_types)
         for i in range(options.stack_count):
             do_movement(options, stacking)
-            data.merge(stacking)
+            if options.offset_random is not None:
+                tmp = stacking.filtered()  # deep copy
+                random_offset = pattern_generation.random_xy(1, options.offset_random[0], options.offset_random[1])[0]
+                tmp.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0])
+                data.merge(tmp)
+            else:
+                data.merge(stacking)
     else:
         do_movement(options, data, filter_types=filter_types)
+        if options.offset_random is not None:
+            random_offset = pattern_generation.random_xy(1, options.offset_random[0], options.offset_random[1])[0]
+            data.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0])
 
     # postprocessing
     if options.split_rails:
