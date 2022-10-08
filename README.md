@@ -46,16 +46,24 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 * Feel free to experiment with extending functionality by using the module functions directly. If you have something that you think could help other mappers, please make a PR
 
 ### Windows
+
 Installation:
 
 * Install Python 3.10 via the store: https://apps.microsoft.com/store/detail/python-310/9PJPW5LDXLZ5
-* Download the windows_helpers.zip from the releases and double-click `install.bat` to download the library and dependencies
+* Download the `windows_helpers.zip` from [the releases page](https://github.com/adosikas/synth_mapping_helper/releases)
+* Extract it somewhere
+* Double-click `install.bat` to download the library and dependencies
+
+Updating:
+
+* Optional: Download `windows_helpers.zip` again (backup your custom actions before you overwrite)
+* Run `install.bat` again
 
 Usage:
 
-* Copy the notes from the editor
+* Copy the notes from the editor with CTRL-C
 * Drag an action text file like `merge_rails.txt` or `spiralize.txt` onto `smh.bat` to execute.
-* Paste the result into the editor
+* Paste the result into the editor with CTRL-V
 
 Making your own actions:
 
