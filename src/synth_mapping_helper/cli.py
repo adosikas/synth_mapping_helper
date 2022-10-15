@@ -1,4 +1,5 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+import itertools
 from json import JSONDecodeError
 
 import numpy as np
@@ -105,8 +106,8 @@ def get_parser():
     preproc_group.add_argument("--delete-others", action="store_true", help="Delete everything that doesn't match the filter")
     preproc_group.add_argument("--connect-singles", type=_parse_fraction, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
     preproc_group.add_argument("--merge-rails", type=_parse_fraction, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
-    preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes")
-    preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", choices=synth_format.WALL_TYPES, help=f"Change the type/color of walls")
+    preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", nargs="+", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes. Specify multiple to loop over them.")
+    preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
     rail_pattern_group.add_argument("--interpolate", type=_parse_fraction, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
@@ -168,22 +169,49 @@ def main(options):
             data.apply_for_note_types(rails.merge_rails, max_interval=options.merge_rails[0], types=filter_types)
 
     if options.change_notes:
-        changed = {}
-        for t in filter_types:
-            if t in synth_format.NOTE_TYPES and t != options.change_notes:
-                changed |= getattr(data, t)
-                setattr(data, t, {})
-        # existing notes always have priority
-        changed |= getattr(data, options.change_notes)
-        setattr(data, options.change_notes, changed)
+        if len(options.change_notes) == 1:
+            # to single type: just merge all dicts
+            changed = {}
+            for t in filter_types:
+                if t in synth_format.NOTE_TYPES and t != options.change_notes[0]:
+                    changed |= getattr(data, t)
+                    setattr(data, t, {})
+            # existing notes always have priority
+            setattr(data, options.change_notes[0], changed | getattr(data, options.change_notes[0]))
+        else:
+            # to multiple types: cycle
+            outputs = {}
+            for t in options.change_notes:
+                outputs[t] = {}
+            for t in filter_types:
+                if t in synth_format.NOTE_TYPES:
+                    notes = getattr(data, t)
+                    # note: looping happens independently for each note type
+                    for time, new_type in zip(sorted(notes), itertools.cycle(options.change_notes)):
+                        nodes = notes[time]
+                        outputs[new_type][nodes[0,2]] = nodes
+                    setattr(data, t, {})  # clear existing notes
+            for t, notes in outputs.items():
+                # existing notes (that did not get changed) always have priority
+                setattr(data, t, notes | getattr(data, t))
 
     if options.change_walls:
-        new_type = synth_format.WALL_TYPES[options.change_walls][0]
-        def _change_wall_type(wall: "numpy array (1, 5)") -> "numpy array (1, 5)":
-            new_wall = wall.copy()
-            new_wall[..., 3] = new_type
-            return new_wall
-        data.apply_for_walls(_change_wall_type, types=filter_types)
+        if len(options.change_walls) == 1:
+            # to single type: just merge all arrays the same way
+            new_type = synth_format.WALL_TYPES[options.change_walls[0]][0]
+            def _change_wall_type(wall: "numpy array (1, 5)") -> "numpy array (1, 5)":
+                new_wall = wall.copy()
+                new_wall[..., 3] = new_type
+                return new_wall
+            data.apply_for_walls(_change_wall_type, types=filter_types)
+        else:
+            # to multiple types: cycle
+            generator = itertools.cycle(synth_format.WALL_TYPES[t][0] for t in options.change_walls)
+            def _change_wall_type(wall: "numpy array (1, 5)") -> "numpy array (1, 5)":
+                new_wall = wall.copy()
+                new_wall[..., 3] = next(generator)
+                return new_wall
+            data.apply_for_walls(_change_wall_type, types=filter_types)
 
     # rail patterns
     if options.interpolate:

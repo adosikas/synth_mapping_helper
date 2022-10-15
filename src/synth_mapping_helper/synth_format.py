@@ -65,7 +65,7 @@ class DataContainer:
                 continue
             notes = getattr(self, t)
             out = {}
-            for _, nodes in notes.items():
+            for _, nodes in sorted(notes.items()):
                 out_nodes = f(nodes, *args, **kwargs)
                 out[out_nodes[0, 2]] = out_nodes
             setattr(self, str(t), out)
@@ -73,7 +73,7 @@ class DataContainer:
     def apply_for_walls(self, f, *args, types: list = WALL_TYPES, **kwargs) -> None:
         wall_types = [WALL_TYPES[t][0] for t in types if t in WALL_TYPES]
         out_walls = {}
-        for time_index, wall in self.walls.items():
+        for time_index, wall in sorted(self.walls.items()):
             if wall[0, 3] in wall_types:
                 wall = f(wall, *args, **kwargs)
                 out_walls[wall[0, 2]] = wall
@@ -100,7 +100,7 @@ class DataContainer:
         wall_types = [WALL_TYPES[t][0] for t in types if t in WALL_TYPES]
         wall_dict = {
             time_index: wall
-            for time_index, wall in self.walls.items()
+            for time_index, wall in sorted(self.walls.items())
             if wall[0, 3] in wall_types
         }
         return DataContainer(self.original_json, self.bpm, *note_dicts, wall_dict)
@@ -158,10 +158,11 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
         "time": round(wall[0, 2] * 64),
         "slideType": wall_type,
         "position": pos,
-        "zRotation": wall[0, 4],  # note: crouch walls cannot be rotated, this may be ignored
-        "initialized": True, # no idea what this is for
+        "zRotation": wall[0, 4] % 360,  # note: crouch walls cannot be rotated, this will be ignored for them
+        "initialized": True,  # no idea what this is for
     }
-    if wall_type < 10:
+    # crouch, square and triangle are not in the "slides" list, each has their own list and they do not use the "slideType" key
+    if wall_type < 100:  # we gave crouch, square and triangle the types 100, 101 and 102
         dest_list = "slides"
     else:
         dest_list = WALL_LOOKUP[wall_type] + "s"

@@ -172,6 +172,8 @@ def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> SINGLE_COLOR
         if nodes.shape[0] == 1:  # ignore single nodes
             out[time] = nodes
             continue
+        if keep_rail:
+            out[nodes[0,2]] = nodes
         for node in nodes[int(keep_rail):]:  # when keeping the rail, don't overwrite the start with a single note
             out[node[2]] = node[np.newaxis]
 
