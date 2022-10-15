@@ -14,7 +14,8 @@ def _parse_fraction(val: str) -> float:
 
 def _parse_range(val: str) -> tuple[float, float]:
     if ":" not in val:
-        return (0, _parse_fraction(val))
+        v = _parse_fraction(val)
+        return (-v, v)
     split = val.split(":")
     if len(split) != 2:
         raise ValueError("Must be in the form 'max' or 'min:max'")
@@ -94,6 +95,8 @@ def get_parser():
             "Vectors are specified as 'x,y,time:'",
             "\tX/Y is measured in editor grid squares, where +x is right and +y is up",
             "\tTime is measured in measures/beats",
+            "",
+            "Also see the wiki on GitHub, which contains more detailed explainations, as well as some examples and images: https://github.com/adosikas/synth_mapping_helper/wiki",
         ])
     )
 
@@ -126,7 +129,7 @@ def get_parser():
     movement_group.add_argument("--outset", type=_parse_fraction, metavar="DISTANCE", help="Move outwards")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
-    movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X axis")
+    movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
 
     postproc_group = parser.add_argument_group("post-processing")
     postproc_group.add_argument("--split-rails", action="store_true", help="Split rails at single notes")
