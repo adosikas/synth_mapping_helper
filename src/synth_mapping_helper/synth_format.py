@@ -231,8 +231,8 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
             last = wall[0, 2]
         dest_list, wall_dict = wall_to_synth(data.bpm, wall)
         clipboard[dest_list].append(wall_dict)
-    
-    if not realign_start:
+
+    if realign_start:
         # position of selection start in beats*64 
         clipboard["startMeasure"] = round(first * 64)
         # position of selection start in ms
@@ -240,8 +240,8 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
         # length of the selection in milliseconds
         # and yes, the editor has a typo, so we need to missspell it too
         clipboard["lenght"] = last * MS_PER_MIN / data.bpm
-    else:
-        clipboard["lenght"] = (last - first) * MS_PER_MIN / data.bpm
+    # always update length
+    clipboard["lenght"] = (last - first) * MS_PER_MIN / data.bpm
 
     pyperclip.copy(json.dumps(clipboard))
 
