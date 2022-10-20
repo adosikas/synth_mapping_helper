@@ -6,6 +6,13 @@ from .synth_format import DataContainer, SINGLE_COLOR_NOTES
 MERGE_ACCURACY_GRID = 1 / 8
 MERGE_ACCURACY_BEAT = 1 / 64
 
+def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)") -> "numpy array (x, 3)":
+    return np.stack((
+        np.interp(new_z, data[:, 2], data[:, 0]),
+        np.interp(new_z, data[:, 2], data[:, 1]),
+        new_z,
+    ), axis=-1)
+
 # Note: None of these functions are allowed to *modify* the input dict instance. Returning the same dict (if nothing needed to be changed) is allowed.
 
 def split_rails(notes: SINGLE_COLOR_NOTES) -> SINGLE_COLOR_NOTES:
@@ -159,9 +166,7 @@ def interpolate_nodes_linear(
     if not np.isclose(new_z[-1], data[-1, 2]):
         new_z = np.append(new_z, [data[-1, 2]])
 
-    new_x = np.interp(new_z, data[:, 2], data[:, 0])
-    new_y = np.interp(new_z, data[:, 2], data[:, 1])
-    return np.stack((new_x, new_y, new_z), -1)
+    return interpolate_linear(data, new_z)
 
 
 def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> SINGLE_COLOR_NOTES:
@@ -178,3 +183,18 @@ def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> SINGLE_COLOR
             out[node[2]] = node[np.newaxis]
 
     return out
+
+def shorten_rail(
+    data: "numpy array (n, 3)", distance: float
+) -> "numpy array (n, 3)":
+    """Cut a bit of the end or start of the rail"""
+    if data.shape[0] == 1:  # ignore single nodes
+        return data
+    if distance > 0:  # cut at the end
+        new_z = data[-1,2] - distance
+        last_index = np.argwhere(data[:, 2] < new_z)[-1][0]  # last node before new end
+        return np.concatenate((data[:last_index+1], interpolate_linear(data, [new_z])))
+    else:  # cut at the start
+        new_z = data[0,2] - distance  # distance is negative to minus is correct here
+        first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
+        return np.concatenate((interpolate_linear(data, [new_z]), data[first_index:]))

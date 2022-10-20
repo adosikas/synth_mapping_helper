@@ -114,6 +114,7 @@ def get_parser():
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
     rail_pattern_group.add_argument("--interpolate", type=_parse_fraction, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    rail_pattern_group.add_argument("--shorten-rails", type=_parse_fraction, metavar="DISTANCE", help="Cut some distance from every rail, interpolating linearly. Supports fractions. When negative, cuts from the start instead of the end")
     rail_pattern_group.add_argument("--start-angle", type=_parse_fraction, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
     rail_pattern_group.add_argument("--radius", type=_parse_fraction, default=1.0, help="Radius of spiral or length of spikes")
     rail_pattern_group.add_argument("--spiral", type=_parse_fraction, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
@@ -219,6 +220,8 @@ def main(options):
     # rail patterns
     if options.interpolate:
         data.apply_for_notes(rails.interpolate_nodes_linear, options.interpolate, types=filter_types)
+    if options.shorten_rails:
+        data.apply_for_notes(rails.shorten_rail, options.shorten_rails, types=filter_types)
     if options.spiral:
         if (1 / options.spiral) % 1 == 0:
             abort("Chosen spiral factor divides 1 and would result in a straight rail. Refusing action!")
