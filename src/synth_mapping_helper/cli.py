@@ -1,10 +1,11 @@
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import itertools
 from json import JSONDecodeError
+from pathlib import Path
 
 import numpy as np
 
-from . import synth_format, rails, pattern_generation, movement
+from . import synth_format, rails, pattern_generation, movement, __version__
 
 def _parse_fraction(val: str) -> float:
     if "/" in val:
@@ -84,6 +85,7 @@ def do_movement(options, data: synth_format.DataContainer, filter_types: list = 
 def get_parser():
     parser = ArgumentParser(
         formatter_class=RawDescriptionHelpFormatter,
+        prog=f"python3 -m {__package__}.{Path(__file__).stem}",
         description='\n'.join([
             f"Note types:\n\t{', '.join(synth_format.NOTE_TYPES)}",
             f"Wall types:\n\t{', '.join(synth_format.WALL_TYPES)}",
@@ -97,7 +99,8 @@ def get_parser():
             "\tTime is measured in measures/beats",
             "",
             "Also see the wiki on GitHub, which contains more detailed explainations, as well as some examples and images: https://github.com/adosikas/synth_mapping_helper/wiki",
-        ])
+        ]),
+        epilog=f"Version: {__version__}",
     )
 
     parser.add_argument("--use-original", action="store_true", help="When calling this multiple times, start over with orignal copied json")
