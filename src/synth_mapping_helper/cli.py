@@ -7,25 +7,27 @@ import numpy as np
 
 from . import synth_format, rails, pattern_generation, movement, __version__
 
-def _parse_fraction(val: str) -> float:
+def _parse_number(val: str) -> float:
     if "/" in val:
         a, b = val.split("/",1)
         return float(a) / float(b)
+    elif val.endswith("%"):
+        return float(val[:-1]) / 100
     return float(val)
 
 def _parse_range(val: str) -> tuple[float, float]:
     if ":" not in val:
-        v = _parse_fraction(val)
+        v = _parse_number(val)
         return (-v, v)
     split = val.split(":")
     if len(split) != 2:
         raise ValueError("Must be in the form 'max' or 'min:max'")
     try:
-        min = _parse_fraction(split[0])
+        min = _parse_number(split[0])
     except ValueError:
         raise ValueError("Error parsing minimum")
     try:
-        max = _parse_fraction(split[1])
+        max = _parse_number(split[1])
     except ValueError:
         raise ValueError("Error parsing maximum")
     return (min, max)
@@ -50,15 +52,15 @@ def _parse_position(val: str) -> tuple[float, float, float]:
     if len(split) != 3:
         raise ValueError("Must be in the form x,y,t")
     try:
-        x = _parse_fraction(split[0])
+        x = _parse_number(split[0])
     except ValueError:
         raise ValueError("Error parsing x")
     try:
-        y = _parse_fraction(split[1])
+        y = _parse_number(split[1])
     except ValueError:
         raise ValueError("Error parsing y")
     try:
-        t = _parse_fraction(split[2])
+        t = _parse_number(split[2])
     except ValueError:
         raise ValueError("Error parsing t")
     return (x,y,t)
@@ -90,13 +92,13 @@ def get_parser():
             f"Note types:\n\t{', '.join(synth_format.NOTE_TYPES)}",
             f"Wall types:\n\t{', '.join(synth_format.WALL_TYPES)}",
             "",
-            "Most number values accept both numbers and fractions (ie '0.25' or '1/4')",
+            "Most number values accept decimals, percentages and fractions (ie '0.25',  '25%' or '1/4')",
             "If your value starts with a '-', you must add a = between option and value, ie '--rotate=-45' or '--offset=-1,0,0'",
             "",
             "Angles are in degrees",
             "Vectors are specified as 'x,y,time:'",
             "\tX/Y is measured in editor grid squares, where +x is right and +y is up",
-            "\tTime is measured in measures/beats",
+            "\tTime is measured in measures/beats from the start of the selection",
             "",
             "Also see the wiki on GitHub, which contains more detailed explainations, as well as some examples and images: https://github.com/adosikas/synth_mapping_helper/wiki",
         ]),
@@ -108,29 +110,29 @@ def get_parser():
     parser.add_argument("--invert-filter", action="store_true", help="Invert filter so everything *but* the filter is affected")
 
     preproc_group = parser.add_argument_group("pre-processing")
-    preproc_group.add_argument("-b", "--bpm", type=_parse_fraction, help="Change BPM without changing timing")
+    preproc_group.add_argument("-b", "--bpm", type=_parse_number, help="Change BPM without changing timing")
     preproc_group.add_argument("--delete-others", action="store_true", help="Delete everything that doesn't match the filter")
-    preproc_group.add_argument("--connect-singles", type=_parse_fraction, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
-    preproc_group.add_argument("--merge-rails", type=_parse_fraction, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
+    preproc_group.add_argument("--connect-singles", type=_parse_number, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
+    preproc_group.add_argument("--merge-rails", type=_parse_number, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
     preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", nargs="+", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes. Specify multiple to loop over them.")
     preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
-    rail_pattern_group.add_argument("--interpolate", type=_parse_fraction, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
-    rail_pattern_group.add_argument("--shorten-rails", type=_parse_fraction, metavar="DISTANCE", help="Cut some distance from every rail, interpolating linearly. Supports fractions. When negative, cuts from the start instead of the end")
-    rail_pattern_group.add_argument("--start-angle", type=_parse_fraction, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
-    rail_pattern_group.add_argument("--radius", type=_parse_fraction, default=1.0, help="Radius of spiral or length of spikes")
-    rail_pattern_group.add_argument("--spiral", type=_parse_fraction, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
-    rail_pattern_group.add_argument("--spikes", type=_parse_fraction, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
-    rail_pattern_group.add_argument("--spike-width", type=_parse_fraction, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
+    rail_pattern_group.add_argument("--interpolate", type=_parse_number, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    rail_pattern_group.add_argument("--shorten-rails", type=_parse_number, metavar="DISTANCE", help="Cut some distance from every rail, interpolating linearly. Supports fractions. When negative, cuts from the start instead of the end")
+    rail_pattern_group.add_argument("--start-angle", type=_parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
+    rail_pattern_group.add_argument("--radius", type=_parse_number, default=1.0, help="Radius of spiral or length of spikes")
+    rail_pattern_group.add_argument("--spiral", type=_parse_number, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
+    rail_pattern_group.add_argument("--spikes", type=_parse_number, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
+    rail_pattern_group.add_argument("--spike-width", type=_parse_number, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
 
     movement_group = parser.add_argument_group("movement", description="Operation order is always: scale, rotate, offset, outset")
     movement_group.add_argument("-p", "--pivot", type=_parse_position, help="Pivot for outset, scale and rotate as x,y,t")
     movement_group.add_argument("--relative", action="store_true", help="Use first node of rails as pivot for scale/rotate")
-    movement_group.add_argument("-s", "--scale", type=_parse_position, help="Scale positions by x,y,t. Use negative values to mirror across axis. Does NOT change the size of walls")
-    movement_group.add_argument("-r", "--rotate", type=_parse_fraction, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
+    movement_group.add_argument("-s", "--scale", type=_parse_position, help="Scale positions by x,y,t. Use negative values to mirror across axis. Does NOT change the size of walls. Time-Scale of 2 means twice as long, not twice as fast.")
+    movement_group.add_argument("-r", "--rotate", type=_parse_number, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
     movement_group.add_argument("-o", "--offset", type=_parse_position, help="Move/Translate by x,y,t")
-    movement_group.add_argument("--outset", type=_parse_fraction, metavar="DISTANCE", help="Move outwards")
+    movement_group.add_argument("--outset", type=_parse_number, metavar="DISTANCE", help="Move outwards")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
     movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
