@@ -13,6 +13,27 @@ def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)") -> 
         new_z,
     ), axis=-1)
 
+def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bool = True) -> "numpy array (2)":
+    # single note
+    if beat in notes:
+        return notes[beat][0, 0:2].copy()
+    last_before = None
+    # on rail, or between notes: interpolate
+    for time in sorted(notes):
+        nodes = notes[time]
+        if time > beat:  # passed by target beat: interpolate between last and this
+            if interpolate_gaps and last_before is not None:
+                return interpolate_linear(np.concatenate((last_before, nodes)), beat)[0:2]
+            break
+        last_before = nodes
+        if nodes.shape[0] == 1:  # ignore single nodes
+            continue
+        if nodes[0, 2] < beat:  # on rail: interpolate between nodes
+            return interpolate_linear(nodes, beat)[0:2]
+
+    # neither
+    return None
+
 # Note: None of these functions are allowed to *modify* the input dict instance. Returning the same dict (if nothing needed to be changed) is allowed.
 
 def split_rails(notes: SINGLE_COLOR_NOTES) -> SINGLE_COLOR_NOTES:

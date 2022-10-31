@@ -9,26 +9,26 @@ def offset(data: "numpy array (n, m)", offset_3d: "numpy array (3)") -> "numpy a
     offset_nd[...,:3] = offset_3d
     return data + offset_nd
 
-def outset(data: "numpy array (n, m)", outset: float) -> "numpy array (n, 3+)":
+def outset(data: "numpy array (n, m)", outset_scalar: float) -> "numpy array (n, 3+)":
     """move positions outwards"""
     angles = np.arctan2(data[..., 1], data[..., 0])
     normalized = np.zeros(data.shape)
     normalized[..., 0] = np.cos(angles)
     normalized[..., 1] = np.sin(angles)
-    return data + normalized * outset
+    return data + normalized * outset_scalar
 
-def outset_from(data: "numpy array (n, m)", outset: float, pivot_3d: "numpy array (3)") -> "numpy array (n, 3+)":
+def outset_from(data: "numpy array (n, m)", outset_scalar: float, pivot_3d: "numpy array (3)") -> "numpy array (n, 3+)":
     """move positions away from pivot"""
     pivot_nd = np.zeros((data.shape[-1]))
     pivot_nd[...,:3] = pivot_3d
-    return outset(data - pivot_nd) + pivot_nd
+    return outset(data - pivot_nd, outset_scalar) + pivot_nd
 
-def outset_relative(data: "numpy array (n, m)", outset: float) -> "numpy array (n, 3+)":
+def outset_relative(data: "numpy array (n, m)", outset_scalar: float) -> "numpy array (n, 3+)":
     """move positions away from pivot"""
     if data.shape[0] == 1:
         # no effect on single notes / walls
         return data
-    return outset(data - data[0]) + data[0]
+    return outset(data - data[0], outset_scalar) + data[0]
 
 
 def scale(data: "numpy array (n, 3+)", scale_3d: "numpy array (3)") -> "numpy array (n, 3+)":

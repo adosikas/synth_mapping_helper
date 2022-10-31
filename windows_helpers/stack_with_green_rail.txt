@@ -1,0 +1,1 @@
+--filter=single --invert-filter --offset=0,0,1/4 --stack-count=4 --rotate-with=single

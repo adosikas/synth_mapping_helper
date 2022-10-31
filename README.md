@@ -18,6 +18,7 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 * Pattern generation
     * Spirals/Zigzags
     * Spike/Buzz-Rails
+    * Stack along rails
 * Rail manipulation
     * Merging
     * Splitting

@@ -29,14 +29,14 @@ WALL_TYPES = {
     # index 0-4 are the same "slideType" used in the JSON in the "slides" list
     "wall_right": (0, [4, -2]),
     "wall_left": (1, [-4, -2]),
-    "angle_right": (2, [2, -2]),
+    "angle_right": (2, [2.5, -2.2]),
     "center": (3, [0, -1.3]),
-    "angle_left": (4, [-2, -2]),
+    "angle_left": (4, [-2.5, -2.2]),
     # 5-99: placeholder for future slide types
     # Since there can be only be one wall anyway, just treat these three the same
     "crouch": (100, [0, 7.5]),
     "square": (101, [0, -2]),
-    "triangle": (102, [0, -4.3]),
+    "triangle": (102, [0, -4.7]),
 }
 WALL_LOOKUP = {id: name for name, (id, _) in WALL_TYPES.items()}
 WALL_OFFSETS = {id: np.array(offset + [0]) for _, (id, offset) in WALL_TYPES.items()}

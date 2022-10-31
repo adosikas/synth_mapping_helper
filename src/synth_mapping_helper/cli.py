@@ -69,8 +69,8 @@ def _movement_helper(data: synth_format.DataContainer, base_func, relative_func,
     """pick the right function depending on relative or pivot being set"""
     if relative:
         data.apply_for_all(relative_func, *args, **kwargs)
-    elif pivot:
-        data.apply_for_all(pivot_func, *args, pivot=pivot, **kwargs)
+    elif pivot is not None:
+        data.apply_for_all(pivot_func, *args, pivot_3d=pivot, **kwargs)
     else:
         data.apply_for_all(base_func, *args, **kwargs)
 
@@ -133,9 +133,11 @@ def get_parser():
     movement_group.add_argument("-r", "--rotate", type=_parse_number, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
     movement_group.add_argument("-o", "--offset", type=_parse_position, help="Move/Translate by x,y,t")
     movement_group.add_argument("--outset", type=_parse_number, metavar="DISTANCE", help="Move outwards")
+    movement_group.add_argument("--offset-along", choices=synth_format.NOTE_TYPES, help="Offset objects to follow notes and rails of the specified color")
+    movement_group.add_argument("--rotate-with", choices=synth_format.NOTE_TYPES, help="Rotate and outset the objects to follow notes and rails of the specified color")
+    movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
-    movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
 
     postproc_group = parser.add_argument_group("post-processing")
     postproc_group.add_argument("--split-rails", action="store_true", help="Split rails at single notes")
@@ -249,20 +251,80 @@ def main(options):
         if not options.offset or options.offset[2] == 0:
             abort("Cannot stack with time offset of 0")
         stacking = data.filtered(types=filter_types)
+        if options.offset_along or options.rotate_with:
+            if options.offset_along and options.rotate_with:
+                abort("Cannot use offset-along and rotate-with at the same time")
+            if options.relative:
+                abort("Cannot use offset-along or rotate-with in relative mode")
+            start_pos = rails.get_position_at(getattr(data, options.offset_along or options.rotate_with), 0)
+            if start_pos is None:
+                abort(f"No start position of {options.offset_along or options.rotate_with} notes found")
+            if options.pivot is not None:
+                start_pos -= options.pivot[:2]
         for i in range(options.stack_count):
             do_movement(options, stacking)
+            tmp = stacking.filtered()  # deep copy
+            if options.offset_along:
+                cur_pos = rails.get_position_at(getattr(data, options.offset_along), (i+1) * options.offset[2])
+                if cur_pos is None:
+                    abort(f"No intermediate position of {options.offset_along} notes found at {(i+1) * options.offset[2]}")
+                delta = cur_pos - start_pos
+                tmp.apply_for_all(movement.offset, [delta[0], delta[1], 0])
+            if options.rotate_with:
+                cur_pos = rails.get_position_at(getattr(data, options.rotate_with), (i+1) * options.offset[2])
+                if cur_pos is None:
+                    abort(f"No intermediate position of {options.rotate_with} notes found at {(i+1) * options.offset[2]}")
+                if options.pivot is not None:
+                    cur_pos -= options.pivot[:2]
+                angle_diff = np.degrees(np.arctan2(start_pos[0], start_pos[1])) - np.degrees(np.arctan2(cur_pos[0], cur_pos[1]))
+                distance_diff = np.sqrt(cur_pos.dot(cur_pos)) - np.sqrt(start_pos.dot(start_pos))
+                # outset all objects together by precalculating the offset based on rail position
+                group_outset = [cur_pos[0], cur_pos[1], 0] / np.sqrt(cur_pos.dot(cur_pos)) * distance_diff
+                if options.pivot is not None:
+                    tmp.apply_for_all(movement.rotate_around, angle_diff, pivot_3d=options.pivot)
+                else:
+                    tmp.apply_for_all(movement.rotate, angle_diff)
+                tmp.apply_for_all(movement.offset, group_outset)
             if options.offset_random is not None:
-                tmp = stacking.filtered()  # deep copy
                 random_offset = pattern_generation.random_xy(1, options.offset_random[0], options.offset_random[1])[0]
                 tmp.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0])
-                data.merge(tmp)
-            else:
-                data.merge(stacking)
+            data.merge(tmp)
     else:
+        if options.offset_along or options.rotate_with:
+            if options.offset_along and options.rotate_with:
+                abort("Cannot use offset-along and rotate-with at the same time")
+            start_pos = rails.get_position_at(getattr(data, options.offset_along or options.rotate_with), 0)
+            if start_pos is None:
+                abort(f"No start position of {options.offset_along or options.rotate_with} notes found")
+            if options.pivot is not None:
+                start_pos -= options.pivot[:2]
         do_movement(options, data, filter_types=filter_types)
+        if options.offset_along:
+            cur_pos = rails.get_position_at(getattr(data, options.offset_along), options.offset[2])
+            if cur_pos is None:
+                abort(f"No intermediate position of {options.offset_along} notes found at {options.offset[2]}")
+            if options.relative:
+                abort("Cannot use offset-along or rotate-with in relative mode")
+            delta = cur_pos - start_pos
+            data.apply_for_all(movement.offset, [delta[0], delta[1], 0], types=filter_types)
+        if options.rotate_with:
+            cur_pos = rails.get_position_at(getattr(data, options.rotate_with), options.offset[2])
+            if cur_pos is None:
+                abort(f"No intermediate position of {options.rotate_with} notes found at {options.offset[2]}")
+            if options.pivot is not None:
+                cur_pos -= options.pivot[:2]
+            angle_diff = np.degrees(np.arctan2(start_pos[0], start_pos[1])) - np.degrees(np.arctan2(cur_pos[0], cur_pos[1]))
+            distance_diff = np.sqrt(cur_pos.dot(cur_pos)) - np.sqrt(start_pos.dot(start_pos))
+            # outset all objects together by precalculating the offset based on rail position
+            group_outset = [cur_pos[0], cur_pos[1], 0] / np.sqrt(cur_pos.dot(cur_pos)) * distance_diff
+            if options.pivot is not None:
+                data.apply_for_all(movement.rotate_around, angle_diff, pivot_3d=options.pivot, types=filter_types)
+            else:
+                data.apply_for_all(movement.rotate, angle_diff, types=filter_types)
+            data.apply_for_all(movement.offset, group_outset, types=filter_types)
         if options.offset_random is not None:
             random_offset = pattern_generation.random_xy(1, options.offset_random[0], options.offset_random[1])[0]
-            data.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0])
+            data.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0], types=filter_types)
 
     # postprocessing
     if options.split_rails:
