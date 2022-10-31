@@ -1,1 +1,2 @@
+# stack the selection 30 times by 15 degrees and moving 0.1 grid squares outwards
 --rotate=15 -o=0,0,1/4 --outset=0.1 --stack-count=30

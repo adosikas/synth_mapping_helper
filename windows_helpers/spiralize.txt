@@ -1,1 +1,2 @@
+# turn a rail into a spiral around the original path, with one rotation per beat and starting top/right
 --interpolate=1/8 --spiral=8 --radius=2 --start-angle=45

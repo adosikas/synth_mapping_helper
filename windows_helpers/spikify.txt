@@ -1,1 +1,2 @@
+# add up-down spikes every 1/4 beat to a rail
 --interpolate=1/4 --spikes=2 --radius=2 --start-angle=90

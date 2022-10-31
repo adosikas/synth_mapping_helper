@@ -1,1 +1,2 @@
+# convert the current selection to 120 bpm
 --bpm=120

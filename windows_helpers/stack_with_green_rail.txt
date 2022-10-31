@@ -1,1 +1,2 @@
+# stack the selection 4 times with 1/4 spacing, rotating with a green (single handed special) rail
 --filter=single --invert-filter --offset=0,0,1/4 --stack-count=4 --rotate-with=single

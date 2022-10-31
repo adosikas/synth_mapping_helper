@@ -27,14 +27,14 @@ NOTE_TYPES = ("right", "left", "single", "both")
 WALL_TYPES = {
     # name: (index, center_offset)
     # index 0-4 are the same "slideType" used in the JSON in the "slides" list
-    "wall_right": (0, [4, -2]),
-    "wall_left": (1, [-4, -2]),
+    "wall_right": (0, [4.05, -1.85]),
+    "wall_left": (1, [-3.95, -1.85]),
     "angle_right": (2, [2.5, -2.2]),
     "center": (3, [0, -1.3]),
     "angle_left": (4, [-2.5, -2.2]),
     # 5-99: placeholder for future slide types
     # Since there can be only be one wall anyway, just treat these three the same
-    "crouch": (100, [0, 7.5]),
+    "crouch": (100, [0.1, 7.5]),
     "square": (101, [0, -2]),
     "triangle": (102, [0, -4.7]),
 }
@@ -116,7 +116,7 @@ class DataContainer:
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float]) -> "numpy array (3)":
     return np.array([
         (coord[0] - X_OFFSET) / GRID_SCALE,
-        (coord[1]-Y_OFFSET) / GRID_SCALE,
+        (coord[1] - Y_OFFSET) / GRID_SCALE,
         # convert absolute coordinate to number of beats since start
         round((coord[2] * bpm / BPM_DIVISOR) * 64 - startMeasure) / 64,
     ])

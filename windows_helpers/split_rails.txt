@@ -1,1 +1,2 @@
+# split rails at single notes of matching color
 --split-rails

@@ -1,2 +1,3 @@
+# convert everything that is no more than 1 beat apart to a single rail 
 --rails-to-singles
 --connect-singles=1

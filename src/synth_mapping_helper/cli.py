@@ -7,6 +7,12 @@ import numpy as np
 
 from . import synth_format, rails, pattern_generation, movement, __version__
 
+_filter_groups = {
+    "notes": synth_format.NOTE_TYPES,
+    "walls": list(synth_format.WALL_TYPES),
+    "slides": [name for name, (id, _) in synth_format.WALL_TYPES.items() if id < 100],
+}
+
 def _parse_number(val: str) -> float:
     if "/" in val:
         a, b = val.split("/",1)
@@ -106,7 +112,7 @@ def get_parser():
     )
 
     parser.add_argument("--use-original", action="store_true", help="When calling this multiple times, start over with orignal copied json")
-    parser.add_argument("-f", "--filter-types", nargs="+", metavar="FILTER_TYPE", choices=synth_format.ALL_TYPES, default=synth_format.ALL_TYPES, help=f"Only affect notes and walls of these types. Multiple types can be specified seperated by spaces, defaults to all")
+    parser.add_argument("-f", "--filter-types", nargs="+", metavar="FILTER_TYPE", choices=synth_format.ALL_TYPES + tuple(_filter_groups), default=synth_format.ALL_TYPES, help=f"Only affect notes and walls of these types. Multiple types can be specified seperated by spaces, defaults to all")
     parser.add_argument("--invert-filter", action="store_true", help="Invert filter so everything *but* the filter is affected")
 
     preproc_group = parser.add_argument_group("pre-processing")
@@ -151,6 +157,14 @@ def abort(reason: str):
     exit(1)
 
 def main(options):
+    if any(name in options.filter_types for name in _filter_groups):
+        out_filters = []
+        for inp in options.filter_types:
+            if inp in _filter_groups:
+                out_filters.extend(_filter_groups[inp])
+            else:
+                out_filters.append(inp)
+        options.filter_types = out_filters
     if not options.invert_filter:
         # only have each entry once
         filter_types = list(set(options.filter_types))

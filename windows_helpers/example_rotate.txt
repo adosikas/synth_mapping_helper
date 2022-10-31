@@ -1,1 +1,2 @@
+# rotate 45 degreens counterclockwise around -1,1
 --rotate=45 --pivot=-1,1,0
