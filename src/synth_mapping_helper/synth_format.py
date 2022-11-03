@@ -5,8 +5,8 @@ import json
 import numpy as np
 import pyperclip
 
-# For simplicity, we exclusively use grid coordinates and use measures for time / z
-# These values are only need to convert to / from the format the game uses
+# For simplicity, we exclusively use grid coordinates (x, y) and use measures for time (z)
+# These values are only needed to convert to / from the format the game uses
 
 INDEX_SCALE = 64  # index = measure * INDEX_SCALE
 GRID_SCALE = 0.1365  # xy_coord = xy_grid * GRID_SCALE
@@ -33,7 +33,7 @@ WALL_TYPES = {
     "center": (3, [0, -1.3]),
     "angle_left": (4, [-2.5, -2.2]),
     # 5-99: placeholder for future slide types
-    # Since there can be only be one wall anyway, just treat these three the same
+    # Since there can be only be one wall anyway, just treat these three the same as slides
     "crouch": (100, [0.1, 7.5]),
     "square": (101, [0, -2]),
     "triangle": (102, [0, -4.7]),

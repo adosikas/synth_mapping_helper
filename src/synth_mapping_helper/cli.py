@@ -128,19 +128,23 @@ def get_parser():
     rail_pattern_group.add_argument("--shorten-rails", type=_parse_number, metavar="DISTANCE", help="Cut some distance from every rail, interpolating linearly. Supports fractions. When negative, cuts from the start instead of the end")
     rail_pattern_group.add_argument("--start-angle", type=_parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
     rail_pattern_group.add_argument("--radius", type=_parse_number, default=1.0, help="Radius of spiral or length of spikes")
-    rail_pattern_group.add_argument("--spiral", type=_parse_number, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
-    rail_pattern_group.add_argument("--spikes", type=_parse_number, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
+    rail_op_group = movement_group.add_mutually_exclusive_group()
+    rail_op_group.add_argument("--spiral", type=_parse_number, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
+    rail_op_group.add_argument("--spikes", type=_parse_number, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
     rail_pattern_group.add_argument("--spike-width", type=_parse_number, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
 
     movement_group = parser.add_argument_group("movement", description="Operation order is always: scale, rotate, offset, outset")
-    movement_group.add_argument("-p", "--pivot", type=_parse_position, help="Pivot for outset, scale and rotate as x,y,t")
-    movement_group.add_argument("--relative", action="store_true", help="Use first node of rails as pivot for scale/rotate")
+    pivot_group = movement_group.add_mutually_exclusive_group()
+    pivot_group.add_argument("-p", "--pivot", type=_parse_position, help="Pivot for outset, scale and rotate as x,y,t")
+    pivot_group.add_argument("--note-pivot", choices=synth_format.NOTE_TYPES, help="Use position of first matching note as pivot (determined before any operations)")
+    pivot_group.add_argument("--relative", action="store_true", help="Use first node of rails as pivot for scale/rotate")
     movement_group.add_argument("-s", "--scale", type=_parse_position, help="Scale positions by x,y,t. Use negative values to mirror across axis. Does NOT change the size of walls. Time-Scale of 2 means twice as long, not twice as fast.")
     movement_group.add_argument("-r", "--rotate", type=_parse_number, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
     movement_group.add_argument("-o", "--offset", type=_parse_position, help="Move/Translate by x,y,t")
     movement_group.add_argument("--outset", type=_parse_number, metavar="DISTANCE", help="Move outwards")
-    movement_group.add_argument("--offset-along", choices=synth_format.NOTE_TYPES, help="Offset objects to follow notes and rails of the specified color")
-    movement_group.add_argument("--rotate-with", choices=synth_format.NOTE_TYPES, help="Rotate and outset the objects to follow notes and rails of the specified color")
+    rail_stack_group = movement_group.add_mutually_exclusive_group()
+    rail_stack_group.add_argument("--offset-along", choices=synth_format.NOTE_TYPES, help="Offset objects to follow notes and rails of the specified color")
+    rail_stack_group.add_argument("--rotate-with", choices=synth_format.NOTE_TYPES, help="Rotate and outset the objects to follow notes and rails of the specified color")
     movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
@@ -157,6 +161,12 @@ def abort(reason: str):
     exit(1)
 
 def main(options):
+    try:
+        data = synth_format.import_clipboard(options.use_original)
+    except (JSONDecodeError, KeyError) as err:
+        abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
+
+    # argument post-parsing
     if any(name in options.filter_types for name in _filter_groups):
         out_filters = []
         for inp in options.filter_types:
@@ -173,10 +183,11 @@ def main(options):
             t for t in synth_format.ALL_TYPES
             if t not in options.filter_types
         )
-    try:
-        data = synth_format.import_clipboard(options.use_original)
-    except (JSONDecodeError, KeyError) as err:
-        abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
+    if options.note_pivot:
+        notes = getattr(data, options.note_pivot)
+        if not notes:
+            abort(f"Could not find any {options.note_pivot} notes")
+        options.pivot = notes[sorted(notes)[0]][:3]
 
     # preprocessing
     if options.bpm:
