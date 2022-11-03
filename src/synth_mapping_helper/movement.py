@@ -3,12 +3,28 @@ import numpy as np
 # Note: None of these functions are allowed to *modify* the input array instance. Returning the same array (if nothing needed to be changed) is allowed.
 
 # movement
-def offset(data: "numpy array (n, m)", offset_3d: "numpy array (3)") -> "numpy array (n, 3+)":
+def offset(data: "numpy array (n, m)", offset_3d: "numpy array (3)", pivot_3d: None = None) -> "numpy array (n, 3+)":
     """translate positions"""
+    # pivot is ignored, but exists so this can be used as pivot func aswell
     offset_nd = np.zeros((data.shape[-1]))
     offset_nd[...,:3] = offset_3d
     return data + offset_nd
 
+def offset_relative(data: "numpy array (n, m)", offset_3d: "numpy array (3)") -> "numpy array (n, 3+)":
+    """translate positions, use relative coordinates for walls"""
+    if data.shape[-1] == 3:
+        return offset(data, offset_3d)
+    # calculate rot matrix for angle of every wall
+    rad_ang = np.radians(np.atleast_1d(data[:, 4]))
+    rot_matrix = np.rollaxis(np.array((
+        (np.cos(rad_ang), np.sin(rad_ang)),
+        (-np.sin(rad_ang), np.cos(rad_ang)),
+    )), -1)
+    offset_nd = np.zeros((data.shape[-1]))
+    offset_nd[...,:2] = np.array(offset_3d[:2]).dot(rot_matrix)  # offset is rotated for each wall
+    offset_nd[...,2] = offset_3d[2]  # t stays as-is
+    return data + offset_nd
+    
 def outset(data: "numpy array (n, m)", outset_scalar: float) -> "numpy array (n, 3+)":
     """move positions outwards"""
     angles = np.arctan2(data[..., 1], data[..., 0])
