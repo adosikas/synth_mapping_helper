@@ -25,6 +25,10 @@ jobs:
         with:
           artifacts: "windows_helpers.zip"
           allowUpdates: true
+          omitBodyDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish
         env:

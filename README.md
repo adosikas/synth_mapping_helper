@@ -4,11 +4,13 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 
 ## Features
 
+For more info on each feature, check out [the wiki](https://github.com/adosikas/synth_mapping_helper/wiki) 
+
 * Filter by note and wall types for all operations
 * Changing type of notes and walls
   * Can cycle between multiple colors to make "rainbows" or alternate between single hand specials and regular notes
 * Change BPM indepenent of note timing (helpful if you have a map with different BPM sections)
-* Movement in XY and Time ([wiki page](https://github.com/adosikas/synth_mapping_helper/wiki/Movement-options)):  
+* Movement in XY and Time:  
     Note: All operation can be done in regards to grid center, a pivot point, or the start of rails
     * Rotate
     * Scale and mirror
@@ -34,10 +36,12 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
     * Notes/Rails seperated by color and as `n x 3` numpy-arrays (x, y, time)
     * Walls as `1 x 5` numpy-arrays (x, y, time, type, rotation)
     * Walls positions are adjusted to match their rotation center
+* [Script to "finalize" maps](https://github.com/adosikas/synth_mapping_helper/wiki/Finalizing):
+    * Offset walls so they appear ingame as they do in the editor
+    * Can plot hand velocity and acceleration
 
 ### Maybe
 * GUI
-* Momentum analysis
 * Automatic smoothing
 
 ## How to Install and use

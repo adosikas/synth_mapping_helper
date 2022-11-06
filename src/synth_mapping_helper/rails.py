@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.interpolate import pchip_interpolate
 
 from .synth_format import DataContainer, SINGLE_COLOR_NOTES
 
@@ -13,6 +14,15 @@ def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)") -> 
         new_z,
     ), axis=-1)
 
+def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)") -> "numpy array (x, 3)":
+    # add points in straight line from start and end to match shape more closely
+    padded_data = np.concatenate(([2*data[0]-data[1]], data, [2*data[-1]-data[-2]]))
+    return np.stack((
+        pchip_interpolate(padded_data[:, 2], padded_data[:, 0], new_z),
+        pchip_interpolate(padded_data[:, 2], padded_data[:, 1], new_z),
+        new_z,
+    ), axis=-1)[1:-1]
+
 def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bool = True) -> "numpy array (2)":
     # single note
     if beat in notes:
@@ -23,13 +33,13 @@ def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bo
         nodes = notes[time]
         if time > beat:  # passed by target beat: interpolate between last and this
             if interpolate_gaps and last_before is not None:
-                return interpolate_linear(np.concatenate((last_before, nodes)), beat)[0:2]
+                return interpolate_spline(np.concatenate((last_before, nodes)), beat)[0:2]
             break
         last_before = nodes
         if nodes.shape[0] == 1:  # ignore single nodes
             continue
         if nodes[0, 2] < beat:  # on rail: interpolate between nodes
-            return interpolate_linear(nodes, beat)[0:2]
+            return interpolate_spline(nodes, beat)[0:2]
 
     # neither
     return None
@@ -176,10 +186,10 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float) -> SINGLE_CO
 
     return out
 
-def interpolate_nodes_linear(
-    data: "numpy array (n, 3)", interval: float
+def interpolate_nodes(
+    data: "numpy array (n, 3)", mode: "'spline' or 'linear'", interval: float
 ) -> "numpy array (n, 3)":
-    """places nodes at defined interval along the rail, interpolating linearly between existing nodes"""
+    """places nodes at defined interval along the rail, interpolating between existing nodes"""
     if data.shape[0] == 1:  # ignore single nodes
         return data
     new_z = np.arange(data[0, 2], data[-1, 2], interval)
@@ -187,7 +197,12 @@ def interpolate_nodes_linear(
     if not np.isclose(new_z[-1], data[-1, 2]):
         new_z = np.append(new_z, [data[-1, 2]])
 
-    return interpolate_linear(data, new_z)
+    if mode == "spline":
+        return interpolate_spline(data, new_z)
+    elif mode == "linear":
+        return interpolate_linear(data, new_z)
+    else:
+        raise RuntimeError("Invalid iterpolation mode")
 
 
 def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> SINGLE_COLOR_NOTES:
@@ -214,8 +229,8 @@ def shorten_rail(
     if distance > 0:  # cut at the end
         new_z = data[-1,2] - distance
         last_index = np.argwhere(data[:, 2] < new_z)[-1][0]  # last node before new end
-        return np.concatenate((data[:last_index+1], interpolate_linear(data, [new_z])))
+        return np.concatenate((data[:last_index+1], interpolate_spline(data, [new_z])))
     else:  # cut at the start
         new_z = data[0,2] - distance  # distance is negative to minus is correct here
         first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
-        return np.concatenate((interpolate_linear(data, [new_z]), data[first_index:]))
+        return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))

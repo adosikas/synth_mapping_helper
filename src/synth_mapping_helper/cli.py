@@ -124,8 +124,10 @@ def get_parser():
     preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
-    rail_pattern_group.add_argument("--interpolate", type=_parse_number, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
-    rail_pattern_group.add_argument("--shorten-rails", type=_parse_number, metavar="DISTANCE", help="Cut some distance from every rail, interpolating linearly. Supports fractions. When negative, cuts from the start instead of the end")
+    interp_group = rail_pattern_group.add_mutually_exclusive_group()
+    interp_group.add_argument("--interpolate", type=_parse_number, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines (similar to the game). Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    interp_group.add_argument("--interpolate-linear", type=_parse_number, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    rail_pattern_group.add_argument("--shorten-rails", type=_parse_number, metavar="DISTANCE", help="Cut some distance from every rail. Supports fractions. When negative, cuts from the start instead of the end")
     rail_pattern_group.add_argument("--start-angle", type=_parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
     rail_pattern_group.add_argument("--radius", type=_parse_number, default=1.0, help="Radius of spiral or length of spikes")
     rail_op_group = rail_pattern_group.add_mutually_exclusive_group()
@@ -251,7 +253,9 @@ def main(options):
 
     # rail patterns
     if options.interpolate:
-        data.apply_for_notes(rails.interpolate_nodes_linear, options.interpolate, types=filter_types)
+        data.apply_for_notes(rails.interpolate_nodes, "spline", options.interpolate, types=filter_types)
+    elif options.interpolate_linear:
+        data.apply_for_notes(rails.interpolate_nodes, "linear", options.interpolate_linear, types=filter_types)
     if options.shorten_rails:
         data.apply_for_notes(rails.shorten_rail, options.shorten_rails, types=filter_types)
     if options.spiral:
