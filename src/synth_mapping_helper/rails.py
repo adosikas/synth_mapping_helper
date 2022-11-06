@@ -21,7 +21,7 @@ def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)") -> 
         pchip_interpolate(padded_data[:, 2], padded_data[:, 0], new_z),
         pchip_interpolate(padded_data[:, 2], padded_data[:, 1], new_z),
         new_z,
-    ), axis=-1)[1:-1]
+    ), axis=-1)
 
 def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bool = True) -> "numpy array (2)":
     # single note
