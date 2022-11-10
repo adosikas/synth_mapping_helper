@@ -127,7 +127,9 @@ def main(options):
                     for time in sorted(walls[wall_type]):
                         quest_hidden = last_time is not None and time - last_time < QUEST_WALL_DELAY
                         if quest_hidden:
-                            print(f"Wall hidden on Quest: {wall_type} @ {time}, {(time - last_time)/ 1000} ms")
+                            print(f"Wall hidden on Quest: {wall_type} @ {int(time/60)}:{time%60:06.3f}, distance {int((time - last_time) * 1000)} ms")
+                        else:
+                            last_time = time
                         ax_walls.plot([time], [time % 1], marker=marker, fillstyle=fill, color="red" if quest_hidden else "green")
                 
                 # notes & rails
