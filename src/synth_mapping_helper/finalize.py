@@ -20,6 +20,7 @@ FINALIZED_BOOKMARK = {"time": 0.0, "name": "#smh_finalized"}
 BEATMAP_JSON_FILE = "beatmap.meta.bin"
 DIFFICULTIES = ("Easy", "Normal", "Hard", "Expert", "Master", "Custom")
 NOTE_COLORS = {"right": "red", "left": "cyan", "single": "lime", "both": "gold"}
+QUEST_WALL_DELAY = 0.051  # 51ms to guard against rounding errors 
 
 def get_parser():
     parser = ArgumentParser(
@@ -72,13 +73,14 @@ def main(options):
                 else:
                     w["position"][1] += 2.1 * synth_format.GRID_SCALE
         if options.plot:
+            bpm = beatmap["BPM"]
             for diff in DIFFICULTIES:
                 notes_dict = beatmap["Track"][diff]
                 if not notes_dict:
                     continue
-                fig, axs = plt.subplots(4, 1, sharex=True, figsize=(16, 8))
+                fig, axs = plt.subplots(5, 1, sharex=True, figsize=(16, 8))
                 fig.suptitle(f"{beatmap['Author']} - {beatmap['Name']}: {diff}")
-                (ax_x, ax_y, ax_vel, ax_acc) = axs
+                (ax_x, ax_y, ax_vel, ax_acc, ax_walls) = axs
                 ax_x.set_ylabel("X-Position (sq)")
                 ax_x.set_ylim((8, -8))
                 ax_x.grid(True)
@@ -91,25 +93,54 @@ def main(options):
                 ax_acc.set_ylabel("Acceleration (sq/s²)")
                 ax_acc.set_ylim((0, 50))
 
-                ax_acc.set_xlabel("time (s)")
-                ax_acc.xaxis.set_major_formatter(min_sec_formatter)
+                ax_walls.set_ylabel("Walls")
+                ax_walls.set_yticks([])
+
+                ax_walls.set_xlabel("time (s)")
+                ax_walls.xaxis.set_major_formatter(min_sec_formatter)
                 # bookmarks
                 for bookmark in beatmap["Bookmarks"]["BookmarksList"]:
-                    time = int(bookmark["time"]) / 64 * 60 / beatmap["BPM"]
+                    time = int(bookmark["time"]) / 64 * 60 / bpm
                     for ax in axs:
                         ax.axvline(time, color="grey")
                     ax_x.text(time, 0.99, bookmark["name"], ha='left', va='bottom', rotation=45, transform=ax_x.get_xaxis_transform())
+                # walls
+                walls: dict[str, list[float]] = {w_type: [] for w_type in synth_format.WALL_TYPES}
+                for slide in beatmap["Slides"][diff]:
+                    walls[synth_format.WALL_LOOKUP[slide["slideType"]]].append(slide["time"] / 64 * 60 / bpm)
+                walls["crouch"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Crouchs"][diff]]
+                walls["square"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Squares"][diff]]
+                walls["triangle"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Triangles"][diff]]
+
+                wall_markers = {
+                    "wall_left": ("s", "left"),
+                    "wall_right": ("s", "right"),
+                    "angle_left": ("d", "left"),
+                    "angle_right":  ("d", "right"),
+                    "center": ("d", "full"),
+                    "crouch": ("s", "top"),
+                    "triangle": ("^", "none"),
+                    "square": ("s", "none"),
+                }
+                for wall_type, (marker, fill) in wall_markers.items():
+                    last_time = None
+                    for time in sorted(walls[wall_type]):
+                        quest_hidden = last_time is not None and time - last_time < QUEST_WALL_DELAY
+                        if quest_hidden:
+                            print(f"Wall hidden on Quest: {wall_type} @ {time}, {(time - last_time)/ 1000} ms")
+                        ax_walls.plot([time], [time % 1], marker=marker, fillstyle=fill, color="red" if quest_hidden else "green")
+                
                 # notes & rails
                 positions = [{} for _ in synth_format.NOTE_TYPES]
                 for time in sorted(notes_dict):
                     note_list = notes_dict[time]
                     for note in note_list:
-                        note_type, pos = synth_format.note_from_synth(beatmap["BPM"], 0, note)
+                        note_type, pos = synth_format.note_from_synth(bpm, 0, note)
                         color = NOTE_COLORS[synth_format.NOTE_TYPES[note_type]]
                         if pos.shape[0] != 1:
                             new_times = np.arange(pos[0,2], pos[-1,2], 1/64)
                             pos = interpolate_spline(pos, new_times)
-                        pos[:, 2] *= 60 / beatmap["BPM"]  # convert beat to second
+                        pos[:, 2] *= 60 / bpm  # convert beat to second
                         for p in pos:
                             positions[note_type][p[2]] = p[:2]
 
