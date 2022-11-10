@@ -113,24 +113,30 @@ def main(options):
                 walls["triangle"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Triangles"][diff]]
 
                 wall_markers = {
-                    "wall_left": ("s", "left"),
-                    "wall_right": ("s", "right"),
-                    "angle_left": ("d", "left"),
-                    "angle_right":  ("d", "right"),
-                    "center": ("d", "full"),
-                    "crouch": ("s", "top"),
-                    "triangle": ("^", "none"),
-                    "square": ("s", "none"),
+                    "wall_left": ("s", "left", 7),
+                    "wall_right": ("s", "right", 6),
+                    "angle_left": ("o", "left", 5),
+                    "angle_right":  ("o", "right", 4),
+                    "center": ("d", "full", 3),
+                    "crouch": ("s", "top", 2),
+                    "triangle": ("^", "none", 1),
+                    "square": ("s", "none", 0),
                 }
-                for wall_type, (marker, fill) in wall_markers.items():
+                hidden: list[tuple[str, float]] = []
+                for wall_type, (marker, fill, y) in wall_markers.items():
                     last_time = None
                     for time in sorted(walls[wall_type]):
                         quest_hidden = last_time is not None and time - last_time < QUEST_WALL_DELAY
                         if quest_hidden:
                             print(f"Wall hidden on Quest: {wall_type} @ {int(time/60)}:{time%60:06.3f}, distance {int((time - last_time) * 1000)} ms")
+                            hidden.append((wall_type, time))
                         else:
                             last_time = time
-                        ax_walls.plot([time], [time % 1], marker=marker, fillstyle=fill, color="red" if quest_hidden else "green")
+                            ax_walls.plot([time], [y], marker=marker, fillstyle=fill, color="green")
+                # always draw hidden ones on top
+                for wall_type, time in hidden:
+                    marker, fill, y = wall_markers[wall_type]
+                    ax_walls.plot([time], [y], marker=marker, fillstyle=fill, color="red")
                 
                 # notes & rails
                 positions = [{} for _ in synth_format.NOTE_TYPES]
