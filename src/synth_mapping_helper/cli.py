@@ -120,6 +120,7 @@ def get_parser():
     preproc_group.add_argument("--delete-others", action="store_true", help="Delete everything that doesn't match the filter")
     preproc_group.add_argument("--connect-singles", type=_parse_number, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
     preproc_group.add_argument("--merge-rails", type=_parse_number, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
+    preproc_group.add_argument("--swap-hands", action="store_true", help="Swap left and right hand notes.")
     preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", nargs="+", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes. Specify multiple to loop over them.")
     preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
 
@@ -205,6 +206,9 @@ def main(options):
             data.apply_for_note_types(rails.merge_sequential_rails, types=filter_types)
         else:
             data.apply_for_note_types(rails.merge_rails, max_interval=options.merge_rails[0], types=filter_types)
+
+    if options.swap_hands:
+        data.left, data.right = data.right, data.left
 
     if options.change_notes:
         if len(options.change_notes) == 1:
