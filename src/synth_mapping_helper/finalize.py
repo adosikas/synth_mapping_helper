@@ -7,7 +7,7 @@ from zipfile import ZipFile
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.dates as md
+from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
 from . import synth_format, __version__
@@ -157,18 +157,28 @@ def main(options):
                 # fig.savefig(f"{diff}_notes.png")
 
             if options.plot_walls:
-                fig, axs = plt.subplots(3, 1, sharex=True, figsize=(16, 8))
+                fig, axs = plt.subplots(4, 1, sharex=True, figsize=(16, 8))
                 fig.suptitle(f"{beatmap['Author']} - {beatmap['Name']}: {diff} / Walls")
-                (ax_density, ax_pc, ax_quest) = axs
-                ax_density.set_ylabel("Walls visible")
-                ax_density.set_ylim([0, 100])
-                ax_pc.set_ylabel("Walls Status (PC)")
+                (ax_density_pc, ax_pc, ax_density_quest, ax_quest) = axs
+                ax_density_pc.set_title("PC")
+                ax_density_pc.set_ylabel("Walls visible")
+                ax_density_pc.set_ylim([0, 120])
+                ax_density_pc.axhline(80, color="red")
+                ax_pc.set_ylabel("Wall Status")
                 ax_pc.set_yticks([])
-                ax_quest.set_ylabel("Wall Status (Quest)")
+                ax_pc.set_ylim((0,11))
+            
+                ax_density_quest.set_title("Quest")
+                ax_density_quest.set_ylabel("Walls visible")
+                ax_density_quest.set_ylim([0, 60])
+                ax_density_quest.axhline(40, color="red")
+                ax_quest.set_ylabel("Wall Status")
                 ax_quest.set_yticks([])
+                ax_quest.set_ylim((0,11))
 
                 axs[-1].set_xlabel("time (s)")
                 axs[-1].xaxis.set_major_formatter(min_sec_formatter)
+
                 # bookmarks
                 for bookmark in beatmap["Bookmarks"]["BookmarksList"]:
                     time = int(bookmark["time"]) / 64 * 60 / bpm
@@ -176,16 +186,16 @@ def main(options):
                         ax.axvline(time, color="grey")
                     axs[0].text(time, 0.99, bookmark["name"], ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
 
-                ax_density.axhline(40, color="lightblue")
-                ax_density.axhline(80, color="grey")
 
                 # walls
-                walls: dict[str, list[float]] = {w_type: [] for w_type in synth_format.WALL_TYPES}
+                all_walls: dict[str, list[float]] = {w_type: [] for w_type in synth_format.WALL_TYPES}
                 for slide in beatmap["Slides"][diff]:
-                    walls[synth_format.WALL_LOOKUP[slide["slideType"]]].append(slide["time"] / 64 * 60 / bpm)
-                walls["crouch"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Crouchs"][diff]]
-                walls["square"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Squares"][diff]]
-                walls["triangle"] = [w["time"] / 64 * 60 / bpm for w in beatmap["Triangles"][diff]]
+                    all_walls[synth_format.WALL_LOOKUP[slide["slideType"]]].append(slide["time"] / 64 * 60 / bpm)
+                for k, walls in all_walls.items():
+                    all_walls[k] = sorted(walls)
+                all_walls["crouch"] = sorted(w["time"] / 64 * 60 / bpm for w in beatmap["Crouchs"][diff])
+                all_walls["square"] = sorted(w["time"] / 64 * 60 / bpm for w in beatmap["Squares"][diff])
+                all_walls["triangle"] = sorted(w["time"] / 64 * 60 / bpm for w in beatmap["Triangles"][diff])
 
                 wall_markers = {
                     "wall_left": ("s", "left", 7),
@@ -197,51 +207,80 @@ def main(options):
                     "triangle": ("^", "none", 1),
                     "square": ("s", "none", 0),
                 }
-
-                walls_all: list[tuple[float, str]] = sorted({time: wall_type for wall_type in wall_markers for time in walls[wall_type]}.items())
-                visible: dict[float, int] = {}
-                for i, (time, _) in enumerate(walls_all):
-                    end = time + RENDER_WINDOW
-                    count = 1
-                    for other_time, _ in walls_all[i+1:]:
-                        if other_time > end:
-                            break
-                        count += 1
-                    visible[time] = count
-
-                sorted_visible = sorted(visible.items())
-                ax_density.plot([time for time, _ in sorted_visible], [count for _, count in sorted_visible])
-
-
-                quest_ok: dict[float, str] = {}
-                quest_hidden: dict[float, str] = {}
-
                 seconds_per_tick = 60 / (64 * bpm)  # [seconds / minute] / ([ticks / beat] * [beats / minute])
                 quest_wall_delay = np.ceil(0.05 / seconds_per_tick) * seconds_per_tick
 
-                for wall_type in wall_markers:
-                    last_time = None
-                    for time in sorted(walls[wall_type]):
-                        hidden_on_quest = last_time is not None and time - last_time < quest_wall_delay
-                        if hidden_on_quest:
-                            quest_hidden[time] = wall_type
-                        else:
-                            last_time = time
-                            quest_ok[time] = wall_type
+                for wall_type, (marker, fill, y) in wall_markers.items():
+                    density_pc: list[tuple[float, int]] = []
+                    density_quest: list[tuple[float, int]] = []
 
-                # pc
-                for time, wall_type in walls_all:
-                    marker, fill, y = wall_markers[wall_type]
-                    ax_pc.plot([time], [y], marker=marker, fillstyle=fill, color="green" if visible[time] < WALL_DESPAWN_PC else "orange")
-    
-                # quest: draw ok ones first
-                for time, wall_type in sorted(quest_ok.items()):
-                    marker, fill, y = wall_markers[wall_type]
-                    ax_quest.plot([time], [y], marker=marker, fillstyle=fill, color="green" if visible[time] < WALL_DESPAWN_QUEST else "orange")
-                # quest: draw hidden ones "on top"
-                for time, wall_type in sorted(quest_hidden.items()):
-                    marker, fill, y = wall_markers[wall_type]
-                    ax_quest.plot([time], [y], marker=marker, fillstyle=fill, color="red")
+                    pc_ok: list[float] = []
+                    pc_despawn: list[float] = []
+                    quest_hidden: list[float] = []
+                    quest_nothidden: list[float] = []
+                    quest_ok: list[float] = []
+                    quest_despawn: list[float] = []
+
+                    last_time_quest = None
+                    for i, time in enumerate(all_walls[wall_type]):
+                        # pc - filter out despawn
+                        visible_count = 1
+                        end = time + RENDER_WINDOW
+                        for other_time in all_walls[wall_type][i+1:]:
+                            if other_time > end:
+                                break
+                            visible_count += 1
+                        density_pc.append((time, visible_count))
+                        if visible_count > WALL_DESPAWN_PC:
+                            pc_despawn.append(time)
+                        else:
+                            pc_ok.append(time)
+                        # quest - first step: filter out hidden ones
+                        hidden_on_quest = last_time_quest is not None and time - last_time_quest < quest_wall_delay
+                        if hidden_on_quest:
+                            quest_hidden.append(time)
+                        else:
+                            last_time_quest = time
+                            quest_nothidden.append(time)
+        
+                    # quest - second step: filter out despawn
+                    for i, time in enumerate(quest_nothidden):
+                        visible_count = 1
+                        end = time + RENDER_WINDOW
+                        for other_time in quest_nothidden[i+1:]:
+                            if other_time > end:
+                                break
+                            visible_count += 1
+                        density_quest.append((time, visible_count))
+                        if visible_count > WALL_DESPAWN_QUEST:
+                            quest_despawn.append(time)
+                        else:
+                            quest_ok.append(time)
+
+                    
+
+                    # pc: ok first, despawn on top
+                    for walls, color in zip((pc_ok, pc_despawn), ("green", "orange")):
+                        for time in walls:
+                            ax_pc.plot([time], [y], marker=marker, fillstyle=fill, color=color)
+                    ax_density_pc.plot([time for time, _ in density_pc], [count for _, count in density_pc], label=wall_type)
+        
+                    # quest: ok first, then despawn, hidden on top
+                    for walls, color in zip((quest_ok, quest_despawn, quest_hidden), ("green", "orange", "red")):
+                        for time in walls:
+                            ax_quest.plot([time], [y], marker=marker, fillstyle=fill, color=color)
+                    ax_density_quest.plot([time for time, _ in density_quest], [count for _, count in density_quest], label=wall_type)
+
+
+                legend_elements = [
+                    Line2D([0], [0], color='green', label='ok', marker="o", linestyle=""),
+                    Line2D([0], [0], color='orange', label='despawn', marker="o", linestyle=""),
+                    Line2D([0], [0], color='red', label='hidden', marker="o", linestyle=""),
+                ]
+                ax_density_pc.legend(loc="upper right", ncol=len(wall_markers))
+                ax_pc.legend(handles=legend_elements[:2], loc="upper right", ncol=2)
+                ax_density_quest.legend(loc="upper right", ncol=len(wall_markers))
+                ax_quest.legend(handles=legend_elements, loc="upper right", ncol=3)
 
                 fig.tight_layout()
                 plt.show()
