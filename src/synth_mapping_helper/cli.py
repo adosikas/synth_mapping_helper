@@ -10,7 +10,7 @@ from . import synth_format, rails, pattern_generation, movement, __version__
 _filter_groups = {
     "notes": synth_format.NOTE_TYPES,
     "walls": list(synth_format.WALL_TYPES),
-    "slides": [name for name, (id, _) in synth_format.WALL_TYPES.items() if id < 100],
+    "slides": synth_format.SLIDE_TYPES,
 }
 
 def _parse_number(val: str) -> float:

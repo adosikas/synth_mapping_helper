@@ -40,11 +40,25 @@ WALL_TYPES = {
 }
 WALL_LOOKUP = {id: name for name, (id, _) in WALL_TYPES.items()}
 WALL_OFFSETS = {id: np.array(offset + [0]) for _, (id, offset) in WALL_TYPES.items()}
+SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
 
 ALL_TYPES = NOTE_TYPES + tuple(WALL_TYPES)
 
 SINGLE_COLOR_NOTES = dict[float, list["numpy array (n, 3)"]]   # rail segment (n>1) and x,y,t
 WALLS = dict[float, list["numpy array (1, 5)"]]    # x,y,t, type, angle
+
+def round_time_to_fractions(time: float) -> float:
+    # 192 is the lowest common multiple of 64 and 48, so this covers all steps the editor supports and more
+    # effectively this is 3 intermediate steps for each 1/64 step, or 4 for each 1/48 step
+    # those intermediate steps are also possible in the editor by abusing snap or copy-paste and switching
+    # between 1/64 and 1/48 step.
+    # But the editor does no rounding at all, leading to float erros creeping up. 
+    return round(time * 192) / 192
+
+def round_tick_for_json(time: float) -> float:
+    # same as above, but in 1/64 ticks the json needs for some things
+    # this is a seperate function to only do one float operation after rounding before output, to minimize errors
+    return round(time * 3) / 3
 
 @dataclass
 class DataContainer:
@@ -118,14 +132,14 @@ def coord_from_synth(bpm: float, startMeasure: float, coord: list[float]) -> "nu
         (coord[0] - X_OFFSET) / GRID_SCALE,
         (coord[1] - Y_OFFSET) / GRID_SCALE,
         # convert absolute coordinate to number of beats since start
-        round((coord[2] * bpm / BPM_DIVISOR) * 64 - startMeasure) / 64,
+        round_time_to_fractions(coord[2] * bpm / BPM_DIVISOR - startMeasure / 64),
     ])
 
 def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
         (coord[0] * GRID_SCALE) + X_OFFSET,
         (coord[1] * GRID_SCALE) + Y_OFFSET,
-        (coord[2] / bpm) * BPM_DIVISOR,
+        (round_time_to_fractions(coord[2]) / bpm) * BPM_DIVISOR,  # ([beat] / [beat / minute]) * 1200 = ([sec] * 60) * 1200
     ]
 
 # full note dict
@@ -155,7 +169,7 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
     wall_type = int(wall[0, 3])
     pos = coord_to_synth(bpm, wall[0, :3] - WALL_OFFSETS[wall_type])
     wall_dict = {
-        "time": round(wall[0, 2] * 64),
+        "time": round_tick_for_json(wall[0, 2] * 64),  # time as 1/64
         "slideType": wall_type,
         "position": pos,
         "zRotation": wall[0, 4] % 360,  # note: crouch walls cannot be rotated, this will be ignored for them
@@ -219,7 +233,7 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
     last = -99999
     for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
         for time_index, nodes in notes.items():
-            clipboard["notes"].setdefault(round(time_index * 64), []).append(note_to_synth(data.bpm, note_type, nodes))
+            clipboard["notes"].setdefault(round_tick_for_json(time_index * 64), []).append(note_to_synth(data.bpm, note_type, nodes))
             if nodes[0, 2] < first:
                 first = nodes[0, 2]
             if nodes[-1, 2] > last:
@@ -234,7 +248,7 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
 
     if realign_start:
         # position of selection start in beats*64 
-        clipboard["startMeasure"] = round(first * 64)
+        clipboard["startMeasure"] = round_tick_for_json(first * 64)
         # position of selection start in ms
         clipboard["startTime"] = first * MS_PER_MIN / data.bpm
         # length of the selection in milliseconds
