@@ -1,5 +1,5 @@
 #/usr/bin/env python3
-from dataclasses import dataclass
+import dataclasses
 import json
 
 import numpy as np
@@ -47,6 +47,14 @@ ALL_TYPES = NOTE_TYPES + tuple(WALL_TYPES)
 SINGLE_COLOR_NOTES = dict[float, list["numpy array (n, 3)"]]   # rail segment (n>1) and x,y,t
 WALLS = dict[float, list["numpy array (1, 5)"]]    # x,y,t, type, angle
 
+BETA_WARNING_SHOWN = False
+
+
+def beta_warning() -> None:
+    if not BETA_WARNING_SHOWN:
+        print("This was tested with the beta version of the editor only. You may want to switch to it.")
+        BETA_WARNING_SHOWN = True
+
 def round_time_to_fractions(time: float) -> float:
     # 192 is the lowest common multiple of 64 and 48, so this covers all steps the editor supports and more
     # effectively this is 3 intermediate steps for each 1/64 step, or 4 for each 1/48 step
@@ -60,7 +68,7 @@ def round_tick_for_json(time: float) -> float:
     # this is a seperate function to only do one float operation after rounding before output, to minimize errors
     return round(time * 3) / 3
 
-@dataclass
+@dataclasses.dataclass
 class DataContainer:
     original_json: str
     bpm: float
@@ -107,17 +115,17 @@ class DataContainer:
             setattr(self, t, f(getattr(self, t), *args, **kwargs))
 
     def filtered(self, types: list = ALL_TYPES) -> "DataContainer":
-        note_dicts = [
-            getattr(self, t) if t in types else {}
+        replacement = {
+            t: getattr(self, t) if t in types else {}
             for t in NOTE_TYPES
-        ]
+        }
         wall_types = [WALL_TYPES[t][0] for t in types if t in WALL_TYPES]
-        wall_dict = {
+        replacement["walls"] = {
             time_index: wall
             for time_index, wall in sorted(self.walls.items())
             if wall[0, 3] in wall_types
         }
-        return DataContainer(self.original_json, self.bpm, *note_dicts, wall_dict)
+        return dataclasses.replace(self, **replacement)
         
     def merge(self, other: "DataContainer") -> None:
         for t in NOTE_TYPES:
@@ -207,6 +215,9 @@ def import_clipboard(use_original: bool = False) -> DataContainer:
         walls[wall[0, 2]] = wall
     # other (crouch, square, triangle)
     for wall_type in ("crouch", "square", "triangle"):
+        if wall_type + "s" not in clipboard:
+            beta_warning()
+            continue  # these are only in the beta editor
         for wall_dict in clipboard[wall_type + "s"]:
             wall = wall_from_synth(bpm, startMeasure, wall_dict, WALL_TYPES[wall_type][0])
             walls[wall[0, 2]] = wall
