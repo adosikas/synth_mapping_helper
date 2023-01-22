@@ -15,8 +15,13 @@ _filter_groups = {
 
 def _parse_number(val: str) -> float:
     if "/" in val:
-        a, b = val.split("/",1)
-        return float(a) / float(b)
+        num, denom = val.split("/",1)
+        if " " in num:
+            # mixed fraction, ie "1 1/2" -> 1.5
+            integer, num = num.split(" ",1)
+            i = int(integer)
+            return i + np.sign(i) * (float(num) / float(denom))
+        return float(num) / float(denom)
     elif val.endswith("%"):
         return float(val[:-1]) / 100
     return float(val)
@@ -53,7 +58,24 @@ def _parse_xy_range(val: str) -> tuple[tuple[float, float], tuple[float, float]]
     return np.array((x, y)).transpose()
 
 
-def _parse_position(val: str) -> tuple[float, float, float]:
+class second_float:
+    # dummy class to hold numbers parsed as seconds until bpm was parsed
+    def __init__(self, val: float) -> None:
+        self.val = val
+    def to_beat(self, bpm: float) -> float:
+        return self.val / 60 * bpm
+
+def _parse_time(val: str) -> float | second_float:
+    # note that there is no rounding here, 
+    if val.endswith("s"):
+        return second_float(_parse_number(val[:-1]))
+    elif ":" in val:
+        # parse mm:ss.fff into seconds
+        m, s = val.rsplit(":", 1)
+        return second_float(float(m)*60 + float(s))
+    return _parse_number(val)
+
+def _parse_position(val: str) -> tuple[float, float, float | second_float]:
     split = val.split(",")
     if len(split) != 3:
         raise ValueError("Must be in the form x,y,t")
@@ -66,7 +88,7 @@ def _parse_position(val: str) -> tuple[float, float, float]:
     except ValueError:
         raise ValueError("Error parsing y")
     try:
-        t = _parse_number(split[2])
+        t = _parse_time(split[2])
     except ValueError:
         raise ValueError("Error parsing t")
     return (x,y,t)
@@ -118,23 +140,23 @@ def get_parser():
     preproc_group = parser.add_argument_group("pre-processing")
     preproc_group.add_argument("-b", "--bpm", type=_parse_number, help="Change BPM without changing timing")
     preproc_group.add_argument("--delete-others", action="store_true", help="Delete everything that doesn't match the filter")
-    preproc_group.add_argument("--connect-singles", type=_parse_number, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
-    preproc_group.add_argument("--merge-rails", type=_parse_number, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
+    preproc_group.add_argument("--connect-singles", type=_parse_time, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
+    preproc_group.add_argument("--merge-rails", type=_parse_time, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
     preproc_group.add_argument("--swap-hands", action="store_true", help="Swap left and right hand notes.")
     preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", nargs="+", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes. Specify multiple to loop over them.")
     preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
     interp_group = rail_pattern_group.add_mutually_exclusive_group()
-    interp_group.add_argument("--interpolate", type=_parse_number, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines (similar to the game). Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
-    interp_group.add_argument("--interpolate-linear", type=_parse_number, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
-    rail_pattern_group.add_argument("--shorten-rails", type=_parse_number, metavar="DISTANCE", help="Cut some distance from every rail. Supports fractions. When negative, cuts from the start instead of the end")
+    interp_group.add_argument("--interpolate", type=_parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines (similar to the game). Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    interp_group.add_argument("--interpolate-linear", type=_parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    rail_pattern_group.add_argument("--shorten-rails", type=_parse_time, metavar="DISTANCE", help="Cut some distance from every rail. Supports fractions. When negative, cuts from the start instead of the end")
     rail_pattern_group.add_argument("--start-angle", type=_parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
     rail_pattern_group.add_argument("--radius", type=_parse_number, default=1.0, help="Radius of spiral or length of spikes")
     rail_op_group = rail_pattern_group.add_mutually_exclusive_group()
     rail_op_group.add_argument("--spiral", type=_parse_number, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
     rail_op_group.add_argument("--spikes", type=_parse_number, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
-    rail_pattern_group.add_argument("--spike-width", type=_parse_number, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
+    rail_pattern_group.add_argument("--spike-width", type=_parse_time, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
 
     movement_group = parser.add_argument_group("movement", description="Operation order is always: scale, rotate, offset, outset")
     pivot_group = movement_group.add_mutually_exclusive_group()
@@ -170,6 +192,16 @@ def main(options):
         abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
 
     # argument post-parsing
+    # convert time parsed in seconds to beats
+    for pos_val in "pivot", "offset", "scale":
+        v = getattr(options, pos_val, None)
+        if v is not None and isinstance(v[2], second_float):
+            setattr(options, pos_val[:2] + (v[2].to_beat(data.bpm),))
+    for time_val in "connect_singles", "merge_rails", "interpolate", "interpolate_linear", "shorten_rails", "spike_width":
+        v = getattr(options, pos_val, None)
+        if isinstance(v, second_float):
+            setattr(options, pos_val, v.to_beat(data.bpm))
+    # expand filter groupts
     if any(name in options.filter_types for name in _filter_groups):
         out_filters = []
         for inp in options.filter_types:
@@ -178,6 +210,7 @@ def main(options):
             else:
                 out_filters.append(inp)
         options.filter_types = out_filters
+    # normalize/invert filter
     if not options.invert_filter:
         # only have each entry once
         filter_types = list(set(options.filter_types))
@@ -186,6 +219,7 @@ def main(options):
             t for t in synth_format.ALL_TYPES
             if t not in options.filter_types
         )
+    # get note pivot (before filtering)
     if options.note_pivot:
         notes = getattr(data, options.note_pivot)
         if not notes:
