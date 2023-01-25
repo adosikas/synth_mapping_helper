@@ -38,7 +38,7 @@ def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bo
         last_before = nodes
         if nodes.shape[0] == 1:  # ignore single nodes
             continue
-        if nodes[0, 2] < beat:  # on rail: interpolate between nodes
+        if nodes[-1, 2] >= beat:  # on rail: interpolate between nodes
             return interpolate_spline(nodes, beat)[0:2]
 
     # neither
