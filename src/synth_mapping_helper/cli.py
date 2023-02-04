@@ -133,6 +133,7 @@ def get_parser():
         epilog=f"Version: {__version__}",
     )
 
+    parser.add_argument("-E", "--start-empty", type=_parse_number, metavar="BPM", help="Start with empty data instead of reading the clipboard. Requires specifing BPM. Use with --spawn.")
     parser.add_argument("--use-original", action="store_true", help="When calling this multiple times, start over with orignal copied json")
     parser.add_argument("-f", "--filter-types", nargs="+", metavar="FILTER_TYPE", choices=synth_format.ALL_TYPES + tuple(_filter_groups), default=synth_format.ALL_TYPES, help=f"Only affect notes and walls of these types. Multiple types can be specified seperated by spaces, defaults to all")
     parser.add_argument("--invert-filter", action="store_true", help="Invert filter so everything *but* the filter is affected")
@@ -145,6 +146,8 @@ def get_parser():
     preproc_group.add_argument("--swap-hands", action="store_true", help="Swap left and right hand notes.")
     preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", nargs="+", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes. Specify multiple to loop over them.")
     preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
+    preproc_group.add_argument("--spawn", metavar="OBJECT_TYPE", choices=synth_format.ALL_TYPES, help="Spawn an objects of the given type. Can only spawn one object per call.")
+    preproc_group.add_argument("--spawn-location", type=_parse_position, help="Location for the spawned object (defaults to 0,0,0)")
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
     interp_group = rail_pattern_group.add_mutually_exclusive_group()
@@ -186,14 +189,19 @@ def abort(reason: str):
     exit(1)
 
 def main(options):
-    try:
-        data = synth_format.import_clipboard(options.use_original)
-    except (JSONDecodeError, KeyError) as err:
-        abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
+    if options.start_empty is not None:
+        if options.start_empty <= 0:
+            abort("BPM must be positive")
+        data = synth_format.DataContainer(options.start_empty, {}, {}, {}, {}, {})
+    else:
+        try:
+            data = synth_format.import_clipboard(options.use_original)
+        except (JSONDecodeError, KeyError) as err:
+            abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
 
     # argument post-parsing
     # convert time parsed in seconds to beats
-    for pos_val in "pivot", "offset", "scale":
+    for pos_val in "spawn-location", "pivot", "offset", "scale":
         v = getattr(options, pos_val, None)
         if v is not None and isinstance(v[2], second_float):
             setattr(options, pos_val[:2] + (v[2].to_beat(data.bpm),))
@@ -288,6 +296,13 @@ def main(options):
                 new_wall[..., 3] = next(generator)
                 return new_wall
             data.apply_for_walls(_change_wall_type, types=filter_types)
+
+    if options.spawn:
+        loc = options.spawn_location or (0.0,0.0,0.0)
+        if options.spawn in synth_format.NOTE_TYPES:
+            getattr(data, options.spawn)[loc[2]] = np.array([loc])
+        elif options.spawn in synth_format.WALL_TYPES:
+            data.walls[loc[2]] = np.array([loc + (synth_format.WALL_TYPES[options.spawn][0],0)])
 
     # rail patterns
     if options.interpolate:
