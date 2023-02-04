@@ -1,4 +1,5 @@
 #/usr/bin/env python3
+from io import BytesIO
 import dataclasses
 import json
 from pathlib import Path
@@ -186,6 +187,45 @@ class SynthFile:
                 # add difficulty when there is a note of any type or a wall
                 if any(nt for nt in notes) or walls:
                     self.difficulties[diff] = DataContainer(bpm, *notes, walls)
+
+    def save_as(self, output_file: Path) -> None:
+        out_buffer = BytesIO()  # buffer output zip file in memory, only write on success
+        with ZipFile(self.input_file) as inzip, ZipFile(out_buffer, "w") as outzip:
+            # copy all content except beatmap json
+            outzip.comment = inzip.comment
+            for info in inzip.infolist():
+                if info.filename != BEATMAP_JSON_FILE:
+                    outzip.writestr(info, inzip.read(info.filename))
+
+            beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
+
+            beatmap["Bookmarks"]["BookmarksList"] = [
+                {"time": round_tick_for_json(t * 64), "name": n}
+                for t, n in sorted(self.bookmarks.items())
+            ]
+
+            for diff, data in self.difficulties.items():
+                new_notes = {}
+                for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
+                    for time_index, nodes in sorted(notes.items()):
+                        new_notes.setdefault(round_tick_for_json(time_index * 64), []).append(note_to_synth(data.bpm, note_type, nodes))
+                beatmap["Track"][diff] = new_notes
+                walls = {
+                    "crouchs": [],
+                    "squares": [],
+                    "triangles": [],
+                    "slides": [],
+                }
+                for _, wall in sorted(data.walls.items()):
+                    dest_list, wall_dict = wall_to_synth(data.bpm, wall)
+                    walls[dest_list].append(wall_dict)
+                for t, wall_list in walls.items():
+                    beatmap[t.capitalize()][diff] = wall_list
+
+            # write modified beatmap json
+            outzip.writestr(inzip.getinfo(BEATMAP_JSON_FILE), json.dumps(beatmap))
+        # write output zip
+        output_file.write_bytes(out_buffer.getbuffer())
 
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float]) -> "numpy array (3)":

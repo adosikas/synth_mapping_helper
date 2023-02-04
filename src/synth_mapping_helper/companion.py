@@ -11,7 +11,7 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from matplotlib.widgets import Button, CheckButtons, RadioButtons
 
-from . import synth_format, __version__
+from . import movement, synth_format, __version__
 from .rails import interpolate_spline
 from .synth_format import DataContainer, SynthFile
 
@@ -246,9 +246,15 @@ def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platf
     else:
         ax_status.legend(handles=legend_elements, loc="upper right", ncol=3)
 
+def show_warnings(fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
+    ax = fig.subplots(1)
+    ax.set_axis_off()
+    ax.table(loc="top", colWidths=(1/20, 19/20), cellLoc="left", rowLabels=["123 5/6"], cellText=[["note:left", "placeholder, ie extreme peak in acceleration"]])
+
 TABS = [
     ("Notes", plot_notes),
     ("Walls", plot_walls),
+    ("Warnings", show_warnings)
 ]
 PLATFORMS = ("PC", "Quest")
 
@@ -272,11 +278,6 @@ def main(options):
     for ax in menu_axs:
         ax.set_axis_off()
 
-    reload_cb = CheckButtons(menu_axs[0], ("Reload now", "Automatic reload"))
-    tab_rb = RadioButtons(menu_axs[2], [n for n, *_ in TABS], active_tab)
-    diff_rb = RadioButtons(menu_axs[3], [d for d, *_ in difficulties], active_difficulty)
-    platform_rb = RadioButtons(menu_axs[4], PLATFORMS, active_difficulty)
-
     def redraw():
         tab.clear()
         _, tab_func = TABS[active_tab]
@@ -284,6 +285,62 @@ def main(options):
         tab_func(tab, data, data.difficulties[diff_name], prepared_data, platform=PLATFORMS[active_platform])
         plt.draw()
 
+    def btn_reload(active: bool) -> None:
+        data.reload()
+        print(f"Reloaded {data.input_file.absolute()}")
+        redraw()
+    
+    def btn_autoreload(active:bool) -> None:
+        print("WIP")
+
+    def btn_finalize(active: bool) -> None:
+        if active and (data.bookmarks.get(0.0) != "#smh_finalized"):
+            data.bookmarks[0.0] = "#smh_finalized"
+            for _, diff_data in data.difficulties.items():
+                diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
+            print("Finalized map")
+        elif not active and (data.bookmarks.get(0.0) == "#smh_finalized"):
+            del data.bookmarks[0.0]
+            for _, diff_data in data.difficulties.items():
+                diff_data.apply_for_walls(movement.offset, offset_3d=(0,-2.1,0), types=synth_format.SLIDE_TYPES)
+            print("Reversed finalization")
+
+    def btn_save_output(active: bool) -> None:
+            out = Path("output.synth")
+            data.save_as(out)
+            print(f"Saved to {out.absolute()}")
+    
+    btns = (
+        ("Reload", None, btn_reload),
+        ("Auto-Reload", True, btn_autoreload),
+        ("Finalize", data.bookmarks.get(0.0) == "#smh_finalized", btn_finalize),
+        ("Save Output", None, btn_save_output),
+    )
+    button_cb = CheckButtons(menu_axs[0], [t for t, *_ in btns])
+    for i, (_, start_checked, _) in enumerate(btns):
+        button_cb.labels[i].set_bbox({"facecolor": "lightgrey", "boxstyle": "Round"})
+        if start_checked is None:  # hide actual checkbox
+            button_cb.rectangles[i].set(visible=False)
+        elif start_checked:
+            button_cb.set_active(i)
+
+    def button_clicked(button: str):
+        for btn_id, (name, start_checked, btn_func) in enumerate(btns):
+            if name == button:
+                active = button_cb.get_status()[btn_id]
+                if start_checked is None:
+                    if active:
+                        # instantly uncheck non-checkboxes
+                        button_cb.set_active(btn_id)
+                    else:
+                        # ignore "unpress"
+                        return
+                btn_func(active)
+                return
+
+    button_cb.on_clicked(button_clicked)
+
+    tab_rb = RadioButtons(menu_axs[1], [n for n, *_ in TABS], active_tab)
     def tab_clicked(selected: str):
         nonlocal active_tab
         for tab_id, (name, *_) in enumerate(TABS):
@@ -291,7 +348,9 @@ def main(options):
                 active_tab = tab_id
                 redraw()
                 break
+    tab_rb.on_clicked(tab_clicked)
 
+    diff_rb = RadioButtons(menu_axs[2], [d for d, *_ in difficulties], active_difficulty)
     def diff_clicked(selected: str):
         nonlocal active_difficulty
         for diff_id, name in enumerate(difficulties):
@@ -299,7 +358,9 @@ def main(options):
                 active_difficulty = diff_id
                 redraw()
                 break
+    diff_rb.on_clicked(diff_clicked)
 
+    platform_rb = RadioButtons(menu_axs[3], PLATFORMS, active_difficulty)
     def platform_clicked(selected: str):
         nonlocal active_platform
         for platform_id, name in enumerate(PLATFORMS):
@@ -307,9 +368,6 @@ def main(options):
                 active_platform = platform_id
                 redraw()
                 break
-
-    tab_rb.on_clicked(tab_clicked)
-    diff_rb.on_clicked(diff_clicked)
     platform_rb.on_clicked(platform_clicked)
 
     redraw()
