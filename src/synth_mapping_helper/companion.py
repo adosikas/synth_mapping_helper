@@ -3,13 +3,16 @@ from io import BytesIO
 import json
 from json import JSONDecodeError
 from pathlib import Path
+from time import strftime, time
 from zipfile import ZipFile
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
-from matplotlib.widgets import Button, CheckButtons, RadioButtons
+from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 from . import movement, synth_format, __version__
 from .rails import interpolate_spline
@@ -26,6 +29,12 @@ RENDER_WINDOW = 4  # 4 seconds of elements are rendered
 WALL_DESPAWN_PC = 80  # limit of visible walls, earlier ones despawn
 WALL_DESPAWN_QUEST = 40
 QUEST_WALL_DELAY = 0.050  # 50 ms on highest wall density
+
+# TODO: make those command line arguments
+OUTPUT_FILE = Path("output.synth")
+AUTOBACKUP_DIR = Path("smh_autobackup")
+AUTORELOAD_DEFAULT = True
+AUTOBACKUP_DEFAULT = 5  # in minutes, or None
 
 def get_parser():
     parser = ArgumentParser(
@@ -281,7 +290,7 @@ def show_warnings(fig, infile: SynthFile, data: DataContainer, prepared_data, pl
 TABS = [
     ("Notes", plot_notes),
     ("Walls", plot_walls),
-    ("Warnings", show_warnings)
+    # ("Warnings", show_warnings)
 ]
 PLATFORMS = ("PC", "Quest")
 
@@ -301,9 +310,6 @@ def main(options):
     fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta['Author']} - {data.meta['Name']}")
     menu, tab = fig.subfigures(2, 1, height_ratios=(1,8))
 
-    menu_axs = menu.subplots(1, 16)
-    for ax in menu_axs:
-        ax.set_axis_off()
 
     def replace_prepared_data():
         nonlocal difficulties
@@ -316,63 +322,97 @@ def main(options):
         tab_func(tab, data, data.difficulties[diff_name], prepared_data, platform=PLATFORMS[active_platform])
         plt.draw()
 
-    def btn_reload(active: bool) -> None:
+
+    btns = {}
+    colors = ("darksalmon", "limegreen")
+    hovercolors = ("lightsalmon", "lightgreen")
+    autobackup_last = None
+
+    autobackup_interval = AUTOBACKUP_DEFAULT
+
+    # this is changed when doing autobackup during reload
+    autobackup_txt = menu.text(4.3/16, 1/6, "Last: <None>", horizontalalignment="left", verticalalignment="center")
+
+    # this is used by autoreloader
+    def btn_reload(ev) -> None:
+        nonlocal autobackup_last, autobackup_interval
         data.reload()
         replace_prepared_data()
         print(f"Reloaded {data.input_file.absolute()}")
+        # Update finalize button
+        btns["Finalize"].label.set_text("UnFinalize" if data.bookmarks.get(0.0) == "#smh_finalized" else "Finalize")
+        # Make a backup when enough time has passed
+        if autobackup_interval is not None and (autobackup_last is None or time() > autobackup_last + autobackup_interval):
+            autobackup_last = time()
+            autobackup_txt.set_text(f"Last: {strftime('%H:%M:%S')}")
+            AUTOBACKUP_DIR.mkdir(exist_ok=True, parents=True)  # make dir if it doesn't exist
+            out = AUTOBACKUP_DIR / f"{data.input_file.stem}_{strftime('%Y-%m-%d_%H-%M-%S')}{data.input_file.suffix}"
+            out.write_bytes(data.input_file.read_bytes())  # binary identical copy, do not rexport
+            print(f"Backup created at {out.absolute()}")
         redraw()
-    
-    def btn_autoreload(active:bool) -> None:
-        print("WIP")
 
-    def btn_finalize(active: bool) -> None:
-        if active and (data.bookmarks.get(0.0) != "#smh_finalized"):
+    if AUTORELOAD_DEFAULT:
+        file_observer = Observer()
+        class FileEventHandler(FileSystemEventHandler):
+            def on_modified(self, event):
+                print("Detected file modification, reloading")
+                btn_reload(None)  # simulate button click
+        file_observer.schedule(FileEventHandler(), options.input)
+        file_observer.start()
+    else:
+        file_observer = None
+    
+    def btn_autoreload(ev) -> None:
+        nonlocal file_observer
+        if file_observer is None:
+            file_observer = Observer()
+            file_observer.schedule(FileEventHandler(), options.input)
+            file_observer.start()
+            btns["AutoReload"].color = colors[True]
+            btns["AutoReload"].hovercolor = hovercolors[True]
+        else:
+            file_observer.stop()
+            file_observer = None
+            btns["AutoReload"].color = colors[False]
+            btns["AutoReload"].hovercolor = hovercolors[False]
+        plt.draw()
+
+    def btn_finalize(ev) -> None:
+        if data.bookmarks.get(0.0) != "#smh_finalized":
             data.bookmarks[0.0] = "#smh_finalized"
             for _, diff_data in data.difficulties.items():
                 diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
+            btns["Finalize"].label.set_text("UnFinalize")
             print("Finalized map")
-        elif not active and (data.bookmarks.get(0.0) == "#smh_finalized"):
+        elif data.bookmarks.get(0.0) == "#smh_finalized":
             del data.bookmarks[0.0]
             for _, diff_data in data.difficulties.items():
                 diff_data.apply_for_walls(movement.offset, offset_3d=(0,-2.1,0), types=synth_format.SLIDE_TYPES)
+            btns["Finalize"].label.set_text("Finalize")
             print("Reversed finalization")
+        plt.draw()
 
-    def btn_save_output(active: bool) -> None:
-            out = Path("output.synth")
-            data.save_as(out)
-            print(f"Saved to {out.absolute()}")
-    
-    btns = (
-        ("Reload", None, btn_reload),
-        ("Auto-Reload", True, btn_autoreload),
-        ("Finalize", data.bookmarks.get(0.0) == "#smh_finalized", btn_finalize),
-        ("Save Output", None, btn_save_output),
-    )
-    button_cb = CheckButtons(menu_axs[0], [t for t, *_ in btns])
-    for i, (_, start_checked, _) in enumerate(btns):
-        button_cb.labels[i].set_bbox({"facecolor": "lightgrey", "boxstyle": "Round"})
-        if start_checked is None:  # hide actual checkbox
-            button_cb.rectangles[i].set(visible=False)
-        elif start_checked:
-            button_cb.set_active(i)
+    def btn_output(active: bool) -> None:
+            data.save_as(OUTPUT_FILE)
+            print(f"Saved output to {OUTPUT_FILE.absolute()}")
 
-    def button_clicked(button: str):
-        for btn_id, (name, start_checked, btn_func) in enumerate(btns):
-            if name == button:
-                active = button_cb.get_status()[btn_id]
-                if start_checked is None:
-                    if active:
-                        # instantly uncheck non-checkboxes
-                        button_cb.set_active(btn_id)
-                    else:
-                        # ignore "unpress"
-                        return
-                btn_func(active)
-                return
+    btn_info = [
+        ("Reload", btn_reload),
+        ("AutoReload", btn_autoreload),
+        ("Finalize", btn_finalize),
+        ("Output", btn_output),
+    ]
 
-    button_cb.on_clicked(button_clicked)
+    for i, (text, func) in enumerate(btn_info):
+        btns[text] = Button(menu.add_axes((0,(len(btn_info)-(i+0.9))/len(btn_info),1/16,0.9/len(btn_info))), text)
+        btns[text].on_clicked(func)
 
-    tab_rb = RadioButtons(menu_axs[1], [n for n, *_ in TABS], active_tab)
+    btns["AutoReload"].color = colors[file_observer is not None]
+    btns["AutoReload"].hovercolor = hovercolors[file_observer is not None]
+    if data.bookmarks.get(0.0) == "#smh_finalized":
+        btns["Finalize"].label.set_text("UnFinalize")
+
+    tab_rb = RadioButtons(menu.add_axes((1/15,0,1/16,1)), [n for n, *_ in TABS], active_tab)
     def tab_clicked(selected: str):
         nonlocal active_tab
         for tab_id, (name, *_) in enumerate(TABS):
@@ -382,7 +422,7 @@ def main(options):
                 break
     tab_rb.on_clicked(tab_clicked)
 
-    diff_rb = RadioButtons(menu_axs[2], [d for d, *_ in difficulties], active_difficulty)
+    diff_rb = RadioButtons(menu.add_axes((2/15,0,1/16,1)), [d for d, *_ in difficulties], active_difficulty)
     def diff_clicked(selected: str):
         nonlocal active_difficulty
         for diff_id, name in enumerate(difficulties):
@@ -392,7 +432,7 @@ def main(options):
                 break
     diff_rb.on_clicked(diff_clicked)
 
-    platform_rb = RadioButtons(menu_axs[3], PLATFORMS, active_difficulty)
+    platform_rb = RadioButtons(menu.add_axes((3/15,0,1/16,1)), PLATFORMS, active_difficulty)
     def platform_clicked(selected: str):
         nonlocal active_platform
         for platform_id, name in enumerate(PLATFORMS):
@@ -401,6 +441,23 @@ def main(options):
                 redraw()
                 break
     platform_rb.on_clicked(platform_clicked)
+    
+    autobackup_btn = Button(menu.add_axes((4/15,2/3,2/16,1/3)), "AutoBackup")
+    autobackup_sl = Slider(menu.add_axes((4.05/15,0.3,1.5/16,1/8)), "", 0, 15, valinit=autobackup_interval or 0, valstep=1, valfmt="%s min")
+    menu.text(4.3/16, 1/2, "Minimum age", horizontalalignment="left", verticalalignment="center")
+    def btn_autobackup(ev):
+        nonlocal autobackup_interval
+        if autobackup_interval is None:
+            autobackup_interval = autobackup_sl.val * 60
+            autobackup_btn.color = colors[True]
+            autobackup_btn.hovercolor = hovercolors[True]
+        else:
+            autobackup_interval = None
+            autobackup_btn.color = colors[False]
+            autobackup_btn.hovercolor = hovercolors[False]
+    autobackup_btn.on_clicked(btn_autobackup)
+    autobackup_btn.color = colors[autobackup_interval is not None]
+    autobackup_btn.hovercolor = hovercolors[autobackup_interval is not None]
 
     redraw()
     plt.show()
