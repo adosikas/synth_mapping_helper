@@ -49,10 +49,16 @@ def plot_bookmarks(bookmarks: dict[float, str], axs: "container of mpl axes"):
             ax.axvline(time, color="grey")
         axs[0].text(time, 0.99, name, ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
 
-def prepare_data(data: DataContainer) -> list[tuple[list["rails"], "positions", "velocity", "acceleration"]]:
+def prepare_data(data: DataContainer) -> tuple[
+    list[tuple[list["rails"], "positions", "velocity", "acceleration"]],
+    list[tuple[
+        tuple["pc_density", "pc_ok", "pc_despawn"],
+        tuple["quest_density", "quest_ok", "quest_despawn", "quest_hidden"]
+    ]],
+]:
     # NOTES DATA
     velocity_window_beats = VELOCITY_WINDOW * (data.bpm / 60)  # [seconds] / [beats / second]
-    out = []
+    note_out = []
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
         rails: list["xyz"] = []
         pos_dict: dict[float, "xyz"] = {}
@@ -89,8 +95,77 @@ def prepare_data(data: DataContainer) -> list[tuple[list["rails"], "positions", 
         vel_diff = np.diff(pos_diff, axis=0)
         # acceleration at point b can be considered over have the previous and next time delta
         acc = vel_diff / ((pos_diff[1:, 2:3] + pos_diff[:-1, 2:3]) / 2)
-        out.append((rails, pos, vel, acc))
-    return out
+        note_out.append((rails, pos, vel, acc))
+
+    wall_out = []
+    
+    # walls
+    all_walls: dict[str, list[float]] = {
+        w_type: sorted([t for t, wall in data.walls.items() if wall[0,3] == w])
+        for w, w_type in synth_format.WALL_LOOKUP.items()
+    }
+
+    wall_markers = {
+        "wall_left": ("s", "left", 7),
+        "wall_right": ("s", "right", 6),
+        "angle_left": ("o", "left", 5),
+        "angle_right":  ("o", "right", 4),
+        "center": ("d", "full", 3),
+        "crouch": ("s", "top", 2),
+        "triangle": ("^", "none", 1),
+        "square": ("s", "none", 0),
+    }
+    quest_wall_delay_beats = QUEST_WALL_DELAY * (data.bpm / 60)  # [seconds] / [beats / second] => [beats]
+
+    for wall_type in synth_format.WALL_TYPES:
+        pc_density: list[tuple[float, int]] = []
+        quest_density: list[tuple[float, int]] = []
+
+        pc_ok: list[float] = []
+        pc_despawn: list[float] = []
+        quest_hidden: list[float] = []
+        quest_nothidden: list[float] = []
+        quest_ok: list[float] = []
+        quest_despawn: list[float] = []
+
+        last_time_quest = None
+        for i, time in enumerate(all_walls[wall_type]):
+            # pc - filter out despawn
+            visible_count = 1
+            end = time + RENDER_WINDOW
+            for other_time in all_walls[wall_type][i+1:]:
+                if other_time > end:
+                    break
+                visible_count += 1
+            pc_density.append((time, visible_count))
+            if visible_count > WALL_DESPAWN_PC:
+                pc_despawn.append(time)
+            else:
+                pc_ok.append(time)
+            # quest - first step: filter out hidden ones
+            hidden_on_quest = last_time_quest is not None and time - last_time_quest < quest_wall_delay_beats
+            if hidden_on_quest:
+                quest_hidden.append(time)
+            else:
+                last_time_quest = time
+                quest_nothidden.append(time)
+
+        # quest - second step: filter out despawn
+        for i, time in enumerate(quest_nothidden):
+            visible_count = 1
+            end = time + RENDER_WINDOW
+            for other_time in quest_nothidden[i+1:]:
+                if other_time > end:
+                    break
+                visible_count += 1
+            quest_density.append((time, visible_count))
+            if visible_count > WALL_DESPAWN_QUEST:
+                quest_despawn.append(time)
+            else:
+                quest_ok.append(time)
+
+        wall_out.append(((pc_density, pc_ok, pc_despawn), (quest_density, quest_ok, quest_despawn, quest_hidden)))
+    return note_out, wall_out
 
 def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwargs):
     axs = fig.subplots(4)
@@ -130,7 +205,7 @@ def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwa
                 ax_x.plot(pos[1:, 2], pos[1:, 0], color=color, linestyle="", marker=".")
                 ax_y.plot(pos[1:, 2], pos[1:, 1], color=color, linestyle="", marker=".")
 
-        rails, pos, vel, acc = prepared_data[t]
+        rails, pos, vel, acc = prepared_data[0][t]
         # actual rail paths
         for r in rails:
             ax_x.plot(r[:, 2], r[:, 0], color=color)
@@ -153,15 +228,9 @@ def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platf
     else:
         ax_density.set_ylim([0, 60])
         ax_density.axhline(40, color="red")
-    ax_status.set_ylabel("Wall Status")
+    ax_status.set_ylabel("Wall Type")
     ax_status.set_yticks([])
-    ax_status.set_ylim((-0.5,11))
-    
-    # walls
-    all_walls: dict[str, list[float]] = {
-        w_type: sorted([t for t, wall in data.walls.items() if wall[0,3] == w])
-        for w, w_type in synth_format.WALL_LOOKUP.items()
-    }
+    ax_status.set_ylim((-0.5,9))
 
     wall_markers = {
         "wall_left": ("s", "left", 7),
@@ -175,64 +244,22 @@ def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platf
     }
     quest_wall_delay_beats = QUEST_WALL_DELAY * (data.bpm / 60)  # [seconds] / [beats / second] => [beats]
 
-    for wall_type, (marker, fill, y) in wall_markers.items():
-        density_pc: list[tuple[float, int]] = []
-        density_quest: list[tuple[float, int]] = []
-
-        pc_ok: list[float] = []
-        pc_despawn: list[float] = []
-        quest_hidden: list[float] = []
-        quest_nothidden: list[float] = []
-        quest_ok: list[float] = []
-        quest_despawn: list[float] = []
-
-        last_time_quest = None
-        for i, time in enumerate(all_walls[wall_type]):
-            # pc - filter out despawn
-            visible_count = 1
-            end = time + RENDER_WINDOW
-            for other_time in all_walls[wall_type][i+1:]:
-                if other_time > end:
-                    break
-                visible_count += 1
-            density_pc.append((time, visible_count))
-            if visible_count > WALL_DESPAWN_PC:
-                pc_despawn.append(time)
-            else:
-                pc_ok.append(time)
-            # quest - first step: filter out hidden ones
-            hidden_on_quest = last_time_quest is not None and time - last_time_quest < quest_wall_delay_beats
-            if hidden_on_quest:
-                quest_hidden.append(time)
-            else:
-                last_time_quest = time
-                quest_nothidden.append(time)
-
-        # quest - second step: filter out despawn
-        for i, time in enumerate(quest_nothidden):
-            visible_count = 1
-            end = time + RENDER_WINDOW
-            for other_time in quest_nothidden[i+1:]:
-                if other_time > end:
-                    break
-                visible_count += 1
-            density_quest.append((time, visible_count))
-            if visible_count > WALL_DESPAWN_QUEST:
-                quest_despawn.append(time)
-            else:
-                quest_ok.append(time)
+    for i, wall_type in enumerate(synth_format.WALL_TYPES):
+        marker, fill, y = wall_markers[wall_type]
         if platform == "PC":
             # pc: ok first, despawn on top
+            pc_density, pc_ok, pc_despawn = prepared_data[1][i][0]
             for walls, color in zip((pc_ok, pc_despawn), ("green", "orange")):
                 for time in walls:
                     ax_status.plot([time], [y], marker=marker, fillstyle=fill, color=color)
-            ax_density.plot([time for time, _ in density_pc], [count for _, count in density_pc], label=wall_type)
+            ax_density.plot([time for time, _ in pc_density], [count for _, count in pc_density], label=wall_type)
         else:
             # quest: ok first, then despawn, hidden on top
+            quest_density, quest_ok, quest_despawn, quest_hidden = prepared_data[1][i][1]
             for walls, color in zip((quest_ok, quest_despawn, quest_hidden), ("green", "orange", "red")):
                 for time in walls:
                     ax_status.plot([time], [y], marker=marker, fillstyle=fill, color=color)
-            ax_density.plot([time for time, _ in density_quest], [count for _, count in density_quest], label=wall_type)
+            ax_density.plot([time for time, _ in quest_density], [count for _, count in quest_density], label=wall_type)
 
 
     legend_elements = [
@@ -278,6 +305,10 @@ def main(options):
     for ax in menu_axs:
         ax.set_axis_off()
 
+    def replace_prepared_data():
+        nonlocal difficulties
+        difficulties = [(d, prepare_data(data.difficulties[d])) for d in synth_format.DIFFICULTIES if d in data.difficulties]
+
     def redraw():
         tab.clear()
         _, tab_func = TABS[active_tab]
@@ -287,6 +318,7 @@ def main(options):
 
     def btn_reload(active: bool) -> None:
         data.reload()
+        replace_prepared_data()
         print(f"Reloaded {data.input_file.absolute()}")
         redraw()
     
