@@ -1,6 +1,8 @@
 #/usr/bin/env python3
 import dataclasses
 import json
+from pathlib import Path
+from zipfile import ZipFile
 
 import numpy as np
 import pyperclip
@@ -44,8 +46,12 @@ SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
 
 ALL_TYPES = NOTE_TYPES + tuple(WALL_TYPES)
 
-SINGLE_COLOR_NOTES = dict[float, list["numpy array (n, 3)"]]   # rail segment (n>1) and x,y,t
-WALLS = dict[float, list["numpy array (1, 5)"]]    # x,y,t, type, angle
+SINGLE_COLOR_NOTES = dict[float, "numpy array (n, 3)"]   # rail segment (n>1) and x,y,t
+WALLS = dict[float, "numpy array (1, 5)"]    # x,y,t, type, angle
+
+BEATMAP_JSON_FILE = "beatmap.meta.bin"
+DIFFICULTIES = ("Easy", "Normal", "Hard", "Expert", "Master", "Custom")
+META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName")
 
 BETA_WARNING_SHOWN = False
 
@@ -70,7 +76,6 @@ def round_tick_for_json(time: float) -> float:
 
 @dataclasses.dataclass
 class DataContainer:
-    original_json: str
     bpm: float
     right: SINGLE_COLOR_NOTES
     left: SINGLE_COLOR_NOTES
@@ -134,6 +139,54 @@ class DataContainer:
             setattr(self, t, self_notes | other_notes)
         self.walls |= other.walls
 
+@dataclasses.dataclass
+class ClipboardDataContainer(DataContainer):
+    original_json: str
+
+@dataclasses.dataclass
+class SynthFile:
+    input_file: Path
+    meta: dict[str, str]
+    bookmarks: dict[float, str]
+    difficulties: dict[str, DataContainer]
+
+    def reload(self) -> None:
+        with ZipFile(self.input_file) as inzip:
+            # load beatmap json
+            beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
+            bpm: float = beatmap["BPM"]
+            self.meta = {k: beatmap[k] for k in META_KEYS}
+            self.bookmarks = {
+                # bookmarks are stored in steps of 64 per beat (regardless of BPM)
+                round_time_to_fractions(bookmark_dict["time"] / 64): bookmark_dict["name"]
+                for bookmark_dict in beatmap["Bookmarks"]["BookmarksList"]
+            }
+
+            for diff in DIFFICULTIES:
+                # r, l, s, b
+                notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
+                for _, time_notes in beatmap["Track"][diff].items():
+                    for note in time_notes:
+                        note_type, nodes = note_from_synth(bpm, 0, note)
+                        notes[note_type][nodes[0,2]] = nodes
+
+                walls: dict[float, list["numpy array (1, 5)"]] = {}
+                # slides (right, left, angle_right, center, angle_right)
+                for wall_dict in beatmap["Slides"][diff]:
+                    wall = wall_from_synth(bpm, 0, wall_dict, wall_dict["slideType"])
+                    walls[wall[0, 2]] = wall
+                # other (crouch, square, triangle)
+                for wall_type in ("Crouch", "Square", "Triangle"):
+                    if wall_type + "s" not in beatmap:
+                        beta_warning()
+                        continue  # these are only in the beta editor
+                    for wall_dict in beatmap[wall_type + "s"][diff]:
+                        wall = wall_from_synth(bpm, 0, wall_dict, WALL_TYPES[wall_type.lower()][0])
+                        walls[wall[0, 2]] = wall
+                # add difficulty when there is a note of any type or a wall
+                if any(nt for nt in notes) or walls:
+                    self.difficulties[diff] = DataContainer(bpm, *notes, walls)
+
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float]) -> "numpy array (3)":
     return np.array([
@@ -192,7 +245,7 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
     return dest_list, wall_dict
 
 # full json
-def import_clipboard(use_original: bool = False) -> DataContainer:
+def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
     original_json = pyperclip.paste()
     clipboard = json.loads(original_json)
     if "original_json" in clipboard:
@@ -222,7 +275,7 @@ def import_clipboard(use_original: bool = False) -> DataContainer:
             wall = wall_from_synth(bpm, startMeasure, wall_dict, WALL_TYPES[wall_type][0])
             walls[wall[0, 2]] = wall
 
-    return DataContainer(original_json, bpm, *notes, walls)
+    return ClipboardDataContainer(bpm, *notes, walls, original_json)
 
 def export_clipboard(data: DataContainer, realign_start: bool = True):
     clipboard = {
@@ -238,8 +291,10 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
         "triangles": [],
         "slides": [],
         "lights": [],
-        "original_json": data.original_json,
     }
+    if isinstance(data, ClipboardDataContainer):
+        clipboard["original_json"] = data.original_json
+
     first = 99999
     last = -99999
     for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
@@ -270,3 +325,7 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
 
     pyperclip.copy(json.dumps(clipboard))
 
+def import_file(file_path: Path) -> SynthFile:
+    out = SynthFile(file_path, {}, {}, {})
+    out.reload()
+    return out
