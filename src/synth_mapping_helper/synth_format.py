@@ -152,7 +152,8 @@ class SynthFile:
     difficulties: dict[str, DataContainer]
 
     def reload(self) -> None:
-        with ZipFile(self.input_file) as inzip:
+        in_bio = BytesIO(self.input_file.read_bytes())  # buffer whole file in memory
+        with ZipFile(in_bio) as inzip:
             # load beatmap json
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
             bpm: float = beatmap["BPM"]

@@ -2,8 +2,9 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from io import BytesIO
 import json
 from json import JSONDecodeError
+import logging
 from pathlib import Path
-from time import strftime, time
+from time import strftime, time, sleep
 from zipfile import ZipFile
 
 import numpy as np
@@ -34,7 +35,10 @@ QUEST_WALL_DELAY = 0.050  # 50 ms on highest wall density
 OUTPUT_FILE = Path("output.synth")
 AUTOBACKUP_DIR = Path("smh_autobackup")
 AUTORELOAD_DEFAULT = True
-AUTOBACKUP_DEFAULT = 5  # in minutes, or None
+AUTORELOAD_WAIT_SEC = 1  # Editor overwrites the file twice, we want the final result
+AUTORELOAD_COOLDOWN_SEC = 5  # Don't reload very fast
+
+AUTOBACKUP_DEFAULT_MIN = 5  # in minutes, or None
 
 def get_parser():
     parser = ArgumentParser(
@@ -49,7 +53,7 @@ def get_parser():
     return parser
 
 def abort(reason: str):
-    print("ERROR: " + reason)
+    logging.error(reason)
     exit(1)
 
 def plot_bookmarks(bookmarks: dict[float, str], axs: "container of mpl axes"):
@@ -59,8 +63,8 @@ def plot_bookmarks(bookmarks: dict[float, str], axs: "container of mpl axes"):
         axs[0].text(time, 0.99, name, ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
 
 def prepare_data(data: DataContainer) -> tuple[
-    list[tuple[list["rails"], "positions", "velocity", "acceleration"]],
-    list[tuple[
+    list[tuple[list["rails"], "positions", "velocity", "acceleration"]],  # note data
+    list[tuple[  # wall data (pc + quest)
         tuple["pc_density", "pc_ok", "pc_despawn"],
         tuple["quest_density", "quest_ok", "quest_despawn", "quest_hidden"]
     ]],
@@ -326,38 +330,46 @@ def main(options):
     btns = {}
     colors = ("darksalmon", "limegreen")
     hovercolors = ("lightsalmon", "lightgreen")
+    reload_last = time()
     autobackup_last = None
 
-    autobackup_interval = AUTOBACKUP_DEFAULT
+    autobackup_interval_min = AUTOBACKUP_DEFAULT_MIN
 
-    # this is changed when doing autobackup during reload
-    autobackup_txt = menu.text(4.3/16, 1/6, "Last: <None>", horizontalalignment="left", verticalalignment="center")
+    # this is changed when doing reload and autobackup
+    reload_txt = menu.text(4.3/16, 0.3, f"Last reload: {strftime('%H:%M:%S')}", horizontalalignment="left", verticalalignment="center")
+    autobackup_txt = menu.text(4.3/16, 0.1, "Last backup: <None>", horizontalalignment="left", verticalalignment="center")
 
     # this is used by autoreloader
     def btn_reload(ev) -> None:
-        nonlocal autobackup_last, autobackup_interval
+        nonlocal reload_last, autobackup_last, autobackup_interval_min
+        reload_last = time()
+        reload_txt.set_text(f"Last reload: {strftime('%H:%M:%S')}")
         data.reload()
         replace_prepared_data()
-        print(f"Reloaded {data.input_file.absolute()}")
+        logging.info(f"Reloaded {data.input_file.absolute()}")
         # Update finalize button
         btns["Finalize"].label.set_text("UnFinalize" if data.bookmarks.get(0.0) == "#smh_finalized" else "Finalize")
         # Make a backup when enough time has passed
-        if autobackup_interval is not None and (autobackup_last is None or time() > autobackup_last + autobackup_interval):
+        if autobackup_interval_min is not None and (autobackup_last is None or time() > autobackup_last + autobackup_interval_min * 60):
             autobackup_last = time()
-            autobackup_txt.set_text(f"Last: {strftime('%H:%M:%S')}")
+            autobackup_txt.set_text(f"Last backup: {strftime('%H:%M:%S')}")
             AUTOBACKUP_DIR.mkdir(exist_ok=True, parents=True)  # make dir if it doesn't exist
             out = AUTOBACKUP_DIR / f"{data.input_file.stem}_{strftime('%Y-%m-%d_%H-%M-%S')}{data.input_file.suffix}"
             out.write_bytes(data.input_file.read_bytes())  # binary identical copy, do not rexport
-            print(f"Backup created at {out.absolute()}")
+            logging.info(f"Backup created at {out.absolute()}")
         redraw()
 
     if AUTORELOAD_DEFAULT:
         file_observer = Observer()
+        # Windows does not support watching single files, so we watch the whole directory and filter for the target
         class FileEventHandler(FileSystemEventHandler):
             def on_modified(self, event):
-                print("Detected file modification, reloading")
-                btn_reload(None)  # simulate button click
-        file_observer.schedule(FileEventHandler(), options.input)
+                if Path(event.src_path) == options.input:
+                    if time() > reload_last + AUTORELOAD_COOLDOWN_SEC:  # don't reload twice
+                        logging.info(f"Detected file modification, reloading shortly")
+                        sleep(AUTORELOAD_WAIT_SEC)
+                        btn_reload(None)  # simulate button click
+        file_observer.schedule(FileEventHandler(), options.input.parent)
         file_observer.start()
     else:
         file_observer = None
@@ -366,7 +378,7 @@ def main(options):
         nonlocal file_observer
         if file_observer is None:
             file_observer = Observer()
-            file_observer.schedule(FileEventHandler(), options.input)
+            file_observer.schedule(FileEventHandler(), options.input.parent)
             file_observer.start()
             btns["AutoReload"].color = colors[True]
             btns["AutoReload"].hovercolor = hovercolors[True]
@@ -383,18 +395,18 @@ def main(options):
             for _, diff_data in data.difficulties.items():
                 diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
             btns["Finalize"].label.set_text("UnFinalize")
-            print("Finalized map")
+            logging.info("Finalized map")
         elif data.bookmarks.get(0.0) == "#smh_finalized":
             del data.bookmarks[0.0]
             for _, diff_data in data.difficulties.items():
                 diff_data.apply_for_walls(movement.offset, offset_3d=(0,-2.1,0), types=synth_format.SLIDE_TYPES)
             btns["Finalize"].label.set_text("Finalize")
-            print("Reversed finalization")
+            logging.info("Reversed finalization")
         plt.draw()
 
     def btn_output(active: bool) -> None:
             data.save_as(OUTPUT_FILE)
-            print(f"Saved output to {OUTPUT_FILE.absolute()}")
+            logging.info(f"Saved output to {OUTPUT_FILE.absolute()}")
 
     btn_info = [
         ("Reload", btn_reload),
@@ -442,25 +454,35 @@ def main(options):
                 break
     platform_rb.on_clicked(platform_clicked)
     
-    autobackup_btn = Button(menu.add_axes((4/15,2/3,2/16,1/3)), "AutoBackup")
-    autobackup_sl = Slider(menu.add_axes((4.05/15,0.3,1.5/16,1/8)), "", 0, 15, valinit=autobackup_interval or 0, valstep=1, valfmt="%s min")
-    menu.text(4.3/16, 1/2, "Minimum age", horizontalalignment="left", verticalalignment="center")
+    autobackup_btn = Button(menu.add_axes((4/15,3/4,2/16,1/4)), "AutoBackup")
+    autobackup_sl = Slider(menu.add_axes((4.05/15,0.6,1.9/16,1/8)), "", 0, 15, valinit=autobackup_interval_min or 0, valstep=1)
+    autobackup_sl.valtext.set_visible(False)
+    autobackup_slider_txt = menu.text(4.3/16, 0.5, f"Minimum age: {autobackup_interval_min} min", horizontalalignment="left", verticalalignment="center")
+
     def btn_autobackup(ev):
-        nonlocal autobackup_interval
-        if autobackup_interval is None:
-            autobackup_interval = autobackup_sl.val * 60
+        nonlocal autobackup_interval_min
+        if autobackup_interval_min is None:
+            autobackup_interval_min = autobackup_sl.val
             autobackup_btn.color = colors[True]
             autobackup_btn.hovercolor = hovercolors[True]
         else:
-            autobackup_interval = None
+            autobackup_interval_min = None
             autobackup_btn.color = colors[False]
             autobackup_btn.hovercolor = hovercolors[False]
     autobackup_btn.on_clicked(btn_autobackup)
-    autobackup_btn.color = colors[autobackup_interval is not None]
-    autobackup_btn.hovercolor = hovercolors[autobackup_interval is not None]
+    autobackup_btn.color = colors[autobackup_interval_min is not None]
+    autobackup_btn.hovercolor = hovercolors[autobackup_interval_min is not None]
+
+    def sl_autobackup(ev):
+        nonlocal autobackup_interval_min
+        autobackup_slider_txt.set_text(f"Minimum age: {autobackup_sl.val} min")
+        if autobackup_interval_min is not None:
+            autobackup_interval_min = autobackup_sl.val
+    autobackup_sl.on_changed(sl_autobackup)
 
     redraw()
     plt.show()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
     main(get_parser().parse_args())
