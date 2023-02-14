@@ -3,6 +3,7 @@ from io import BytesIO
 import json
 from json import JSONDecodeError
 import logging
+import os
 from pathlib import Path
 from time import strftime, time, sleep
 from zipfile import ZipFile
@@ -317,15 +318,18 @@ def main(options):
 
     def replace_prepared_data():
         nonlocal difficulties
+        logging.info("Preparing plot data")
         difficulties = [(d, prepare_data(data.difficulties[d])) for d in synth_format.DIFFICULTIES if d in data.difficulties]
 
     def redraw():
+        logging.info("Drawing plots")
         tab.clear()
         _, tab_func = TABS[active_tab]
         diff_name, prepared_data = difficulties[active_difficulty]
         tab_func(tab, data, data.difficulties[diff_name], prepared_data, platform=PLATFORMS[active_platform])
-        plt.draw()
-
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        logging.info("Drawing complete")
 
     btns = {}
     colors = ("darksalmon", "limegreen")
@@ -359,9 +363,13 @@ def main(options):
             logging.info(f"Backup created at {out.absolute()}")
         redraw()
 
-    if AUTORELOAD_DEFAULT:
+    file_observer = None
+    def refresh_watchdog():
+        nonlocal file_observer
+        if file_observer is not None:
+            file_observer.stop()
         file_observer = Observer()
-        # Windows does not support watching single files, so we watch the whole directory and filter for the target
+
         class FileEventHandler(FileSystemEventHandler):
             def on_modified(self, event):
                 if Path(event.src_path) == options.input:
@@ -369,17 +377,18 @@ def main(options):
                         logging.info(f"Detected file modification, reloading shortly")
                         sleep(AUTORELOAD_WAIT_SEC)
                         btn_reload(None)  # simulate button click
-        file_observer.schedule(FileEventHandler(), options.input.parent)
+                    refresh_watchdog()  # editor does weird stuff, so restart watchdog every time
+        # Windows does not support watching single files, so we watch the whole directory (and filter for the target)
+        file_observer.schedule(FileEventHandler(), options.input.parent if os.name == "nt" else options.input)
         file_observer.start()
-    else:
-        file_observer = None
+
+    if AUTORELOAD_DEFAULT:
+        refresh_watchdog()
     
     def btn_autoreload(ev) -> None:
         nonlocal file_observer
         if file_observer is None:
-            file_observer = Observer()
-            file_observer.schedule(FileEventHandler(), options.input.parent)
-            file_observer.start()
+            refresh_watchdog()
             btns["AutoReload"].color = colors[True]
             btns["AutoReload"].hovercolor = hovercolors[True]
         else:
