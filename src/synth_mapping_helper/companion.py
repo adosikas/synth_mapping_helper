@@ -26,15 +26,18 @@ def min_sec_formatter(x, _) -> str:
 
 NOTE_COLORS = {"right": "red", "left": "cyan", "single": "lime", "both": "gold"}
 
-VELOCITY_WINDOW = 0.5  # half a second gap breaks up velocity / acceleration calculations
 RENDER_WINDOW = 4  # 4 seconds of elements are rendered
 WALL_DESPAWN_PC = 80  # limit of visible walls, earlier ones despawn
 WALL_DESPAWN_QUEST = 40
+# TODO: quest delay needs more research, sometimes 47 ms delay still renders
+# TODO: find a way to configure this in a way that matches ingame settings
 QUEST_WALL_DELAY = 0.050  # 50 ms on highest wall density
 
+DEFAULT_OUTPUT_FILE = Path("output.synth")  # inside working directory
+DEFAULT_BACKUP_DIR = Path("smh_backup")  # inside working directory
+DEFAULT_VELOCITY_WINDOW = 0.5  # half a second gap breaks up velocity / acceleration calculations
+
 # TODO: make those command line arguments
-OUTPUT_FILE = Path("output.synth")
-AUTOBACKUP_DIR = Path("smh_autobackup")
 AUTORELOAD_DEFAULT = True
 AUTORELOAD_WAIT_SEC = 1  # Editor overwrites the file twice, we want the final result
 AUTORELOAD_COOLDOWN_SEC = 5  # Don't reload very fast
@@ -51,6 +54,9 @@ def get_parser():
         epilog=f"Version: {__version__}",
     )
     parser.add_argument("input", type=Path, help="Input file")
+    parser.add_argument("-o", "--output-file", type=Path, default=DEFAULT_OUTPUT_FILE, help="Output file")
+    parser.add_argument("-b", "--backup-dir", type=Path, default=DEFAULT_BACKUP_DIR, help="Directory for autobackups")
+    parser.add_argument("--velocity-window", type=float, default=DEFAULT_VELOCITY_WINDOW, help="Reset velocity/acceleration calculation after this many seconds. Default: 0.5 s")
     return parser
 
 def abort(reason: str):
@@ -63,7 +69,7 @@ def plot_bookmarks(bookmarks: dict[float, str], axs: "container of mpl axes"):
             ax.axvline(time, color="grey")
         axs[0].text(time, 0.99, name, ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
 
-def prepare_data(data: DataContainer) -> tuple[
+def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
     list[tuple[list["rails"], "positions", "velocity", "acceleration"]],  # note data
     list[tuple[  # wall data (pc + quest)
         tuple["pc_density", "pc_ok", "pc_despawn"],
@@ -71,7 +77,7 @@ def prepare_data(data: DataContainer) -> tuple[
     ]],
 ]:
     # NOTES DATA
-    velocity_window_beats = VELOCITY_WINDOW * (data.bpm / 60)  # [seconds] / [beats / second]
+    velocity_window_beats = velocity_window * (data.bpm / 60)  # [seconds] / [beats / second]
     note_out = []
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
         rails: list["xyz"] = []
@@ -148,10 +154,15 @@ def prepare_data(data: DataContainer) -> tuple[
             visible_count = 1
             end = time + RENDER_WINDOW
             for other_time in all_walls[wall_type][i+1:]:
-                if other_time > end:
+                if other_time > end:  # next wall is not visible yet
+                    pc_density.append((time, visible_count))
+                    if visible_count == 1:  # only a single wall visible (ie last wall of a group)
+                        # break up density plot
+                        pc_density.append(((time+other_time)/2, np.nan))
                     break
                 visible_count += 1
-            pc_density.append((time, visible_count))
+            else:  # all remaining walls are visisble
+                pc_density.append((time, visible_count))
             if visible_count > WALL_DESPAWN_PC:
                 pc_despawn.append(time)
             else:
@@ -169,10 +180,15 @@ def prepare_data(data: DataContainer) -> tuple[
             visible_count = 1
             end = time + RENDER_WINDOW
             for other_time in quest_nothidden[i+1:]:
-                if other_time > end:
+                if other_time > end:  # next wall is not visible yet
+                    quest_density.append((time, visible_count))
+                    if visible_count == 1:  # only a single wall visible (ie last wall of a group)
+                        # break up density plot
+                        quest_density.append(((time+other_time)/2, np.nan))
                     break
                 visible_count += 1
-            quest_density.append((time, visible_count))
+            else:  # all remaining walls are visisble
+                quest_density.append((time, visible_count))
             if visible_count > WALL_DESPAWN_QUEST:
                 quest_despawn.append(time)
             else:
@@ -182,7 +198,7 @@ def prepare_data(data: DataContainer) -> tuple[
     return note_out, wall_out
 
 def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwargs):
-    axs = fig.subplots(4)
+    axs = fig.subplots(4, sharex=True)
     axs[-1].set_xlabel("beats")
     plot_bookmarks(infile.bookmarks, axs)
 
@@ -230,7 +246,7 @@ def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwa
         ax_acc.plot(pos[1:-1, 2], [np.sqrt(a.dot(a)) * acc_mul for a in acc], color=color)
 
 def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
-    axs = fig.subplots(2)
+    axs = fig.subplots(2, sharex=True)
     axs[-1].set_xlabel("beats")
     plot_bookmarks(infile.bookmarks, axs)
 
@@ -247,6 +263,7 @@ def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platf
     ax_status.set_ylim((-0.5,9))
 
     wall_markers = {
+        # type: (marker shape, marker fill, y-slot in type plot)
         "wall_left": ("s", "left", 7),
         "wall_right": ("s", "right", 6),
         "angle_left": ("o", "left", 5),
@@ -266,14 +283,14 @@ def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platf
             for walls, color in zip((pc_ok, pc_despawn), ("green", "orange")):
                 for time in walls:
                     ax_status.plot([time], [y], marker=marker, fillstyle=fill, color=color)
-            ax_density.plot([time for time, _ in pc_density], [count for _, count in pc_density], label=wall_type)
+            ax_density.plot([time for time, _ in pc_density], [count for _, count in pc_density], label=wall_type, marker=".")
         else:
             # quest: ok first, then despawn, hidden on top
             quest_density, quest_ok, quest_despawn, quest_hidden = prepared_data[1][i][1]
             for walls, color in zip((quest_ok, quest_despawn, quest_hidden), ("green", "orange", "red")):
                 for time in walls:
                     ax_status.plot([time], [y], marker=marker, fillstyle=fill, color=color)
-            ax_density.plot([time for time, _ in quest_density], [count for _, count in quest_density], label=wall_type)
+            ax_density.plot([time for time, _ in quest_density], [count for _, count in quest_density], label=wall_type, marker=".")
 
 
     legend_elements = [
@@ -306,20 +323,22 @@ def main(options):
     # load beatmap json
     data = synth_format.import_file(options.input)
 
-    active_tab = 0
-    active_difficulty = 0
-    active_platform = 0
-    difficulties = [(d, prepare_data(data.difficulties[d])) for d in synth_format.DIFFICULTIES if d in data.difficulties]
-
     fig = plt.figure(figsize=(16, 9), layout="constrained")
     fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta['Author']} - {data.meta['Name']}")
     menu, tab = fig.subfigures(2, 1, height_ratios=(1,8))
 
+    active_tab = 0
+    active_difficulty = 0
+    active_platform = 0
 
+    difficulties: list[tuple["difficulty_index", "prepared_data"]] = None
     def replace_prepared_data():
         nonlocal difficulties
-        logging.info("Preparing plot data")
-        difficulties = [(d, prepare_data(data.difficulties[d])) for d in synth_format.DIFFICULTIES if d in data.difficulties]
+        logging.info("Preparing data")
+        difficulties = [(d, prepare_data(data.difficulties[d], options.velocity_window)) for d in synth_format.DIFFICULTIES if d in data.difficulties]
+        logging.info("Preparing complete")
+
+    replace_prepared_data()
 
     def redraw():
         logging.info("Drawing plots")
@@ -343,6 +362,18 @@ def main(options):
     reload_txt = menu.text(4.3/16, 0.3, f"Last reload: {strftime('%H:%M:%S')}", horizontalalignment="left", verticalalignment="center")
     autobackup_txt = menu.text(4.3/16, 0.1, "Last backup: <None>", horizontalalignment="left", verticalalignment="center")
 
+    # this is used by btn_reload
+    def btn_backup(ev) -> None:
+        nonlocal autobackup_last, autobackup_interval_min
+        autobackup_last = time()
+        autobackup_txt.set_text(f"Last backup: {strftime('%H:%M:%S')}")
+        redraw()  # force redraw to update text
+
+        options.backup_dir.mkdir(exist_ok=True, parents=True)  # make dir if it doesn't exist
+        out = options.backup_dir / f"{data.input_file.stem}_{strftime('%Y-%m-%d_%H-%M-%S')}{data.input_file.suffix}"
+        out.write_bytes(data.input_file.read_bytes())  # binary identical copy, do not rexport
+        logging.info(f"Backup created at {out.absolute()}")
+
     # this is used by autoreloader
     def btn_reload(ev) -> None:
         nonlocal reload_last, autobackup_last, autobackup_interval_min
@@ -355,13 +386,9 @@ def main(options):
         btns["Finalize"].label.set_text("UnFinalize" if data.bookmarks.get(0.0) == "#smh_finalized" else "Finalize")
         # Make a backup when enough time has passed
         if autobackup_interval_min is not None and (autobackup_last is None or time() > autobackup_last + autobackup_interval_min * 60):
-            autobackup_last = time()
-            autobackup_txt.set_text(f"Last backup: {strftime('%H:%M:%S')}")
-            AUTOBACKUP_DIR.mkdir(exist_ok=True, parents=True)  # make dir if it doesn't exist
-            out = AUTOBACKUP_DIR / f"{data.input_file.stem}_{strftime('%Y-%m-%d_%H-%M-%S')}{data.input_file.suffix}"
-            out.write_bytes(data.input_file.read_bytes())  # binary identical copy, do not rexport
-            logging.info(f"Backup created at {out.absolute()}")
-        redraw()
+            btn_backup(None)  # this redraws
+        else:
+            redraw()
 
     file_observer = None
     def refresh_watchdog():
@@ -374,6 +401,7 @@ def main(options):
             def on_modified(self, event):
                 if Path(event.src_path) == options.input:
                     if time() > reload_last + AUTORELOAD_COOLDOWN_SEC:  # don't reload twice
+                        # TODO: figure out if something actually changed (only beatmap and ignore image/metadata/etc)
                         logging.info(f"Detected file modification, reloading shortly")
                         sleep(AUTORELOAD_WAIT_SEC)
                         btn_reload(None)  # simulate button click
@@ -414,8 +442,8 @@ def main(options):
         plt.draw()
 
     def btn_output(active: bool) -> None:
-            data.save_as(OUTPUT_FILE)
-            logging.info(f"Saved output to {OUTPUT_FILE.absolute()}")
+            data.save_as(options.output_file)
+            logging.info(f"Saved output to {options.output_file.absolute()}")
 
     btn_info = [
         ("Reload", btn_reload),
@@ -462,8 +490,11 @@ def main(options):
                 redraw()
                 break
     platform_rb.on_clicked(platform_clicked)
-    
-    autobackup_btn = Button(menu.add_axes((4/15,3/4,2/16,1/4)), "AutoBackup")
+
+    backup_btn = Button(menu.add_axes((4/15,3/4,1/16,1/4)), "Backup now")
+    backup_btn.on_clicked(btn_backup)
+
+    autobackup_btn = Button(menu.add_axes((5/15,3/4,1/16,1/4)), "AutoBackup")
     autobackup_sl = Slider(menu.add_axes((4.05/15,0.6,1.9/16,1/8)), "", 0, 15, valinit=autobackup_interval_min or 0, valstep=1)
     autobackup_sl.valtext.set_visible(False)
     autobackup_slider_txt = menu.text(4.3/16, 0.5, f"Minimum age: {autobackup_interval_min} min", horizontalalignment="left", verticalalignment="center")
