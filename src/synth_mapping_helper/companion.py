@@ -85,7 +85,7 @@ def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
         notes_dict = getattr(data, note_type)
         if not notes_dict:
             # early abort when there are no notes
-            out.append((np.zeros((0,3)), np.zeros((0,2)), np.zeros((0,2))))
+            note_out.append((np.zeros((0,3)), np.zeros((0,2)), np.zeros((0,2)), np.zeros((0,2))))
             continue
         
         # first, dump all notes and interpolated rails into a dict, to get positions over time
@@ -240,10 +240,13 @@ def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwa
         for r in rails:
             ax_x.plot(r[:, 2], r[:, 0], color=color)
             ax_y.plot(r[:, 2], r[:, 1], color=color)
-        # velocity (n-1), plotted between two nodes
-        ax_vel.plot((pos[1:, 2] + pos[:-1, 2])/2, [np.sqrt(v.dot(v)) * vel_mul for v in vel], color=color)
-        # acceleration (n-2) plotted at nodes (skipping first and last position)
-        ax_acc.plot(pos[1:-1, 2], [np.sqrt(a.dot(a)) * acc_mul for a in acc], color=color)
+
+        if pos.shape[0] > 1:
+            # velocity (n-1), plotted between two nodes
+            ax_vel.plot((pos[1:, 2] + pos[:-1, 2])/2, [np.sqrt(v.dot(v)) * vel_mul for v in vel], color=color)
+        if pos.shape[0] > 2:
+            # acceleration (n-2) plotted at nodes (skipping first and last position)
+            ax_acc.plot(pos[1:-1, 2], [np.sqrt(a.dot(a)) * acc_mul for a in acc], color=color)
 
 def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
     axs = fig.subplots(2, sharex=True)
@@ -372,7 +375,7 @@ def main(options):
         options.backup_dir.mkdir(exist_ok=True, parents=True)  # make dir if it doesn't exist
         out = options.backup_dir / f"{data.input_file.stem}_{strftime('%Y-%m-%d_%H-%M-%S')}{data.input_file.suffix}"
         out.write_bytes(data.input_file.read_bytes())  # binary identical copy, do not rexport
-        logging.info(f"Backup created at {out.absolute()}")
+        logging.info(f"Backup created at {out.resolve()}")
 
     # this is used by autoreloader
     def btn_reload(ev) -> None:
@@ -381,7 +384,7 @@ def main(options):
         reload_txt.set_text(f"Last reload: {strftime('%H:%M:%S')}")
         data.reload()
         replace_prepared_data()
-        logging.info(f"Reloaded {data.input_file.absolute()}")
+        logging.info(f"Reloaded {data.input_file.resolve()}")
         # Update finalize button
         btns["Finalize"].label.set_text("UnFinalize" if data.bookmarks.get(0.0) == "#smh_finalized" else "Finalize")
         # Make a backup when enough time has passed
@@ -430,20 +433,20 @@ def main(options):
         if data.bookmarks.get(0.0) != "#smh_finalized":
             data.bookmarks[0.0] = "#smh_finalized"
             for _, diff_data in data.difficulties.items():
-                diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
+                diff_data.apply_for_walls(movement.offset, offset_3d=(0,-2.1,0), types=synth_format.SLIDE_TYPES)
             btns["Finalize"].label.set_text("UnFinalize")
             logging.info("Finalized map")
         elif data.bookmarks.get(0.0) == "#smh_finalized":
             del data.bookmarks[0.0]
             for _, diff_data in data.difficulties.items():
-                diff_data.apply_for_walls(movement.offset, offset_3d=(0,-2.1,0), types=synth_format.SLIDE_TYPES)
+                diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
             btns["Finalize"].label.set_text("Finalize")
             logging.info("Reversed finalization")
         plt.draw()
 
     def btn_output(active: bool) -> None:
             data.save_as(options.output_file)
-            logging.info(f"Saved output to {options.output_file.absolute()}")
+            logging.info(f"Saved output to {options.output_file.resolve()}")
 
     btn_info = [
         ("Reload", btn_reload),
