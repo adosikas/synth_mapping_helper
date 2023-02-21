@@ -16,8 +16,6 @@ setuptools.setup(
         'Bug Reports':
         'https://github.com/adosikas/synth_mapping_helper',
         'Source Code': 'https://github.com/adosikas/synth_mapping_helper',
-        # 'Funding': '',
-        # 'Say Thanks!': '',
     },
     package_dir={'': 'src'},
     packages=setuptools.find_packages(where='src'),
@@ -37,7 +35,7 @@ setuptools.setup(
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.9',
-    install_requires=['numpy', 'scipy', 'matplotlib', 'pyperclip'],
+    install_requires=['numpy', 'scipy', 'matplotlib', 'pyperclip', 'watchdog'],
     extras_require={
         'dev': ['check-manifest'],
         # 'test': ['coverage'],

@@ -9,7 +9,7 @@ goto :eof
 	echo Executing %line%
 	python3 -m synth_mapping_helper.cli %line% || (
 		echo.
-		echo An script error occured executing %line%
+		echo A script error occured executing %line%
 		echo Aborting...
 		echo.
 		pause

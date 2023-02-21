@@ -30,7 +30,7 @@ def get_parser():
         formatter_class=RawDescriptionHelpFormatter,
         prog=f"python3 -m {__package__}.{Path(__file__).stem}",
         description='\n'.join([
-            "Finalizes a map:"
+            "[DEPRECATED] Finalizes a map:"
             "  * Move certain walls up so they appear ingame as they do in the editor"
             "",
             "Also see the wiki on GitHub, which contains more detailed explainations, as well as some examples and images: https://github.com/adosikas/synth_mapping_helper/wiki",

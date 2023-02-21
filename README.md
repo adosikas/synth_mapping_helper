@@ -36,19 +36,23 @@ For more info on each feature, check out [the wiki](https://github.com/adosikas/
     * Notes/Rails seperated by color and as `n x 3` numpy-arrays (x, y, time)
     * Walls as `1 x 5` numpy-arrays (x, y, time, type, rotation)
     * Walls positions are adjusted to match their rotation center
-* [Script to "finalize" maps](https://github.com/adosikas/synth_mapping_helper/wiki/Finalizing):
-    * Offset walls so they appear ingame as they do in the editor
-    * Can plot hand velocity and acceleration
+* [Companion application](https://github.com/adosikas/synth_mapping_helper/wiki/Companion):
+    * **Automatic backups** while mapping
+    * Plot notes to spot outliers
+    * View hand velocity and acceleration to find sections to smooth out
+    * Show wall density and estimatation which ones will not render on quest
+    * Fix **wall offset** between editor and game ("Finalize")
 
-### Maybe
-* GUI
+### Maybe (contributions welcome)
+* GUI for 
 * Automatic smoothing
 
 ## How to Install and use
 
 ### Advanced users
-* Install via `pip3 install synth_mapping_helper` (requires python 3.9 or higher)
-* See `python3 -m synth_mapping_helper.cli -h` for usage
+* Install via `pip3 install synth_mapping_helper` (requires Python 3.9 or higher)
+* See `python3 -m synth_mapping_helper.cli -h` for usage of the clipboard manipulation
+* See `python3 -m synth_mapping_helper.companion -h` for usage of the companion
 * Feel free to experiment with extending functionality by using the module functions directly. If you have something that you think could help other mappers, please make a PR
 
 ### Windows
