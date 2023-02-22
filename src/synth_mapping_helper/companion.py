@@ -37,7 +37,13 @@ DEFAULT_OUTPUT_FILE = Path("output.synth")  # inside working directory
 DEFAULT_BACKUP_DIR = Path("smh_backup")  # inside working directory
 DEFAULT_VELOCITY_WINDOW = 0.5  # half a second gap breaks up velocity / acceleration calculations
 
+DEFAULT_WINDOW_WIDTH = 1600
+DEFAULT_WINDOW_HEIGHT = 900
+DEFAULT_MENU_SIZE = 100
+
 # TODO: make those command line arguments
+VEL_LIMIT = 100
+ACC_LIMIT = 100
 AUTORELOAD_DEFAULT = True
 AUTORELOAD_WAIT_SEC = 1  # Editor overwrites the file twice, we want the final result
 AUTORELOAD_COOLDOWN_SEC = 5  # Don't reload very fast
@@ -54,9 +60,11 @@ def get_parser():
         epilog=f"Version: {__version__}",
     )
     parser.add_argument("input", type=Path, help="Input file")
-    parser.add_argument("-o", "--output-file", type=Path, default=DEFAULT_OUTPUT_FILE, help="Output file")
-    parser.add_argument("-b", "--backup-dir", type=Path, default=DEFAULT_BACKUP_DIR, help="Directory for autobackups")
-    parser.add_argument("--velocity-window", type=float, default=DEFAULT_VELOCITY_WINDOW, help="Reset velocity/acceleration calculation after this many seconds. Default: 0.5 s")
+    parser.add_argument("-o", "--output-file", type=Path, default=DEFAULT_OUTPUT_FILE, help=f"Output file. Default: {DEFAULT_OUTPUT_FILE}")
+    parser.add_argument("-b", "--backup-dir", type=Path, default=DEFAULT_BACKUP_DIR, help=f"Directory for autobackups. Default: {DEFAULT_BACKUP_DIR}")
+    parser.add_argument("--velocity-window", type=float, default=DEFAULT_VELOCITY_WINDOW, help=f"Reset velocity/acceleration calculation after this many seconds. Default: {DEFAULT_VELOCITY_WINDOW} s")
+    parser.add_argument("--window-size", type=str, default=f"{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}", help=f"Size of plot window (excluding toolbars) in pixels. Default: {DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}")
+    parser.add_argument("--menu-size", type=int, default=f"{DEFAULT_MENU_SIZE}", help=f"Height of menu in pixels. Also influences text size. Default: {DEFAULT_MENU_SIZE}")
     return parser
 
 def abort(reason: str):
@@ -113,7 +121,7 @@ def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
         pos_diff = np.diff(pos, axis=0)  # difference in position across time
         vel = pos_diff[:, :2] / pos_diff[:, 2:3]
         vel_diff = np.diff(pos_diff, axis=0)
-        # acceleration at point b can be considered over have the previous and next time delta
+        # acceleration at point b can be considered over half the previous and next time delta
         acc = vel_diff / ((pos_diff[1:, 2:3] + pos_diff[:-1, 2:3]) / 2)
         note_out.append((rails, pos, vel, acc))
 
@@ -214,10 +222,10 @@ def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwa
     ax_y.grid(True)
 
     ax_vel.set_ylabel("Velocity (sq/s)")
-    ax_vel.set_ylim((0,100))
+    ax_vel.set_ylim((0,VEL_LIMIT))
     vel_mul = data.bpm / 60
     ax_acc.set_ylabel("Acceleration (sq/s²)")
-    ax_acc.set_ylim((0,100))
+    ax_acc.set_ylim((0,ACC_LIMIT))
     acc_mul = vel_mul * vel_mul
 
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
@@ -323,18 +331,31 @@ def main(options):
     if not options.input.is_file():
         abort("Input file is not a file, is the path correct?")
 
+    win_sizes = options.window_size.split("x")
+    if len(win_sizes) != 2:
+        abort("Window size must be '<width>x<height>'")
+    # scale the GUI based on one GUI block
+    win_w = int(win_sizes[0]) / options.menu_size
+    win_h = int(win_sizes[1]) / options.menu_size
+
+    if win_w < 5:
+        abort("Window width is too small")
+    if win_h < 5:
+        abort("Window height is too small")
+
     # load beatmap json
     data = synth_format.import_file(options.input)
 
-    fig = plt.figure(figsize=(16, 9), layout="constrained")
+
+    fig = plt.figure(figsize=(win_w, win_h), dpi=options.menu_size, layout="constrained")
     fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta['Author']} - {data.meta['Name']}")
-    menu, tab = fig.subfigures(2, 1, height_ratios=(1,8))
+    menu, tab = fig.subfigures(2, 1, height_ratios=(1,win_h-1))
 
     active_tab = 0
     active_difficulty = 0
     active_platform = 0
 
-    difficulties: list[tuple["difficulty_index", "prepared_data"]] = None
+    difficulties: list[tuple["difficulty_name", "prepared_data"]] = None
     def replace_prepared_data():
         nonlocal difficulties
         logging.info("Preparing data")
@@ -344,10 +365,10 @@ def main(options):
     replace_prepared_data()
 
     def redraw():
-        logging.info("Drawing plots")
-        tab.clear()
-        _, tab_func = TABS[active_tab]
+        tab_name, tab_func = TABS[active_tab]
         diff_name, prepared_data = difficulties[active_difficulty]
+        logging.info(f"Drawing {tab_name}: {diff_name}")
+        tab.clear()
         tab_func(tab, data, data.difficulties[diff_name], prepared_data, platform=PLATFORMS[active_platform])
         fig.canvas.draw()
         fig.canvas.flush_events()
@@ -362,8 +383,8 @@ def main(options):
     autobackup_interval_min = AUTOBACKUP_DEFAULT_MIN
 
     # this is changed when doing reload and autobackup
-    reload_txt = menu.text(4.3/16, 0.3, f"Last reload: {strftime('%H:%M:%S')}", horizontalalignment="left", verticalalignment="center")
-    autobackup_txt = menu.text(4.3/16, 0.1, "Last backup: <None>", horizontalalignment="left", verticalalignment="center")
+    reload_txt = menu.text(4.3/win_w, 0.3, f"Last reload: {strftime('%H:%M:%S')}", horizontalalignment="left", verticalalignment="center")
+    autobackup_txt = menu.text(4.3/win_w, 0.1, "Last backup: <None>", horizontalalignment="left", verticalalignment="center")
 
     # this is used by btn_reload
     def btn_backup(ev) -> None:
@@ -445,8 +466,8 @@ def main(options):
         plt.draw()
 
     def btn_output(active: bool) -> None:
-            data.save_as(options.output_file)
-            logging.info(f"Saved output to {options.output_file.resolve()}")
+        data.save_as(options.output_file)
+        logging.info(f"Saved output to {options.output_file.resolve()}")
 
     btn_info = [
         ("Reload", btn_reload),
@@ -456,7 +477,7 @@ def main(options):
     ]
 
     for i, (text, func) in enumerate(btn_info):
-        btns[text] = Button(menu.add_axes((0,(len(btn_info)-(i+0.9))/len(btn_info),1/16,0.9/len(btn_info))), text)
+        btns[text] = Button(menu.add_axes((0,(len(btn_info)-(i+0.9))/len(btn_info),1/win_w,0.9/len(btn_info))), text)
         btns[text].on_clicked(func)
 
     btns["AutoReload"].color = colors[file_observer is not None]
@@ -464,7 +485,7 @@ def main(options):
     if data.bookmarks.get(0.0) == "#smh_finalized":
         btns["Finalize"].label.set_text("UnFinalize")
 
-    tab_rb = RadioButtons(menu.add_axes((1/15,0,1/16,1)), [n for n, *_ in TABS], active_tab)
+    tab_rb = RadioButtons(menu.add_axes((1/win_w,0,1/win_w,1)), [n for n, *_ in TABS], active_tab)
     def tab_clicked(selected: str):
         nonlocal active_tab
         for tab_id, (name, *_) in enumerate(TABS):
@@ -474,17 +495,17 @@ def main(options):
                 break
     tab_rb.on_clicked(tab_clicked)
 
-    diff_rb = RadioButtons(menu.add_axes((2/15,0,1/16,1)), [d for d, *_ in difficulties], active_difficulty)
+    diff_rb = RadioButtons(menu.add_axes((2/win_w,0,1/win_w,1)), [d for d, *_ in difficulties], active_difficulty)
     def diff_clicked(selected: str):
         nonlocal active_difficulty
-        for diff_id, name in enumerate(difficulties):
+        for diff_id, (name, _) in enumerate(difficulties):
             if name == selected and diff_id != active_difficulty:
                 active_difficulty = diff_id
                 redraw()
                 break
     diff_rb.on_clicked(diff_clicked)
 
-    platform_rb = RadioButtons(menu.add_axes((3/15,0,1/16,1)), PLATFORMS, active_difficulty)
+    platform_rb = RadioButtons(menu.add_axes((3/win_w,0,1/win_w,1)), PLATFORMS, active_difficulty)
     def platform_clicked(selected: str):
         nonlocal active_platform
         for platform_id, name in enumerate(PLATFORMS):
@@ -494,13 +515,13 @@ def main(options):
                 break
     platform_rb.on_clicked(platform_clicked)
 
-    backup_btn = Button(menu.add_axes((4/15,3/4,1/16,1/4)), "Backup now")
+    backup_btn = Button(menu.add_axes((4/win_w,3/4,1/win_w,1/4)), "Backup now")
     backup_btn.on_clicked(btn_backup)
 
-    autobackup_btn = Button(menu.add_axes((5/15,3/4,1/16,1/4)), "AutoBackup")
-    autobackup_sl = Slider(menu.add_axes((4.05/15,0.6,1.9/16,1/8)), "", 0, 15, valinit=autobackup_interval_min or 0, valstep=1)
+    autobackup_btn = Button(menu.add_axes((5/win_w,3/4,1/win_w,1/4)), "AutoBackup")
+    autobackup_sl = Slider(menu.add_axes((4.05/win_w,0.6,1.9/win_w,1/8)), "", 0, 15, valinit=autobackup_interval_min or 0, valstep=1)
     autobackup_sl.valtext.set_visible(False)
-    autobackup_slider_txt = menu.text(4.3/16, 0.5, f"Minimum age: {autobackup_interval_min} min", horizontalalignment="left", verticalalignment="center")
+    autobackup_slider_txt = menu.text(4.3/win_w, 0.5, f"Minimum age: {autobackup_interval_min} min", horizontalalignment="left", verticalalignment="center")
 
     def btn_autobackup(ev):
         nonlocal autobackup_interval_min
