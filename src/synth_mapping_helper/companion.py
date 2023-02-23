@@ -16,8 +16,8 @@ from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from . import movement, synth_format, __version__
-from .rails import interpolate_spline
+from . import movement, synth_format, utils, __version__
+from .rails import bounded_arange, interpolate_spline
 from .synth_format import DataContainer, SynthFile
 
 @FuncFormatter
@@ -35,15 +35,17 @@ QUEST_WALL_DELAY = 0.050  # 50 ms on highest wall density
 
 DEFAULT_OUTPUT_FILE = Path("output.synth")  # inside working directory
 DEFAULT_BACKUP_DIR = Path("smh_backup")  # inside working directory
-DEFAULT_VELOCITY_WINDOW = 0.5  # half a second gap breaks up velocity / acceleration calculations
+
+DEFAULT_VELOCITY_WINDOW = utils.SecondFloat(0.5)  # half a second gap breaks up velocity / acceleration calculations
+DEFAULT_INTERPOLATION = 1/16
+DEFAULT_VEL_LIMIT = 100
+DEFAULT_ACC_LIMIT = 1000
 
 DEFAULT_WINDOW_WIDTH = 1600
 DEFAULT_WINDOW_HEIGHT = 900
 DEFAULT_MENU_SIZE = 100
 
 # TODO: make those command line arguments
-VEL_LIMIT = 100
-ACC_LIMIT = 100
 AUTORELOAD_DEFAULT = True
 AUTORELOAD_WAIT_SEC = 1  # Editor overwrites the file twice, we want the final result
 AUTORELOAD_COOLDOWN_SEC = 5  # Don't reload very fast
@@ -55,6 +57,8 @@ def get_parser():
         formatter_class=RawDescriptionHelpFormatter,
         prog=f"python3 -m {__package__}.{Path(__file__).stem}",
         description='\n'.join([
+            "velocity window and interpolation accept any time format, by default in beats, but also '0.5s'",
+            ""
             "Also see the wiki on GitHub, which contains more detailed explainations, as well as some examples and images: https://github.com/adosikas/synth_mapping_helper/wiki",
         ]),
         epilog=f"Version: {__version__}",
@@ -62,7 +66,12 @@ def get_parser():
     parser.add_argument("input", type=Path, help="Input file")
     parser.add_argument("-o", "--output-file", type=Path, default=DEFAULT_OUTPUT_FILE, help=f"Output file. Default: {DEFAULT_OUTPUT_FILE}")
     parser.add_argument("-b", "--backup-dir", type=Path, default=DEFAULT_BACKUP_DIR, help=f"Directory for autobackups. Default: {DEFAULT_BACKUP_DIR}")
-    parser.add_argument("--velocity-window", type=float, default=DEFAULT_VELOCITY_WINDOW, help=f"Reset velocity/acceleration calculation after this many seconds. Default: {DEFAULT_VELOCITY_WINDOW} s")
+
+    parser.add_argument("--velocity-window", type=utils.parse_time, default=DEFAULT_VELOCITY_WINDOW, help=f"Breaks at least this long reset velocity/acceleration calculation. Default: {DEFAULT_VELOCITY_WINDOW}")
+    parser.add_argument("--interpolation", type=utils.parse_time, default=DEFAULT_INTERPOLATION, help=f"Interpolation distance for plots and velocity/accelation calculation. Default: {DEFAULT_INTERPOLATION}")
+    parser.add_argument("--velocity-limit", type=float, default=DEFAULT_VEL_LIMIT, help=f"Starting limit of the velocity plot. Default: {DEFAULT_VEL_LIMIT}")
+    parser.add_argument("--acceleration-limit", type=float, default=DEFAULT_ACC_LIMIT, help=f"Starting limit of the acceleration plot. Default: {DEFAULT_ACC_LIMIT}")
+
     parser.add_argument("--window-size", type=str, default=f"{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}", help=f"Size of plot window (excluding toolbars) in pixels. Default: {DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}")
     parser.add_argument("--menu-size", type=int, default=f"{DEFAULT_MENU_SIZE}", help=f"Height of menu in pixels. Also influences text size. Default: {DEFAULT_MENU_SIZE}")
     return parser
@@ -77,7 +86,7 @@ def plot_bookmarks(bookmarks: dict[float, str], axs: "container of mpl axes"):
             ax.axvline(time, color="grey")
         axs[0].text(time, 0.99, name, ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
 
-def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
+def prepare_data(data: DataContainer, options) -> tuple[
     list[tuple[list["rails"], "positions", "velocity", "acceleration"]],  # note data
     list[tuple[  # wall data (pc + quest)
         tuple["pc_density", "pc_ok", "pc_despawn"],
@@ -85,7 +94,7 @@ def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
     ]],
 ]:
     # NOTES DATA
-    velocity_window_beats = velocity_window * (data.bpm / 60)  # [seconds] / [beats / second]
+    velocity_window_beats = options.velocity_window * (data.bpm / 60)  # [seconds] / [beats / second]
     note_out = []
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
         rails: list["xyz"] = []
@@ -96,33 +105,47 @@ def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
             note_out.append((np.zeros((0,3)), np.zeros((0,2)), np.zeros((0,2)), np.zeros((0,2))))
             continue
         
-        # first, dump all notes and interpolated rails into a dict, to get positions over time
+        # first, dump all notes and rails nodes into a dict, to get positions over time
         last_time = sorted(notes_dict)[0]
         for time in sorted(notes_dict):
             if time - last_time > velocity_window_beats:
-                # insert nan to break up plotted lines
-                pos_dict[(last_time+time)/2] = np.array((np.nan, np.nan, np.nan))
+                # insert None to mark end of this window
+                pos_dict[(last_time+time)/2] = None
             pos = notes_dict[time]
-            if pos.shape[0] == 1:
-                # single note
-                pos_dict[pos[0, 2]] = pos[0, :3]
-            else:
-                # interpolate at 1/64
-                new_times = np.arange(pos[0,2], pos[-1,2] + 1/64, 1/64)
-                new_times[-1] = pos[-1,2]  # ensure last position matches actual end of rail
-                interp_pos = interpolate_spline(pos, new_times)
-                rails.append(interp_pos)
-                for p in interp_pos:
-                    pos_dict[p[2]] = p[:3]
-            last_time = time
+            for p in pos:
+                pos_dict[p[2]] = p[:3]
+            if pos.shape[0] > 1:
+                # add interpolated spline for this rail (ensuring last position matches the input, ie the interpolation doesn't make it longer)
+                rails.append(interpolate_spline(pos, bounded_arange(pos[0,2], pos[-1,2], options.interpolation)))
+            last_time = pos[-1,2]
 
-        # convert dict to np array [time, xyz]
-        pos = np.array([p for _, p in sorted(pos_dict.items())])
-        pos_diff = np.diff(pos, axis=0)  # difference in position across time
-        vel = pos_diff[:, :2] / pos_diff[:, 2:3]
-        vel_diff = np.diff(pos_diff, axis=0)
-        # acceleration at point b can be considered over half the previous and next time delta
-        acc = vel_diff / ((pos_diff[1:, 2:3] + pos_diff[:-1, 2:3]) / 2)
+        pos_dict[last_time+1] = None  # cap off with None to simply the coming loop
+        # convert dict to np array [time, xyz], interpolating windows at 1/64
+        all_pos = []
+        current_window = []
+        for _, p in sorted(pos_dict.items()):
+            if p is not None:
+                current_window.append(p)
+            else:
+                if len(current_window) == 1:
+                    # add single note
+                    all_pos.extend(current_window)
+                elif len(current_window) > 1:
+                    # same as rail interpolation above, but on window instead of rail
+                    all_pos.extend(interpolate_spline(np.array(current_window), bounded_arange(current_window[0][2], current_window[-1][2], options.interpolation)))
+                # add spacer to break up vel/acc plots
+                all_pos.append((np.nan, np.nan, np.nan))
+                current_window = []
+        pos = np.array(all_pos)
+        # velocity calculation: delta_xy / delta_t = delta_v
+        # this will be plottet at each center between two notes
+        delta_pos = np.diff(pos, axis=0)  # difference in x, y and time
+        vel = delta_pos[:, :2] / delta_pos[:, 2:3]
+        # acceleration: delta_vel / avg(preceding_delta_t, following_delta_t)²
+        # this will be plotted at every note position (excluding first and last of each window)
+        delta_vel = np.diff(delta_pos, axis=0)
+        avg_delta_t = ((delta_pos[:-1, 2:3] + delta_pos[1:, 2:3])/2)
+        acc = delta_vel[:, :2] / avg_delta_t ** 2
         note_out.append((rails, pos, vel, acc))
 
     wall_out = []
@@ -143,7 +166,7 @@ def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
         "triangle": ("^", "none", 1),
         "square": ("s", "none", 0),
     }
-    quest_wall_delay_beats = QUEST_WALL_DELAY * (data.bpm / 60)  # [seconds] / [beats / second] => [beats]
+    quest_wall_delay_beats = QUEST_WALL_DELAY * (data.bpm / 60)  # [sec] * ( [beat/min] / [sec/min] ) => [beat]
 
     for wall_type in synth_format.WALL_TYPES:
         pc_density: list[tuple[float, int]] = []
@@ -205,7 +228,7 @@ def prepare_data(data: DataContainer, velocity_window: float) -> tuple[
         wall_out.append(((pc_density, pc_ok, pc_despawn), (quest_density, quest_ok, quest_despawn, quest_hidden)))
     return note_out, wall_out
 
-def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwargs):
+def plot_notes(options, fig, infile: SynthFile, data: DataContainer, prepared_data, **kwargs):
     axs = fig.subplots(4, sharex=True)
     axs[-1].set_xlabel("beats")
     plot_bookmarks(infile.bookmarks, axs)
@@ -222,10 +245,10 @@ def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwa
     ax_y.grid(True)
 
     ax_vel.set_ylabel("Velocity (sq/s)")
-    ax_vel.set_ylim((0,VEL_LIMIT))
-    vel_mul = data.bpm / 60
+    ax_vel.set_ylim((0, options.velocity_limit))
+    vel_mul = data.bpm / 60  # [beat/min] / [sec/min] = [beat/sec]
     ax_acc.set_ylabel("Acceleration (sq/s²)")
-    ax_acc.set_ylim((0,ACC_LIMIT))
+    ax_acc.set_ylim((0, options.acceleration_limit))
     acc_mul = vel_mul * vel_mul
 
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
@@ -251,12 +274,14 @@ def plot_notes(fig, infile: SynthFile, data: DataContainer, prepared_data, **kwa
 
         if pos.shape[0] > 1:
             # velocity (n-1), plotted between two nodes
+            #                                                  [sq/beat] * [beat/sec] = [sq/s]
             ax_vel.plot((pos[1:, 2] + pos[:-1, 2])/2, [np.sqrt(v.dot(v)) * vel_mul for v in vel], color=color)
         if pos.shape[0] > 2:
             # acceleration (n-2) plotted at nodes (skipping first and last position)
+            #                                 [sq/beat²] * ([beat/sec])² = [sq/s²]
             ax_acc.plot(pos[1:-1, 2], [np.sqrt(a.dot(a)) * acc_mul for a in acc], color=color)
 
-def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
+def plot_walls(options, fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
     axs = fig.subplots(2, sharex=True)
     axs[-1].set_xlabel("beats")
     plot_bookmarks(infile.bookmarks, axs)
@@ -315,7 +340,7 @@ def plot_walls(fig, infile: SynthFile, data: DataContainer, prepared_data, platf
     else:
         ax_status.legend(handles=legend_elements, loc="upper right", ncol=3)
 
-def show_warnings(fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
+def show_warnings(options, fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
     ax = fig.subplots(1)
     ax.set_axis_off()
     ax.table(loc="top", colWidths=(1/20, 19/20), cellLoc="left", rowLabels=["123 5/6"], cellText=[["note:left", "placeholder, ie extreme peak in acceleration"]])
@@ -346,6 +371,10 @@ def main(options):
     # load beatmap json
     data = synth_format.import_file(options.input)
 
+    if isinstance(options.velocity_window, utils.SecondFloat):
+        options.velocity_window = options.velocity_window.to_beat(data.bpm)
+    if isinstance(options.interpolation, utils.SecondFloat):
+        options.interpolation = options.interpolation.to_beat(data.bpm)
 
     fig = plt.figure(figsize=(win_w, win_h), dpi=options.menu_size, layout="constrained")
     fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta['Author']} - {data.meta['Name']}")
@@ -359,7 +388,7 @@ def main(options):
     def replace_prepared_data():
         nonlocal difficulties
         logging.info("Preparing data")
-        difficulties = [(d, prepare_data(data.difficulties[d], options.velocity_window)) for d in synth_format.DIFFICULTIES if d in data.difficulties]
+        difficulties = [(d, prepare_data(data.difficulties[d], options)) for d in synth_format.DIFFICULTIES if d in data.difficulties]
         logging.info("Preparing complete")
 
     replace_prepared_data()
@@ -369,7 +398,7 @@ def main(options):
         diff_name, prepared_data = difficulties[active_difficulty]
         logging.info(f"Drawing {tab_name}: {diff_name}")
         tab.clear()
-        tab_func(tab, data, data.difficulties[diff_name], prepared_data, platform=PLATFORMS[active_platform])
+        tab_func(options, tab, data, data.difficulties[diff_name], prepared_data, platform=PLATFORMS[active_platform])
         fig.canvas.draw()
         fig.canvas.flush_events()
         logging.info("Drawing complete")

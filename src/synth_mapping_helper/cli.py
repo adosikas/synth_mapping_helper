@@ -5,93 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
-from . import synth_format, rails, pattern_generation, movement, __version__
+from . import synth_format, rails, pattern_generation, movement, utils, __version__
 
 _filter_groups = {
     "notes": synth_format.NOTE_TYPES,
     "walls": list(synth_format.WALL_TYPES),
     "slides": synth_format.SLIDE_TYPES,
 }
-
-def _parse_number(val: str) -> float:
-    if "/" in val:
-        num, denom = val.split("/",1)
-        if " " in num:
-            # mixed fraction, ie "1 1/2" -> 1.5
-            integer, num = num.split(" ",1)
-            i = int(integer)
-            return i + np.sign(i) * (float(num) / float(denom))
-        return float(num) / float(denom)
-    elif val.endswith("%"):
-        return float(val[:-1]) / 100
-    return float(val)
-
-def _parse_range(val: str) -> tuple[float, float]:
-    if ":" not in val:
-        v = _parse_number(val)
-        return (-v, v)
-    split = val.split(":")
-    if len(split) != 2:
-        raise ValueError("Must be in the form 'max' or 'min:max'")
-    try:
-        min = _parse_number(split[0])
-    except ValueError:
-        raise ValueError("Error parsing minimum")
-    try:
-        max = _parse_number(split[1])
-    except ValueError:
-        raise ValueError("Error parsing maximum")
-    return (min, max)
-
-def _parse_xy_range(val: str) -> tuple[tuple[float, float], tuple[float, float]]:
-    split = val.split(",")
-    if len(split) != 2:
-        raise ValueError("Must be in the form X_RANGE,Y_RANGE")
-    try:
-        x = _parse_range(split[0])
-    except ValueError:
-        raise ValueError("Error parsing x range")
-    try:
-        y = _parse_range(split[1])
-    except ValueError:
-        raise ValueError("Error parsing y range")
-    return np.array((x, y)).transpose()
-
-
-class second_float:
-    # dummy class to hold numbers parsed as seconds until bpm was parsed
-    def __init__(self, val: float) -> None:
-        self.val = val
-    def to_beat(self, bpm: float) -> float:
-        return self.val / 60 * bpm
-
-def _parse_time(val: str) -> float | second_float:
-    # note that there is no rounding here, 
-    if val.endswith("s"):
-        return second_float(_parse_number(val[:-1]))
-    elif ":" in val:
-        # parse mm:ss.fff into seconds
-        m, s = val.rsplit(":", 1)
-        return second_float(float(m)*60 + float(s))
-    return _parse_number(val)
-
-def _parse_position(val: str) -> tuple[float, float, float | second_float]:
-    split = val.split(",")
-    if len(split) != 3:
-        raise ValueError("Must be in the form x,y,t")
-    try:
-        x = _parse_number(split[0])
-    except ValueError:
-        raise ValueError("Error parsing x")
-    try:
-        y = _parse_number(split[1])
-    except ValueError:
-        raise ValueError("Error parsing y")
-    try:
-        t = _parse_time(split[2])
-    except ValueError:
-        raise ValueError("Error parsing t")
-    return (x,y,t)
 
 def _movement_helper(data: synth_format.DataContainer, base_func, relative_func, pivot_func, relative: bool, pivot: list[int], *args, **kwargs) -> None:
     """pick the right function depending on relative or pivot being set"""
@@ -134,47 +54,47 @@ def get_parser():
         epilog=f"Version: {__version__}",
     )
 
-    parser.add_argument("-E", "--start-empty", type=_parse_number, metavar="BPM", help="Start with empty data instead of reading the clipboard. Requires specifing BPM. Use with --spawn.")
+    parser.add_argument("-E", "--start-empty", type=utils.parse_number, metavar="BPM", help="Start with empty data instead of reading the clipboard. Requires specifing BPM. Use with --spawn.")
     parser.add_argument("--use-original", action="store_true", help="When calling this multiple times, start over with orignal copied json")
     parser.add_argument("-f", "--filter-types", nargs="+", metavar="FILTER_TYPE", choices=synth_format.ALL_TYPES + tuple(_filter_groups), default=synth_format.ALL_TYPES, help=f"Only affect notes and walls of these types. Multiple types can be specified seperated by spaces, defaults to all")
     parser.add_argument("--invert-filter", action="store_true", help="Invert filter so everything *but* the filter is affected")
 
     preproc_group = parser.add_argument_group("pre-processing")
-    preproc_group.add_argument("-b", "--bpm", type=_parse_number, help="Change BPM without changing timing")
+    preproc_group.add_argument("-b", "--bpm", type=utils.parse_number, help="Change BPM without changing timing")
     preproc_group.add_argument("--delete-others", action="store_true", help="Delete everything that doesn't match the filter")
-    preproc_group.add_argument("--connect-singles", type=_parse_time, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
-    preproc_group.add_argument("--merge-rails", type=_parse_time, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
+    preproc_group.add_argument("--connect-singles", type=utils.parse_time, metavar="MAX_INTERVAL", help="Replace strings of single notes with rails if they are . Use with'--rails-to-singles=1' if you want to keep the singles")
+    preproc_group.add_argument("--merge-rails", type=utils.parse_time, nargs="?", action="append", metavar="MAX_INTERVAL", help="Merge sequential rails. By default only joins rails that start close to where another ends (in X, Y AND time), but with MAX_INTERVAL only the time interval counts")
     preproc_group.add_argument("--swap-hands", action="store_true", help="Swap left and right hand notes.")
     preproc_group.add_argument("-n", "--change-notes", metavar="NEW_NOTE_TYPE", nargs="+", choices=synth_format.NOTE_TYPES, help=f"Change the type/color of notes. Specify multiple to loop over them.")
     preproc_group.add_argument("-w", "--change-walls", metavar="NEW_WALL_TYPE", nargs="+", choices=synth_format.WALL_TYPES, help=f"Change the type of walls. Specify multiple to loop over them.")
     preproc_group.add_argument("--spawn", metavar="OBJECT_TYPE", choices=synth_format.ALL_TYPES, help="Spawn an objects of the given type. Can only spawn one object per call.")
-    preproc_group.add_argument("--spawn-location", type=_parse_position, help="Location for the spawned object (defaults to 0,0,0)")
+    preproc_group.add_argument("--spawn-location", type=utils.parse_position, help="Location for the spawned object (defaults to 0,0,0)")
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
     interp_group = rail_pattern_group.add_mutually_exclusive_group()
-    interp_group.add_argument("--interpolate", type=_parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines (similar to the game). Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
-    interp_group.add_argument("--interpolate-linear", type=_parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
-    rail_pattern_group.add_argument("--shorten-rails", type=_parse_time, metavar="DISTANCE", help="Cut some distance from every rail. Supports fractions. When negative, cuts from the start instead of the end")
-    rail_pattern_group.add_argument("--start-angle", type=_parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
-    rail_pattern_group.add_argument("--radius", type=_parse_number, default=1.0, help="Radius of spiral or length of spikes")
+    interp_group.add_argument("--interpolate", type=utils.parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines (similar to the game). Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    interp_group.add_argument("--interpolate-linear", type=utils.parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    rail_pattern_group.add_argument("--shorten-rails", type=utils.parse_time, metavar="DISTANCE", help="Cut some distance from every rail. Supports fractions. When negative, cuts from the start instead of the end")
+    rail_pattern_group.add_argument("--start-angle", type=utils.parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
+    rail_pattern_group.add_argument("--radius", type=utils.parse_number, default=1.0, help="Radius of spiral or length of spikes")
     rail_op_group = rail_pattern_group.add_mutually_exclusive_group()
-    rail_op_group.add_argument("--spiral", type=_parse_number, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
-    rail_op_group.add_argument("--spikes", type=_parse_number, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
-    rail_pattern_group.add_argument("--spike-width", type=_parse_time, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
+    rail_op_group.add_argument("--spiral", type=utils.parse_number, metavar="NODES_PER_ROT", help="Generate counterclockwise spiral around rails with this number of nodes per full rotation. Supports fractions. 2=zigzag, negative=clockwise")
+    rail_op_group.add_argument("--spikes", type=utils.parse_number, metavar="NODES_PER_ROT", help="Generate spikes from rail, either spiraling (see --spiral) or random (when set to 0)")
+    rail_pattern_group.add_argument("--spike-width", type=utils.parse_time, default=1/32, help="Width of spike 'base' in beats. Supports fractions. Should not be lower than 1/32 (the default) and should be lower than chosen interpolation interval")
 
     movement_group = parser.add_argument_group("movement", description="Operation order is always: scale, rotate, offset, outset")
     pivot_group = movement_group.add_mutually_exclusive_group()
-    pivot_group.add_argument("-p", "--pivot", type=_parse_position, help="Pivot for outset, scale and rotate as x,y,t")
+    pivot_group.add_argument("-p", "--pivot", type=utils.parse_position, help="Pivot for outset, scale and rotate as x,y,t")
     pivot_group.add_argument("--note-pivot", choices=synth_format.NOTE_TYPES, help="Use position of first matching note as pivot (determined before any operations)")
     pivot_group.add_argument("--relative", action="store_true", help="Use first node of rails as pivot for outset, scale and rotate, and for walls offset because relative based on rotation")
-    movement_group.add_argument("-s", "--scale", type=_parse_position, help="Scale positions by x,y,t. Use negative values to mirror across axis. Does NOT change the size of walls. Time-Scale of 2 means twice as long, not twice as fast.")
-    movement_group.add_argument("-r", "--rotate", type=_parse_number, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
-    movement_group.add_argument("-o", "--offset", type=_parse_position, help="Move/Translate by x,y,t")
-    movement_group.add_argument("--outset", type=_parse_number, metavar="DISTANCE", help="Move outwards (negative for inwards, can move 'across' pivot)")
+    movement_group.add_argument("-s", "--scale", type=utils.parse_position, help="Scale positions by x,y,t. Use negative values to mirror across axis. Does NOT change the size of walls. Time-Scale of 2 means twice as long, not twice as fast.")
+    movement_group.add_argument("-r", "--rotate", type=utils.parse_number, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
+    movement_group.add_argument("-o", "--offset", type=utils.parse_position, help="Move/Translate by x,y,t")
+    movement_group.add_argument("--outset", type=utils.parse_number, metavar="DISTANCE", help="Move outwards (negative for inwards, can move 'across' pivot)")
     rail_stack_group = movement_group.add_mutually_exclusive_group()
     rail_stack_group.add_argument("--offset-along", choices=synth_format.NOTE_TYPES, help="Offset objects to follow notes and rails of the specified color")
     rail_stack_group.add_argument("--rotate-with", choices=synth_format.NOTE_TYPES, help="Rotate and outset the objects to follow notes and rails of the specified color")
-    movement_group.add_argument("--offset-random", type=_parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
+    movement_group.add_argument("--offset-random", type=utils.parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
 
@@ -204,11 +124,11 @@ def main(options):
     # convert time parsed in seconds to beats
     for pos_val in "spawn-location", "pivot", "offset", "scale":
         v = getattr(options, pos_val, None)
-        if v is not None and isinstance(v[2], second_float):
+        if v is not None and isinstance(v[2], utils.SecondFloat):
             setattr(options, pos_val[:2] + (v[2].to_beat(data.bpm),))
     for time_val in "connect_singles", "merge_rails", "interpolate", "interpolate_linear", "shorten_rails", "spike_width":
         v = getattr(options, pos_val, None)
-        if isinstance(v, second_float):
+        if isinstance(v, utils.SecondFloat):
             setattr(options, pos_val, v.to_beat(data.bpm))
     # expand filter groupts
     if any(name in options.filter_types for name in _filter_groups):

@@ -23,8 +23,6 @@ Y_OFFSET = 0.0012
 # also maybe useful: bpm = (z_coord / index) * BPM_DIVISOR
 BPM_DIVISOR = 1200
 
-MS_PER_MIN = 60 * 1000
-
 NOTE_TYPES = ("right", "left", "single", "both")
 # Note: wall offsets are eyeballed
 WALL_TYPES = {
@@ -353,16 +351,18 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
         dest_list, wall_dict = wall_to_synth(data.bpm, wall)
         clipboard[dest_list].append(wall_dict)
 
+
+    ms_per_min = 60 * 1000
     if realign_start:
         # position of selection start in beats*64 
         clipboard["startMeasure"] = round_tick_for_json(first * 64)
         # position of selection start in ms
-        clipboard["startTime"] = first * MS_PER_MIN / data.bpm
+        clipboard["startTime"] = first * ms_per_min / data.bpm
         # length of the selection in milliseconds
         # and yes, the editor has a typo, so we need to missspell it too
-        clipboard["lenght"] = last * MS_PER_MIN / data.bpm
+        clipboard["lenght"] = last * ms_per_min / data.bpm
     # always update length
-    clipboard["lenght"] = (last - first) * MS_PER_MIN / data.bpm
+    clipboard["lenght"] = (last - first) * ms_per_min / data.bpm
 
     pyperclip.copy(json.dumps(clipboard))
 

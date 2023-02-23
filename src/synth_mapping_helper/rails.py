@@ -2,6 +2,7 @@ import numpy as np
 from scipy.interpolate import pchip_interpolate
 
 from .synth_format import DataContainer, SINGLE_COLOR_NOTES
+from .utils import bounded_arange
 
 # How far last node and start note can be spaced for two rails to be merged
 MERGE_ACCURACY_GRID = 1 / 8
@@ -15,6 +16,8 @@ def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)") -> 
     ), axis=-1)
 
 def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)") -> "numpy array (x, 3)":
+    if data.shape[0] == 1:
+        return data
     # add points in straight line from start and end to match shape more closely
     padded_data = np.concatenate(([2*data[0]-data[1]], data, [2*data[-1]-data[-2]]))
     return np.stack((
@@ -192,10 +195,7 @@ def interpolate_nodes(
     """places nodes at defined interval along the rail, interpolating between existing nodes"""
     if data.shape[0] == 1:  # ignore single nodes
         return data
-    new_z = np.arange(data[0, 2], data[-1, 2], interval)
-    # when it does not distribute evenly, append end
-    if not np.isclose(new_z[-1], data[-1, 2]):
-        new_z = np.append(new_z, [data[-1, 2]])
+    new_z = bounded_arange(data[0, 2], data[-1, 2], interval)
 
     if mode == "spline":
         return interpolate_spline(data, new_z)
