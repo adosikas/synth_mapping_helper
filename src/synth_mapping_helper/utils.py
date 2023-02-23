@@ -1,3 +1,5 @@
+from typing import Union
+
 import numpy as np
 
 def bounded_arange(start: float, end: float, step: float) -> "numpy array (x)":
@@ -65,7 +67,7 @@ class SecondFloat:
     def __str__(self) -> str:
         return f"{self.val}s"
 
-def parse_time(val: str) -> float | SecondFloat:
+def parse_time(val: str) -> Union[float, SecondFloat]:
     # note that there is no rounding here, 
     if val.endswith("s"):
         return SecondFloat(parse_number(val[:-1]))
@@ -75,7 +77,7 @@ def parse_time(val: str) -> float | SecondFloat:
         return SecondFloat(float(m)*60 + float(s))
     return parse_number(val)
 
-def parse_position(val: str) -> tuple[float, float, float | SecondFloat]:
+def parse_position(val: str) -> tuple[float, float, Union[float, SecondFloat]]:
     split = val.split(",")
     if len(split) != 3:
         raise ValueError("Must be in the form x,y,t")
