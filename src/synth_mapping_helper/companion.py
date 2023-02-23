@@ -372,9 +372,9 @@ def main(options):
     data = synth_format.import_file(options.input)
 
     if isinstance(options.velocity_window, utils.SecondFloat):
-        options.velocity_window = options.velocity_window.to_beat(data.bpm)
+        options.velocity_window = options.velocity_window.to_beat(data.meta['BPM'])
     if isinstance(options.interpolation, utils.SecondFloat):
-        options.interpolation = options.interpolation.to_beat(data.bpm)
+        options.interpolation = options.interpolation.to_beat(data.meta['BPM'])
 
     fig = plt.figure(figsize=(win_w, win_h), dpi=options.menu_size, layout="constrained")
     fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta['Author']} - {data.meta['Name']}")

@@ -50,7 +50,7 @@ WALLS = dict[float, "numpy array (1, 5)"]    # x,y,t, type, angle
 
 BEATMAP_JSON_FILE = "beatmap.meta.bin"
 DIFFICULTIES = ("Easy", "Normal", "Hard", "Expert", "Master", "Custom")
-META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName")
+META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 
 BETA_WARNING_SHOWN = False
 
