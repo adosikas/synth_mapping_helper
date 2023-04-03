@@ -85,14 +85,14 @@ class DataContainer:
     # Note: None of these functions are allowed to *modify* the dicts, instead they must create new dicts
     # This avoids requring deep copies for everything
 
-    def apply_for_notes(self, f, *args, types: list = NOTE_TYPES, **kwargs) -> None:
+    def apply_for_notes(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
         for t in types:
             if t not in NOTE_TYPES:
                 continue
             notes = getattr(self, t)
             out = {}
             for _, nodes in sorted(notes.items()):
-                out_nodes = f(nodes, *args, **kwargs)
+                out_nodes = f(nodes, *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs)
                 out[out_nodes[0, 2]] = out_nodes
             setattr(self, str(t), out)
 
@@ -107,16 +107,16 @@ class DataContainer:
                 out_walls[time_index] = wall
         self.walls = out_walls
 
-    def apply_for_all(self, f, *args, types: list = ALL_TYPES, **kwargs) -> None:
-        self.apply_for_notes(f, *args, types=types, **kwargs)
+    def apply_for_all(self, f, *args, types: list = ALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
+        self.apply_for_notes(f, *args, types=types, mirror_left=mirror_left, **kwargs)
         self.apply_for_walls(f, *args, types=types, **kwargs)
 
     # used when the functions needs access to all notes and rails of a color at one
-    def apply_for_note_types(self, f, *args, types: list = NOTE_TYPES, **kwargs) -> None:
+    def apply_for_note_types(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
         for t in types:
             if t not in NOTE_TYPES:
                 continue
-            setattr(self, t, f(getattr(self, t), *args, **kwargs))
+            setattr(self, t, f(getattr(self, t), *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs))
 
     def filtered(self, types: list = ALL_TYPES) -> "DataContainer":
         replacement = {

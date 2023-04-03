@@ -8,14 +8,14 @@ from .utils import bounded_arange
 MERGE_ACCURACY_GRID = 1 / 8
 MERGE_ACCURACY_BEAT = 1 / 64
 
-def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)") -> "numpy array (x, 3)":
+def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: bool = 1) -> "numpy array (x, 3)":
     return np.stack((
         np.interp(new_z, data[:, 2], data[:, 0]),
         np.interp(new_z, data[:, 2], data[:, 1]),
         new_z,
     ), axis=-1)
 
-def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)") -> "numpy array (x, 3)":
+def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: bool = 1) -> "numpy array (x, 3)":
     if data.shape[0] == 1:
         return data
     # add points in straight line from start and end to match shape more closely
@@ -49,7 +49,7 @@ def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bo
 
 # Note: None of these functions are allowed to *modify* the input dict instance. Returning the same dict (if nothing needed to be changed) is allowed.
 
-def split_rails(notes: SINGLE_COLOR_NOTES) -> SINGLE_COLOR_NOTES:
+def split_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """splits rails at single notes"""
     current_rail_start = None
     current_rail_end = None
@@ -89,7 +89,7 @@ def split_rails(notes: SINGLE_COLOR_NOTES) -> SINGLE_COLOR_NOTES:
     return out
 
 
-def merge_sequential_rails(notes: SINGLE_COLOR_NOTES) -> SINGLE_COLOR_NOTES:
+def merge_sequential_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """merges rails where end and start a very close"""
     current_rail_start = None
     current_rail_end = None
@@ -124,7 +124,7 @@ def merge_sequential_rails(notes: SINGLE_COLOR_NOTES) -> SINGLE_COLOR_NOTES:
 
     return out
 
-def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float) -> SINGLE_COLOR_NOTES:
+def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """merges rails"""
     current_rail_start = None
     current_rail_end = None
@@ -161,7 +161,7 @@ def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float) -> SINGLE_COLOR_
 
     return out
 
-def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float) -> SINGLE_COLOR_NOTES:
+def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """Turn single notes into rails"""
     current_rail_start = None
     current_rail_end = None
@@ -190,7 +190,7 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float) -> SINGLE_CO
     return out
 
 def interpolate_nodes(
-    data: "numpy array (n, 3)", mode: "'spline' or 'linear'", interval: float
+    data: "numpy array (n, 3)", mode: "'spline' or 'linear'", interval: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
     """places nodes at defined interval along the rail, interpolating between existing nodes"""
     if data.shape[0] == 1:  # ignore single nodes
@@ -205,7 +205,7 @@ def interpolate_nodes(
         raise RuntimeError("Invalid iterpolation mode")
 
 
-def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> SINGLE_COLOR_NOTES:
+def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """Turn all rails into single notes"""
     out: SINGLE_COLOR_NOTES = {}
     for time in sorted(notes):
@@ -221,7 +221,7 @@ def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool) -> SINGLE_COLOR
     return out
 
 def shorten_rail(
-    data: "numpy array (n, 3)", distance: float
+    data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
     """Cut a bit of the end or start of the rail"""
     if data.shape[0] == 1:  # ignore single nodes

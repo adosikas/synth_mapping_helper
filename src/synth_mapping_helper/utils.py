@@ -15,10 +15,10 @@ def bounded_arange(start: float, end: float, step: float) -> "numpy array (x)":
 
 def parse_number(val: str) -> float:
     if "/" in val:
-        num, denom = val.split("/",1)
+        num, denom = val.split("/", 1)
         if " " in num:
             # mixed fraction, ie "1 1/2" -> 1.5
-            integer, num = num.split(" ",1)
+            integer, num = num.split(" ", 1)
             i = int(integer)
             return i + np.sign(i) * (float(num) / float(denom))
         return float(num) / float(denom)
@@ -66,15 +66,18 @@ class SecondFloat:
         return self.val / 60 * bpm
     def __str__(self) -> str:
         return f"{self.val}s"
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self})"
+
 
 def parse_time(val: str) -> Union[float, SecondFloat]:
-    # note that there is no rounding here, 
+    # note that there is no rounding here,
     if val.endswith("s"):
         return SecondFloat(parse_number(val[:-1]))
     elif ":" in val:
         # parse mm:ss.fff into seconds
         m, s = val.rsplit(":", 1)
-        return SecondFloat(float(m)*60 + float(s))
+        return SecondFloat(float(m) * 60 + float(s))
     return parse_number(val)
 
 def parse_position(val: str) -> tuple[float, float, Union[float, SecondFloat]]:
@@ -93,4 +96,4 @@ def parse_position(val: str) -> tuple[float, float, Union[float, SecondFloat]]:
         t = parse_time(split[2])
     except ValueError:
         raise ValueError("Error parsing t")
-    return (x,y,t)
+    return (x, y, t)
