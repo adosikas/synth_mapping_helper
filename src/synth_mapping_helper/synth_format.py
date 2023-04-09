@@ -3,6 +3,7 @@ from io import BytesIO
 import dataclasses
 import json
 from pathlib import Path
+from typing import Union
 from zipfile import ZipFile
 
 import numpy as np
@@ -138,7 +139,7 @@ class DataContainer:
             setattr(self, t, self_notes | other_notes)
         self.walls |= other.walls
 
-    def get_object_dict(self, type_name: str) -> SINGLE_COLOR_NOTES | WALLS:
+    def get_object_dict(self, type_name: str) -> Union[SINGLE_COLOR_NOTES, WALLS]:
         if type_name in NOTE_TYPES:
             return getattr(self, type_name)
         wall_type = WALL_TYPES[type_name][0]
