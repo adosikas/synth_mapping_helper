@@ -96,12 +96,12 @@ class DataContainer:
                 out[out_nodes[0, 2]] = out_nodes
             setattr(self, str(t), out)
 
-    def apply_for_walls(self, f, *args, types: list = WALL_TYPES, **kwargs) -> None:
+    def apply_for_walls(self, f, *args, types: list = WALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
         wall_types = [WALL_TYPES[t][0] for t in types if t in WALL_TYPES]
         out_walls = {}
         for time_index, wall in sorted(self.walls.items()):
             if wall[0, 3] in wall_types:
-                wall = f(wall, *args, **kwargs)
+                wall = f(wall, *args, **kwargs)  # TODO: support mirror_left
                 out_walls[wall[0, 2]] = wall
             else:
                 out_walls[time_index] = wall
@@ -109,7 +109,7 @@ class DataContainer:
 
     def apply_for_all(self, f, *args, types: list = ALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
         self.apply_for_notes(f, *args, types=types, mirror_left=mirror_left, **kwargs)
-        self.apply_for_walls(f, *args, types=types, **kwargs)
+        self.apply_for_walls(f, *args, types=types, mirror_left=mirror_left, **kwargs)
 
     # used when the functions needs access to all notes and rails of a color at one
     def apply_for_note_types(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
@@ -137,6 +137,16 @@ class DataContainer:
             other_notes = getattr(other, t)
             setattr(self, t, self_notes | other_notes)
         self.walls |= other.walls
+
+    def get_object_dict(self, type_name: str) -> SINGLE_COLOR_NOTES | WALLS:
+        if type_name in NOTE_TYPES:
+            return getattr(self, type_name)
+        wall_type = WALL_TYPES[type_name][0]
+        return {
+            time_index: wall
+            for time_index, wall in sorted(self.walls.items())
+            if wall[0, 3] == wall_type
+        }
 
 @dataclasses.dataclass
 class ClipboardDataContainer(DataContainer):

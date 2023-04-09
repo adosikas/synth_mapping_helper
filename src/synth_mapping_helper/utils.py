@@ -69,6 +69,9 @@ class SecondFloat:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self})"
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self})"
+
 
 def parse_time(val: str) -> Union[float, SecondFloat]:
     # note that there is no rounding here,

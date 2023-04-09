@@ -23,13 +23,15 @@ def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_f
         data.apply_for_all(base_func, *args, mirror_left=mirror_left, **kwargs)
 
 def do_movement(options, data: synth_format.DataContainer, filter_types: list = synth_format.ALL_TYPES) -> None:
-    if options.scale:
+    if options.scale is not None:
         _movement_helper(data, options.mirror_left, movement.scale, movement.scale_relative, movement.scale_from, options.relative, options.pivot, options.scale, types=filter_types)
-    if options.rotate:
+    if options.rotate is not None:
         _movement_helper(data, options.mirror_left, movement.rotate, movement.rotate_relative, movement.rotate_around, options.relative, options.pivot, options.rotate, types=filter_types)
-    if options.offset:
+    if options.wall_rotate is not None:
+        data.apply_for_walls(movement.rotate_relative, options.wall_rotate, mirror_left=options.mirror_left, types=filter_types)
+    if options.offset is not None:
         _movement_helper(data, options.mirror_left, movement.offset, movement.offset_relative, movement.offset, options.relative, options.pivot, options.offset, types=filter_types)
-    if options.outset:
+    if options.outset is not None:
         _movement_helper(data, options.mirror_left, movement.outset, movement.outset_relative, movement.outset_from, options.relative, options.pivot, options.outset, types=filter_types)
 
 def get_parser():
@@ -89,7 +91,8 @@ def get_parser():
     pivot_group.add_argument("--note-pivot", choices=synth_format.NOTE_TYPES, help="Use position of first matching note as pivot (determined before any operations)")
     pivot_group.add_argument("--relative", action="store_true", help="Use first node of rails as pivot for outset, scale and rotate, and for walls offset because relative based on rotation")
     movement_group.add_argument("-s", "--scale", type=utils.parse_position, help="Scale positions by x,y,t. Use negative values to mirror across axis. Does NOT change the size of walls. Time-Scale of 2 means twice as long, not twice as fast.")
-    movement_group.add_argument("-r", "--rotate", type=utils.parse_number, metavar="DEGREES", help="Rotate counterclockwise by this many degrees (negative for clockwise)")
+    movement_group.add_argument("-r", "--rotate", type=utils.parse_number, metavar="DEGREES", help="Rotate everything counterclockwise by this many degrees (negative for clockwise)")
+    movement_group.add_argument("--wall-rotate", type=utils.parse_number, metavar="DEGREES", help="Rotate walls counterclockwise around themselves by this many degrees (negative for clockwise)")
     movement_group.add_argument("-o", "--offset", type=utils.parse_position, help="Move/Translate by x,y,t")
     movement_group.add_argument("--outset", type=utils.parse_number, metavar="DISTANCE", help="Move outwards (negative for inwards, can move 'across' pivot)")
     rail_stack_group = movement_group.add_mutually_exclusive_group()
@@ -98,6 +101,8 @@ def get_parser():
     movement_group.add_argument("--offset-random", type=utils.parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
+    movement_group.add_argument("--stack-duration", type=utils.parse_time, help="Like --stack-count, but you can give it during in beats ('4') or seconds ('2s').")
+    movement_group.add_argument("--autostack", nargs="?", choices=("OFFSET", "SPIRAL", "OUTSET", "SCALE"), action="append", metavar="OFFSET/SPIRAL/OUTSET/SCALE", help="Find the first pair of matching objects and continue the pattern. For continuing the positions, the following modes are supported: OFFSET (default, absolute xy), SPIRAL (rotate around implied pivot), OUTSET (distance from pivot) and SCALE (xy ratio).")
 
     postproc_group = parser.add_argument_group("post-processing")
     postproc_group.add_argument("--split-rails", action="store_true", help="Split rails at single notes")
@@ -127,10 +132,10 @@ def main(options):
         v = getattr(options, pos_val, None)
         if v is not None and isinstance(v[2], utils.SecondFloat):
             setattr(options, pos_val[:2] + (v[2].to_beat(data.bpm),))
-    for time_val in "connect_singles", "merge_rails", "interpolate", "interpolate_linear", "shorten_rails", "spike_width":
-        v = getattr(options, pos_val, None)
+    for time_val in "connect_singles", "merge_rails", "interpolate", "interpolate_linear", "shorten_rails", "spike_width", "stack_duration":
+        v = getattr(options, time_val, None)
         if isinstance(v, utils.SecondFloat):
-            setattr(options, pos_val, v.to_beat(data.bpm))
+            setattr(options, time_val, v.to_beat(data.bpm))
     # expand filter groupts
     if any(name in options.filter_types for name in _filter_groups):
         out_filters = []
@@ -155,6 +160,65 @@ def main(options):
         if not notes:
             abort(f"Could not find any {options.note_pivot} notes")
         options.pivot = notes[sorted(notes)[0]][:3]
+
+    # stacking
+    if options.autostack is not None:
+        if not options.stack_count and not options.stack_duration:
+            abort("Cannot --autostack without count/duration")
+        first = None
+        second = None
+        for t in synth_format.ALL_TYPES:
+            obj_dict = data.get_object_dict(t)
+            if len(obj_dict) >= 2:
+                it = iter(sorted(obj_dict.items()))
+                _, t_first = next(it)
+                if first is None or t_first[0,2] < first[0,2]:
+                    first = t_first[0]  # rail head only
+                    _, t_second = next(it)
+                    second = t_second[0]
+        if first is None or second is None:
+            abort("Could not find object pair for autostack")
+
+        if options.autostack[0] == "SPIRAL":
+            if first.shape[0] != 5:
+                abort("Can only spiral-autostack based on walls")
+            # rotation from point 'a' to point 'b', around pivot 'p' by angle 'ang':
+            #   x_b = (x_a - x_p) * cos(ang) - (y_a - y_p) * sin(ang) + x_p
+            #   y_b = (x_a - x_p) * sin(ang) + (y_a - y_p) * cos(ang) + y_p
+            # I couldn't find a good way to solve that for x_p and y_p, so lets do it the geometric way:
+            #   p must be an equal distance from both points, so together with p they form an isosceles triangle
+            #   In this triangle we want the the angle at p (alpha) to match wall rotation, allowing us to calculate p using basic trigonometry
+            #   In particular, the first point, the point halfway between both points and the pivot form a right triangle with an angle of alpha/2 at the pivot and an opposite of (b-a)/2
+            #   Therefore, the hypotenuse will be ((b-a)/2) / sin(alpha/2) long and face the direction of (b-a)/2 rotated by 90-alpha/2
+            options.rotate = second[4] - first[4]
+            options.pivot = first[:3] + movement.rotate((second - first)[:3]/2, 90 - options.rotate/2) / np.sin(np.radians(options.rotate/2))
+            options.offset = (0, 0, second[2] - first[2])
+        else:
+            if options.pivot is not None:
+                first[:2] -= options.pivot[:2]
+                second[:2] -= options.pivot[:2]
+
+            if options.autostack[0] is None or options.autostack[0] == "OFFSET":
+                options.offset = (second - first)[:3]
+            elif options.autostack[0] == "OUTSET":
+                # this is equivalent to the "rotate-with" calculations below
+                options.rotate = np.degrees(np.arctan2(first[0], first[1])) - np.degrees(np.arctan2(second[0], second[1]))
+                options.outset = np.sqrt(second[:2].dot(second[:2])) - np.sqrt(first[:2].dot(first[:2]))
+                options.offset = (0, 0, second[2] - first[2])
+            elif options.autostack[0] == "SCALE":
+                options.scale = (second[0] / first[0], second[1] / first[1], 1)
+                options.offset = (0, 0, second[2] - first[2])
+
+            if first.shape[0] == 5:
+                options.wall_rotate = ((second[4] - first[4]) - (options.rotate or 0)) or None  # see if we need to correct wall rotation
+
+    if options.stack_duration:
+        if options.stack_count:
+            abort("Cannot use --stack-count and --stack-duration at the same time")
+        options.stack_count = int(options.stack_duration / options.offset[2])
+
+    if options.stack_count and (options.offset is None or not options.offset[2]):
+        abort("Cannot stack with time offset of 0")
 
     # preprocessing
     if options.bpm:
@@ -252,8 +316,6 @@ def main(options):
 
     # movement
     if options.stack_count:
-        if not options.offset or options.offset[2] == 0:
-            abort("Cannot stack with time offset of 0")
         stacking = data.filtered(types=filter_types)
         if options.offset_along or options.rotate_with:
             if options.offset_along and options.rotate_with:

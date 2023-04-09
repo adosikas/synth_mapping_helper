@@ -44,7 +44,7 @@ For more info on each feature, check out [the wiki](https://github.com/adosikas/
     * Fix **wall offset** between editor and game ("Finalize")
 
 ### Maybe (contributions welcome)
-* GUI for 
+* GUI for common operations
 * Automatic smoothing
 
 ## How to Install and use
