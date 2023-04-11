@@ -10,6 +10,7 @@ from zipfile import ZipFile
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import PowerNorm
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
@@ -40,6 +41,8 @@ DEFAULT_VELOCITY_WINDOW = utils.SecondFloat(0.5)  # half a second gap breaks up 
 DEFAULT_INTERPOLATION = 1/16
 DEFAULT_VEL_LIMIT = 100
 DEFAULT_ACC_LIMIT = 1000
+DEFAULT_HEATMAP_BIN_COUNT = 3
+DEFAULT_HEATMAP_NORM_POWER = 0.6
 
 DEFAULT_WINDOW_WIDTH = 1600
 DEFAULT_WINDOW_HEIGHT = 900
@@ -71,6 +74,8 @@ def get_parser():
     parser.add_argument("--interpolation", type=utils.parse_time, default=DEFAULT_INTERPOLATION, help=f"Interpolation distance for plots and velocity/accelation calculation. Default: {DEFAULT_INTERPOLATION}")
     parser.add_argument("--velocity-limit", type=float, default=DEFAULT_VEL_LIMIT, help=f"Starting limit of the velocity plot. Default: {DEFAULT_VEL_LIMIT}")
     parser.add_argument("--acceleration-limit", type=float, default=DEFAULT_ACC_LIMIT, help=f"Starting limit of the acceleration plot. Default: {DEFAULT_ACC_LIMIT}")
+    parser.add_argument("--heatmap-bin-count", type=float, default=DEFAULT_HEATMAP_BIN_COUNT, help=f"Number of heatmap bins per grid square. Default: {DEFAULT_HEATMAP_BIN_COUNT}")
+    parser.add_argument("--heatmap-norm-power", type=float, default=DEFAULT_HEATMAP_NORM_POWER, help=f"Power of heatmap normalisation. Default: {DEFAULT_HEATMAP_NORM_POWER}")
 
     parser.add_argument("--window-size", type=str, default=f"{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}", help=f"Size of plot window (excluding toolbars) in pixels. Default: {DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}")
     parser.add_argument("--menu-size", type=int, default=f"{DEFAULT_MENU_SIZE}", help=f"Height of menu in pixels. Also influences text size. Default: {DEFAULT_MENU_SIZE}")
@@ -340,6 +345,26 @@ def plot_walls(options, fig, infile: SynthFile, data: DataContainer, prepared_da
     else:
         ax_status.legend(handles=legend_elements, loc="upper right", ncol=3)
 
+def plot_heatmap(options, fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
+    axs = fig.subplots(2,2)
+    axs = (
+        axs[0,1],  # right
+        axs[0,0],  # left
+        axs[1,0],  # single
+        axs[1,1],  # both
+    )
+    for t, note_type in enumerate(synth_format.NOTE_TYPES):
+        _, pos, _, _ = prepared_data[0][t]
+        axs[t].hist2d(
+            pos[:, 0], pos[:,1],
+            bins=[int(17 * options.heatmap_bin_count),int(13 * options.heatmap_bin_count)], range=[[-8,8],[-6,6]],
+            cmap=("Reds", "Blues", "Greens", "Oranges")[t],
+            density=False, norm=PowerNorm(options.heatmap_norm_power),
+        )
+        avg = np.nanmean(pos, axis=0)
+        axs[t].plot(avg[0], avg[1], marker="x", color="white", markeredgecolor="black", markersize=10)
+        axs[t].grid(True)
+
 def show_warnings(options, fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
     ax = fig.subplots(1)
     ax.set_axis_off()
@@ -348,6 +373,7 @@ def show_warnings(options, fig, infile: SynthFile, data: DataContainer, prepared
 TABS = [
     ("Notes", plot_notes),
     ("Walls", plot_walls),
+    ("Heatmap", plot_heatmap),
     # ("Warnings", show_warnings)
 ]
 PLATFORMS = ("PC", "Quest")
