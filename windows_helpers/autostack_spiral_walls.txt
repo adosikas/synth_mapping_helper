@@ -1,0 +1,3 @@
+# automatically detect spiral shape from first two walls and continue the patterns for 8 measures
+# you can have notes and other walls in the pattern, but ensure the first PAIR of objects is walls 
+--autostack=SPIRAL --stack-duration=8

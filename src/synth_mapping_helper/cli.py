@@ -165,9 +165,10 @@ def main(options):
     if options.autostack is not None:
         if not options.stack_count and not options.stack_duration:
             abort("Cannot --autostack without count/duration")
+        obj_type = None
         first = None
         second = None
-        for t in synth_format.ALL_TYPES:
+        for t in synth_format.ALL_TYPES[::-1]:  # start with walls (for SPIRAL mode)
             obj_dict = data.get_object_dict(t)
             if len(obj_dict) >= 2:
                 it = iter(sorted(obj_dict.items()))
@@ -176,7 +177,8 @@ def main(options):
                     first = t_first[0]  # rail head only
                     _, t_second = next(it)
                     second = t_second[0]
-        if first is None or second is None:
+                    obj_type = t
+        if first is None:
             abort("Could not find object pair for autostack")
 
         if options.autostack[0] == "SPIRAL":
@@ -211,6 +213,12 @@ def main(options):
 
             if first.shape[0] == 5:
                 options.wall_rotate = ((second[4] - first[4]) - (options.rotate or 0)) or None  # see if we need to correct wall rotation
+
+        # remove second object so it doesn't get stacked
+        if obj_type in synth_format.NOTE_TYPES:
+            del getattr(data, obj_type)[second[2]]
+        else:
+            del data.walls[second[2]]
 
     if options.stack_duration:
         if options.stack_count:

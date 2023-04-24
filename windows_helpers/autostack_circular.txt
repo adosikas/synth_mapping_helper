@@ -1,0 +1,2 @@
+# automatically detect rotation & outset between the first two objects of the same type and continue the pattern for a total of 16 (first + 15 stacked copies)
+--autostack=OUTSET --stack-count=15

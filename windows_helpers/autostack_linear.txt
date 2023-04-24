@@ -1,0 +1,2 @@
+# automatically detect offset between the first two objects of the same type and continue the pattern for 8 measures
+--autostack=OFFSET --stack-duration=8

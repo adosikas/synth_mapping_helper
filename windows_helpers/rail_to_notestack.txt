@@ -1,0 +1,3 @@
+# convert rails to notestacks with 1/16 spacing
+# you can also do "--rails-to-singles=1" to KEEP the rail instead of removing it
+--interpolate=1/16 --rails-to-singles
