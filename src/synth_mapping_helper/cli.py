@@ -105,6 +105,7 @@ def get_parser():
     movement_group.add_argument("--autostack", nargs="?", choices=("OFFSET", "SPIRAL", "OUTSET", "SCALE"), action="append", metavar="OFFSET/SPIRAL/OUTSET/SCALE", help="Find the first pair of matching objects and continue the pattern. For continuing the positions, the following modes are supported: OFFSET (default, absolute xy), SPIRAL (rotate around implied pivot), OUTSET (distance from pivot) and SCALE (xy ratio).")
 
     postproc_group = parser.add_argument_group("post-processing")
+    postproc_group.add_argument("--parallels", type=utils.parse_number, metavar="DISTANCE", help="Create parallel left/right handed patterns with given spacing from input. Negative numbers result in crossovers.")
     postproc_group.add_argument("--split-rails", action="store_true", help="Split rails at single notes")
     postproc_group.add_argument("--rails-to-singles", type=int, nargs="?", action="append", metavar="KEEP_RAIL", help="Replace rails with single notes at all nodes. KEEP_RAIL is optional and can be '1' if you want to keep the rail instead of replacing it")
     postproc_group.add_argument("--keep-alignment", action="store_true", help="Do NOT shift the start of selection to first element")
@@ -372,6 +373,24 @@ def main(options):
             data.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0], mirror_left=options.mirror_left)
 
     # postprocessing
+    if options.parallels:
+        left_orig, right_orig = data.left, data.right  # create a backup of the input
+        data.left = (
+            left_orig
+            | {t: nodes - [options.parallels,0,0] for t, nodes in sorted(right_orig.items())}  # shift over right hand by <distance>
+            | {t: nodes - [options.parallels/2,0,0] for t, nodes in sorted(data.single.items())}  # shift over single & both by <distance>/2
+            | {t: nodes - [options.parallels/2,0,0] for t, nodes in sorted(data.both.items())}
+        )
+        # vice versa for right hand
+        data.right = (
+            right_orig 
+            | {t: nodes + [options.parallels,0,0] for t, nodes in sorted(left_orig.items())}
+            | {t: nodes + [options.parallels/2,0,0] for t, nodes in sorted(data.single.items())}
+            | {t: nodes + [options.parallels/2,0,0] for t, nodes in sorted(data.both.items())}
+        )
+        # wipe single & both
+        data.single = {}
+        data.both = {}
     if options.split_rails:
         data.apply_for_note_types(rails.split_rails, types=filter_types)
     if options.rails_to_singles:

@@ -1,0 +1,5 @@
+# create parallel rails to the input, with 2 sq distance. left/right notes are added additionally to the left/right of the right/left notes, single/both notes are "split"
+# Note that when this results in conflicting notes for the left hand, the following priority is used (swapped for right hand):
+# original left hand (lowest priority) < parallels to right hand < split single < split double (highest priority)
+# ie if you have both left and hand right hand notes/rails in the same time spot, 
+--parallels=2
