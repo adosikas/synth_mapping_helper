@@ -40,7 +40,7 @@ DEFAULT_BACKUP_DIR = Path("smh_backup")  # inside working directory
 DEFAULT_VELOCITY_WINDOW = utils.SecondFloat(0.5)  # half a second gap breaks up velocity / acceleration calculations
 DEFAULT_INTERPOLATION = 1/16
 DEFAULT_VEL_LIMIT = 100
-DEFAULT_ACC_LIMIT = 1000
+DEFAULT_ACC_LIMIT = 2000
 DEFAULT_HEATMAP_BIN_COUNT = 3
 DEFAULT_HEATMAP_NORM_POWER = 0.6
 
@@ -240,7 +240,7 @@ def plot_notes(options, fig, infile: SynthFile, data: DataContainer, prepared_da
 
     ax_x, ax_y, ax_vel, ax_acc = axs
     ax_x.set_ylabel("X-Position (sq)")
-    ax_x.set_ylim((-8,8))
+    ax_x.set_ylim((8,-8))
     ax_x.set_yticks(range(-8,8+1), (str(t) if not t%2 else "" for t in range(-8,8+1)))
     ax_x.grid(True)
 
@@ -364,6 +364,7 @@ def plot_heatmap(options, fig, infile: SynthFile, data: DataContainer, prepared_
         avg = np.nanmean(pos, axis=0)
         axs[t].plot(avg[0], avg[1], marker="x", color="white", markeredgecolor="black", markersize=10)
         axs[t].grid(True)
+        axs[t].text((-7,7,7,-7)[t], (-5,-5,5,5)[t], len(getattr(data, note_type)), ha="center", va="center")
 
 def show_warnings(options, fig, infile: SynthFile, data: DataContainer, prepared_data, platform: str):
     ax = fig.subplots(1)
