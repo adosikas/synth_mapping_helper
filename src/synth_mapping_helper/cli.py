@@ -34,6 +34,31 @@ def do_movement(options, data: synth_format.DataContainer, filter_types: list = 
     if options.outset is not None:
         _movement_helper(data, options.mirror_left, movement.outset, movement.outset_relative, movement.outset_from, options.relative, options.pivot, options.outset, types=filter_types)
 
+def do_random_movement(options, data: synth_format.DataContainer, filter_types: list = synth_format.ALL_TYPES) -> None:
+    if options.rotate_random is not None:
+        if len(options.rotate_random) == 1:
+            area = options.rotate_random[0]
+        else:
+            areas = np.array([
+                max(a[1]-a[1], 0.01)  # area, where 0-width areas are counted as 0.01 for numerical stability
+                for a in options.rotate_random
+            ])
+            area = options.rotate_random[np.random.choice(len(areas), p=areas/sum(areas))]
+        random_angle = np.random.random_sample() * (area[1]-area[0]) + area[0]
+        _movement_helper(data, options.mirror_left, movement.rotate, movement.rotate_relative, movement.rotate_around, options.relative, options.pivot, random_angle, types=filter_types)
+
+    if options.offset_random is not None:
+        if len(options.offset_random) == 1:
+            area = options.offset_random[0]
+        else:
+            areas = np.array([
+                max(a[1,0]-a[0,0], 0.01)*max(a[1,1]-a[0,1], 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
+                for a in options.offset_random
+            ])
+            area = options.offset_random[np.random.choice(len(areas), p=areas/sum(areas))]
+        random_offset = pattern_generation.random_xy(1, area[0], area[1])[0]
+        data.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0], mirror_left=options.mirror_left, types=filter_types)
+    
 def get_parser():
     parser = ArgumentParser(
         formatter_class=RawDescriptionHelpFormatter,
@@ -98,7 +123,8 @@ def get_parser():
     rail_stack_group = movement_group.add_mutually_exclusive_group()
     rail_stack_group.add_argument("--offset-along", choices=synth_format.NOTE_TYPES, help="While stacking: Offset objects to follow notes/rails of the specified type")
     rail_stack_group.add_argument("--rotate-with", choices=synth_format.NOTE_TYPES, help="While stacking: Rotate and outset the objects to follow notes/rails of the specified type")
-    movement_group.add_argument("--offset-random", type=utils.parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis. When no MIN is given, uses negative MAX.")
+    movement_group.add_argument("--offset-random", nargs="+", action="extend", type=utils.parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis (ignoring relative & pivot). When no MIN is given, uses negative MAX. Multiple ranges can be specified")
+    movement_group.add_argument("--rotate-random", nargs="+", action="extend", type=utils.parse_range, metavar="[MIN_ANG:]MAX_ANG", help="Rotate by a random angle (obeying relative & pivot if given). When no MIN is given, uses negative MAX. Multiple ranges can be specified")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
     movement_group.add_argument("--stack-duration", type=utils.parse_time, help="Like --stack-count, but you can give it during in beats ('4') or seconds ('2s').")
@@ -325,7 +351,7 @@ def main(options):
 
     # movement
     if options.stack_count:
-        stacking = data.filtered(types=filter_types)
+        stacking = data.filtered(types=filter_types)  # pre-filter
         if options.offset_along or options.rotate_with:
             if options.offset_along and options.rotate_with:
                 abort("Cannot use offset-along and rotate-with at the same time")
@@ -360,17 +386,13 @@ def main(options):
                 else:
                     tmp.apply_for_all(movement.rotate, angle_diff, mirror_left=options.mirror_left)
                 tmp.apply_for_all(movement.offset, group_outset)
-            if options.offset_random is not None:
-                random_offset = pattern_generation.random_xy(1, options.offset_random[0], options.offset_random[1])[0]
-                tmp.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0], mirror_left=options.mirror_left)
+            do_random_movement(options, tmp)
             data.merge(tmp)
     else:
         if options.offset_along or options.rotate_with:
             abort("Cannot use offset-along or rotate-with without stacking")
         do_movement(options, data, filter_types=filter_types)
-        if options.offset_random is not None:
-            random_offset = pattern_generation.random_xy(1, options.offset_random[0], options.offset_random[1])[0]
-            data.apply_for_all(movement.offset, [random_offset[0], random_offset[1], 0], mirror_left=options.mirror_left)
+        do_random_movement(options, data, filter_types=filter_types)
 
     # postprocessing
     if options.parallels:
