@@ -70,9 +70,10 @@ def get_parser():
             "Most number values accept decimals, percentages and fractions (ie '0.25', '25%' or '1/4')",
             "\tTime inputs may also be given in seconds (ie '81.5s' or '1:21.5'), which will be converted into beats",
             "If your value starts with a '-', you must add a = between option and value, ie '--rotate=-45' or '--offset=-1,0,0'",
+            "For most options, only the last occurence is considered (exception: '--offset-random' and '--rotate-random')",
             "",
             "Angles are in degrees",
-            "Vectors are specified as 'x,y,time:'",
+            "Vectors are specified as 'x,y,time':",
             "\tX/Y is measured in editor grid squares, where +x is right and +y is up",
             "\tTime is measured in measures/beats from the start of the selection",
             "",
@@ -123,8 +124,8 @@ def get_parser():
     rail_stack_group = movement_group.add_mutually_exclusive_group()
     rail_stack_group.add_argument("--offset-along", choices=synth_format.NOTE_TYPES, help="While stacking: Offset objects to follow notes/rails of the specified type")
     rail_stack_group.add_argument("--rotate-with", choices=synth_format.NOTE_TYPES, help="While stacking: Rotate and outset the objects to follow notes/rails of the specified type")
-    movement_group.add_argument("--offset-random", nargs="+", action="extend", type=utils.parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis (ignoring relative & pivot). When no MIN is given, uses negative MAX. Multiple ranges can be specified")
-    movement_group.add_argument("--rotate-random", nargs="+", action="extend", type=utils.parse_range, metavar="[MIN_ANG:]MAX_ANG", help="Rotate by a random angle (obeying relative & pivot if given). When no MIN is given, uses negative MAX. Multiple ranges can be specified")
+    movement_group.add_argument("--offset-random", nargs="+", action="extend", type=utils.parse_xy_range, metavar="[MIN_X:]MAX_X,[MIN_Y:]MAX_Y", help="Offset by a random amount in the X and Y axis (ignoring relative & pivot). When no MIN is given, uses negative MAX. Multiple ranges can be specified, separated via space or as separate options (required when starting with '-').")
+    movement_group.add_argument("--rotate-random", nargs="+", action="extend", type=utils.parse_range, metavar="[MIN_ANG:]MAX_ANG", help="Rotate by a random angle (obeying relative & pivot if given). When no MIN is given, uses negative MAX. Multiple ranges can be specified, separated via space or as separate options (required when starting with '-').")
 
     movement_group.add_argument("-c", "--stack-count", type=int, help="Instead of moving, create copies. Must have time offset set.")
     movement_group.add_argument("--stack-duration", type=utils.parse_time, help="Like --stack-count, but you can give it during in beats ('4') or seconds ('2s').")

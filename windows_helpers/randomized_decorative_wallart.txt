@@ -1,0 +1,4 @@
+# expects a centered wallart pattern and stacks it every beat for the next minute
+# each copy will offset either be on the left (x -20 to -10) or right side (x +10 to +20) of the playspace, at the original height (y 0 to 0) and rotated between -45 and +45 degrees
+# as both 'offset-random' areas area the same size, they are both equally likely to be chosen
+-f=walls --offset=0,0,1 --stack-duration=1:00 --offset-random=-20:-10,0:0 --offset-random=10:20,0:0 --rotate-random=-45:45
