@@ -416,6 +416,8 @@ def main(options):
         nonlocal difficulties
         logging.info("Preparing data")
         difficulties = [(d, prepare_data(data.difficulties[d], options)) for d in synth_format.DIFFICULTIES if d in data.difficulties]
+        if not difficulties:
+            abort("No notes found")
         logging.info("Preparing complete")
 
     replace_prepared_data()

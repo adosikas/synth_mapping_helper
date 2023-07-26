@@ -3,6 +3,7 @@ from io import BytesIO
 import dataclasses
 import json
 from pathlib import Path
+import time
 from typing import Union
 from zipfile import ZipFile
 
@@ -57,9 +58,13 @@ BETA_WARNING_SHOWN = False
 
 
 def beta_warning() -> None:
+    global BETA_WARNING_SHOWN
     if not BETA_WARNING_SHOWN:
-        print("This was tested with the beta version of the editor only. You may want to switch to it.")
+        print("\n\n ⚠️  W A R N I N G ⚠️")
+        print("\tThis was tested with the beta version of the editor only.")
+        print("\tYou may want to switch to it if you encounter bugs or weird behavior.\n\n")
         BETA_WARNING_SHOWN = True
+        time.sleep(0.5)
 
 def round_time_to_fractions(time: float) -> float:
     # 192 is the lowest common multiple of 64 and 48, so this covers all steps the editor supports and more
@@ -295,8 +300,7 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
     return dest_list, wall_dict
 
 # full json
-def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
-    original_json = pyperclip.paste()
+def import_clipboard_json(original_json: str, use_original: bool = False) -> ClipboardDataContainer:
     clipboard = json.loads(original_json)
     if "original_json" in clipboard:
         original_json = clipboard["original_json"]
@@ -327,7 +331,10 @@ def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
 
     return ClipboardDataContainer(bpm, *notes, walls, original_json)
 
-def export_clipboard(data: DataContainer, realign_start: bool = True):
+def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
+    return import_clipboard_json(pyperclip.paste(), use_original)
+
+def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> str:
     clipboard = {
         "BPM": data.bpm,
         "startMeasure": 0,
@@ -374,8 +381,10 @@ def export_clipboard(data: DataContainer, realign_start: bool = True):
         clipboard["lenght"] = last * ms_per_min / data.bpm
     # always update length
     clipboard["lenght"] = (last - first) * ms_per_min / data.bpm
+    return json.dumps(clipboard)
 
-    pyperclip.copy(json.dumps(clipboard))
+def export_clipboard(data: DataContainer, realign_start: bool = True):
+    pyperclip.copy(export_clipboard_json(data, realign_start))
 
 def import_file(file_path: Path) -> SynthFile:
     out = SynthFile(file_path, {}, {}, {})
