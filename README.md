@@ -26,6 +26,7 @@ For more info on each feature, check out [the wiki](https://github.com/adosikas/
     * Splitting
     * Interpolation
     * Convert between single notes and rails
+    * Snapping single notes to rails
 * Cross-Platform (Windows, Linux)
     * For Windows, supports drag and drop actions (fully usable without command prompt)
 * Imports directly from clipboard, and export to it

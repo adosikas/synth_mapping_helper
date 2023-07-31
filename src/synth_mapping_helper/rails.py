@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.interpolate import pchip_interpolate
+from scipy.interpolate import CubicHermiteSpline
 
 from .synth_format import DataContainer, SINGLE_COLOR_NOTES
 from .utils import bounded_arange
@@ -15,16 +15,32 @@ def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)", *, 
         new_z,
     ), axis=-1)
 
-def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: bool = 1) -> "numpy array (x, 3)":
+def synth_curve(data: "numpy array (n, m)", *, direction: bool = 1):
+    # based on https://github.com/LittleAsi/synth-riders-editor,
+    # which uses LineSmoother.cs from https://forum.unity.com/threads/easy-curved-line-renderer-free-utility.391219
     if data.shape[0] == 1:
         return data
-    # add points in straight line from start and end to match shape more closely
-    padded_data = np.concatenate(([2*data[0]-data[1]], data, [2*data[-1]-data[-2]]))
-    return np.stack((
-        pchip_interpolate(padded_data[:, 2], padded_data[:, 0], new_z),
-        pchip_interpolate(padded_data[:, 2], padded_data[:, 1], new_z),
-        new_z,
-    ), axis=-1)
+
+    # equivalent of Unity's AnimationCurve when doing smoothTangents(0)
+    tangents = np.diff(data, axis=0, prepend=data[0][np.newaxis], append=data[-1][np.newaxis])
+    smoothed_tangents = (tangents[:-1] + tangents[1:]) / 2
+
+    # this interpolates not only x and y, but also time
+    curve = CubicHermiteSpline(range(data.shape[0]), data, smoothed_tangents)
+    curve_points = []
+    for i in range(data.shape[0]-1):
+        curve_points.append(data[i])
+        # interpolate a number of points which is based on distance between nodes
+        # intermediates = int(np.linalg.norm(coord_to_synth(240, data[i+1]-data[i])) / 0.15)
+
+        # we use a different formula, which doesn't rely on BPM but produces very similar results
+        intermediates = int(np.linalg.norm((data[i+1]-data[i])*(0.1,0.1,8)))
+        curve_points.extend(curve(i + np.arange(1, intermediates)/intermediates))
+    curve_points.append(data[-1])
+    return np.array(curve_points)
+
+def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: bool = 1) -> "numpy array (x, 3)":
+    return interpolate_linear(synth_curve(data), new_z, direction=direction)
 
 def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bool = True) -> "numpy array (2)":
     # single note
@@ -88,6 +104,26 @@ def split_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COL
 
     return out
 
+def snap_singles_to_rail(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+    """snap single notes to rail"""
+    current_rail_start = None
+    current_rail_end = None
+    out: SINGLE_COLOR_NOTES = {}
+
+    for time in sorted(notes):
+        if current_rail_start is not None and time >= current_rail_end:  # current time is past end of stored rail -> forget stored rail
+            current_rail_start = None
+            current_rail_end = None
+        nodes = notes[time]
+        if nodes.shape[0] > 1:  # rail: store start/end and keep as-is
+            current_rail_start = nodes[0, 2]
+            current_rail_end = nodes[-1, 2]
+            out[time] = nodes
+        elif current_rail_start is not None:  # single next to rail -> snap to it
+            out[time] = interpolate_spline(out[current_rail_start], [time])
+        else:  # single without rail next to it: keep as-is
+            out[time] = nodes
+    return out
 
 def merge_sequential_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """merges rails where end and start a very close"""

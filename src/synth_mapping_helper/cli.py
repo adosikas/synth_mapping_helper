@@ -101,7 +101,7 @@ def get_parser():
 
     rail_pattern_group = parser.add_argument_group("rail patterns")
     interp_group = rail_pattern_group.add_mutually_exclusive_group()
-    interp_group.add_argument("--interpolate", type=utils.parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines (similar to the game). Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
+    interp_group.add_argument("--interpolate", type=utils.parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating using splines close to the editor. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
     interp_group.add_argument("--interpolate-linear", type=utils.parse_time, metavar="INTERVAL", help="Subdivide rail into segments of this length in beats, interpolating linearly. Supports fractions. When used with --spiral or --spikes, this is the distance between each nodes")
     rail_pattern_group.add_argument("--shorten-rails", type=utils.parse_time, metavar="DISTANCE", help="Cut some distance from every rail. Supports fractions. When negative, cuts from the start instead of the end")
     rail_pattern_group.add_argument("--start-angle", type=utils.parse_number, default=0.0, metavar="DEGREES", help="Angle of the first node of the spiral in degrees. Default: 0/right")
@@ -135,6 +135,7 @@ def get_parser():
     postproc_group.add_argument("--parallels", type=utils.parse_number, metavar="DISTANCE", help="Create parallel left/right handed patterns with given spacing from input. Negative numbers result in crossovers.")
     postproc_group.add_argument("--split-rails", action="store_true", help="Split rails at single notes")
     postproc_group.add_argument("--rails-to-singles", type=int, nargs="?", action="append", metavar="KEEP_RAIL", help="Replace rails with single notes at all nodes. KEEP_RAIL is optional and can be '1' if you want to keep the rail instead of replacing it")
+    postproc_group.add_argument("--snap-singles-to-rail", action="store_true", help="Snap single notes to rail of the same color")
     postproc_group.add_argument("--keep-alignment", action="store_true", help="Do NOT shift the start of selection to first element")
 
     return parser
@@ -418,6 +419,8 @@ def main(options):
         data.apply_for_note_types(rails.split_rails, types=filter_types)
     if options.rails_to_singles:
         data.apply_for_note_types(rails.rails_to_singles, keep_rail=bool(options.rails_to_singles[0]), types=filter_types)
+    if options.snap_singles_to_rail:
+        data.apply_for_note_types(rails.snap_singles_to_rail, types=filter_types)
     synth_format.export_clipboard(data, not options.keep_alignment)
 
 if __name__ == "__main__":
