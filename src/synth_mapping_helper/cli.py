@@ -141,8 +141,11 @@ def get_parser():
     return parser
 
 def abort(reason: str):
-    print("ERROR: " + reason)
-    exit(1)
+    if __name__ == "__main__":
+        print("ERROR: " + reason)
+        exit(1)
+    else:
+        raise RuntimeError(reason)
 
 def main(options):
     if options.start_empty is not None:

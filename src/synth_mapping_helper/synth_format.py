@@ -10,6 +10,8 @@ from zipfile import ZipFile
 import numpy as np
 import pyperclip
 
+from . import movement
+
 # For simplicity, we exclusively use grid coordinates (x, y) and use measures for time (z)
 # These values are only needed to convert to / from the format the game uses
 
@@ -88,6 +90,14 @@ class DataContainer:
     both: SINGLE_COLOR_NOTES
     walls: WALLS
 
+    @property
+    def notecount(self) -> None:
+        return len(self.right) + len(self.left) + len(self.single) + len(self.both)
+
+    @property
+    def wallcount(self) -> None:
+        return len(self.walls)
+
     # Note: None of these functions are allowed to *modify* the dicts, instead they must create new dicts
     # This avoids requring deep copies for everything
 
@@ -160,13 +170,18 @@ class ClipboardDataContainer(DataContainer):
 
 @dataclasses.dataclass
 class SynthFile:
-    input_file: Path
+    input_file: Union[Path, BytesIO]
     meta: dict[str, str]
     bookmarks: dict[float, str]
     difficulties: dict[str, DataContainer]
 
+    @property
+    def bpm(self) -> float:
+        for d, c in self.difficulties.items():
+            return c.bpm
+
     def reload(self) -> None:
-        in_bio = BytesIO(self.input_file.read_bytes())  # buffer whole file in memory
+        in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
         with ZipFile(in_bio) as inzip:
             # load beatmap json
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
@@ -203,9 +218,10 @@ class SynthFile:
                 if any(nt for nt in notes) or walls:
                     self.difficulties[diff] = DataContainer(bpm, *notes, walls)
 
-    def save_as(self, output_file: Path) -> None:
-        out_buffer = BytesIO()  # buffer output zip file in memory, only write on success
-        with ZipFile(self.input_file) as inzip, ZipFile(out_buffer, "w") as outzip:
+    def save_as(self, output_file: Union[Path|BytesIO]) -> None:
+        out_buffer = output_file if isinstance(output_file, BytesIO) else BytesIO()  # buffer output zip file in memory, only write on success
+        in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
+        with ZipFile(in_bio) as inzip, ZipFile(out_buffer, "w") as outzip:
             # copy all content except beatmap json
             outzip.comment = inzip.comment
             for info in inzip.infolist():
@@ -213,6 +229,7 @@ class SynthFile:
                     outzip.writestr(info, inzip.read(info.filename))
 
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
+            beatmap["BPM"] = self.bpm
 
             beatmap["Bookmarks"]["BookmarksList"] = [
                 {"time": round_tick_for_json(t * 64), "name": n}
@@ -240,7 +257,31 @@ class SynthFile:
             # write modified beatmap json
             outzip.writestr(inzip.getinfo(BEATMAP_JSON_FILE), json.dumps(beatmap))
         # write output zip
-        output_file.write_bytes(out_buffer.getbuffer())
+        if isinstance(output_file, BytesIO):
+            output_file.seek(0)
+        else:
+            output_file.write_bytes(out_buffer.getbuffer())
+
+    def change_bpm(self, bpm: float) -> None:
+        if self.bpm != bpm:
+            ratio = bpm/self.bpm
+            self.bookmarks = {
+                time * ratio: name
+                for time, name in self.bookmarks.items()
+            }
+            for c in self.difficulties.values():
+                c.apply_for_all(movement.scale, [1,1,ratio])
+                c.bpm = bpm
+
+    def merge(self, other: "SynthFile", adjust_bpm:bool = True) -> None:
+        if adjust_bpm and self.bpm != other.bpm:
+            other.change_bpm(self.bpm)
+        self.bookmarks |= other.bookmarks
+        for d, c in other.difficulties.items():
+            if d in self.difficulties:
+                self.difficulties[d].merge(c)
+            else:
+                self.difficulties[d] = c
 
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float]) -> "numpy array (3)":
@@ -386,7 +427,7 @@ def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> st
 def export_clipboard(data: DataContainer, realign_start: bool = True):
     pyperclip.copy(export_clipboard_json(data, realign_start))
 
-def import_file(file_path: Path) -> SynthFile:
+def import_file(file_path: Union[Path, BytesIO]) -> SynthFile:
     out = SynthFile(file_path, {}, {}, {})
     out.reload()
     return out
