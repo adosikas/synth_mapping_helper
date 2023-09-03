@@ -15,6 +15,7 @@ presets = {
     "Merge Rails": "--merge-rails",
     "Split Rails": "--split-rails",
 }
+wiki_base = "https://github.com/adosikas/synth_mapping_helper/wiki"
 
 @app.get("/download")
 def download():
@@ -23,7 +24,7 @@ def download():
 
 def wiki_reference(page: str) -> ui.badge:
     b = ui.badge("?").style("cursor: help")
-    b.on("click.stop", lambda _ : ui.open(f"https://github.com/adosikas/synth_mapping_helper/wiki/{page}", new_tab=True))
+    b.on("click.stop", lambda _ : ui.open(f"{wiki_base}/{page}", new_tab=True))
     with b:
         ui.tooltip(f"Open wiki: {page}")
     return b
@@ -35,7 +36,7 @@ def try_load_synth_file(e: events.UploadEventArguments) -> Optional[synth_format
         msg = f"Error reading {e.name} as SynthFile: {exc!r}"
         e.sender.reset()
         logger.error(msg)
-        ui.notify(msg)
+        ui.notify(msg, type="warning")
     return None
 
 def add_suffix(filename: str, suffix: str) -> str:
@@ -47,33 +48,44 @@ def home_tab():
         ui.label("Select one of the tabs above.")
 
 def command_tab():
+    @ui.refreshable
+    def quick_run_buttons():
+        for p in presets:
+            ui.button(p, icon="fast_forward", on_click=run_preset)
+
+    def presets_updated():
+        preset_selector.set_options(list(presets))
+        quick_run_buttons.refresh()
+
     def load_commands(e: events.UploadEventArguments):
         data = e.content.read()
         try:
             presets[e.name] = data.decode()
-            preset_selector.set_options(list(presets))
+            presets_updated()
             preset_selector.value = e.name  # this also loads the content
         except UnicodeDecodeError as exc:
             msg = f"Error reading commands from {e.name}"
             logger.error(msg)
-            ui.notify(msg)
+            ui.notify(msg, type="negative")
         e.sender.reset()
 
     def run_command():
         p = cli.get_parser()
         p.exit_on_error = False
         commands = command_input.value.splitlines()
+        count = 0
         for i, line in enumerate(commands):
             if line.startswith("#"):
                 continue
+            error = None
             args = line.split(" ")
-            if use_orig_cb.value:
-                args.append("--use-orginal-json")
+            if not count and use_orig_cb.value:
+                args.append("--use-original")
             if mirror_left_cb.value:
                 args.append("--mirror-left")
 
             try:
-                opts, remaining = p.parse_known_args()
+                opts, remaining = p.parse_known_args(args)
             except ArgumentError as exc:
                 error = f"Error parsing line {i+1}: {exc!s}"
             else:
@@ -86,15 +98,27 @@ def command_tab():
                         error = f"Error running line {i+1}: {exc!r}"
             if error:
                 logger.error(error)
-                ui.notify(error)
+                ui.notify(error, type="negative")
                 break
+            count += 1
+        else:
+            if preset_selector.value:
+                message = f"Sucessfully executed preset '{preset_selector.value}' ({count} command{'s'*(count>1)})"
+            else:
+                message = f"Sucessfully executed {count} command{'s'*(count>1)}"
+            logger.info(message)
+            ui.notify(message, type="positive")
+
+    def run_preset(e: events.ClickEventArguments):
+        preset_selector.value = e.sender.text
+        run_command()
 
     def load_presets():
         global presets
         loaded_presets = app.storage.user.get("command_presets")
         if loaded_presets:
-            presets = loaded_presets
-            preset_selector.set_options(list(presets))
+            presets = {**loaded_presets}  # copy
+            presets_updated()
             logger.info(f"Loaded {len(presets)} presets")
 
     def save_presets():
@@ -103,7 +127,7 @@ def command_tab():
 
     def add_preset():
         presets[add_preset_name.value] = command_input.value
-        preset_selector.set_options(list(presets))
+        presets_updated()
         preset_selector.value = add_preset_name.value
         add_dialog.close()
 
@@ -115,7 +139,7 @@ def command_tab():
 
     def delete_preset(e: events.ClickEventArguments):
         del presets[preset_selector.value]
-        preset_selector.set_options(list(presets))
+        presets_updated()
         preset_selector.value = None
         remove_dialog.close()
 
@@ -130,9 +154,9 @@ def command_tab():
             with ui.select(list(presets), with_input=True) as preset_selector:
                 ui.tooltip("Select a preset")
             preset_selector.bind_value(app.storage.user, "command_preset")
-            with ui.button(icon="delete", color="red", on_click=remove_dialog.open).classes("m-auto"):
+            with ui.button(icon="delete", color="red", on_click=remove_dialog.open).classes("m-auto").bind_enabled_from(preset_selector, "value"):
                 ui.tooltip("Delete current preset")
-            with ui.button(icon="add", color="green", on_click=add_dialog.open).classes("m-auto"):
+            with ui.button(icon="add", color="green", on_click=add_dialog.open).classes("m-auto") as add_button:
                 ui.tooltip("Add current command as preset")
             ui.upload(label="Add from file", auto_upload=True, multiple=True, on_upload=load_commands).classes("h-14 w-40")
             with ui.button(icon="restore", on_click=load_presets).classes("m-auto"):
@@ -144,13 +168,19 @@ def command_tab():
         command_input.bind_value(app.storage.user, "command_input")
         preset_selector.bind_value_to(command_input, forward=lambda v: v and presets.get(v))
         preset_selector.bind_value_to(remove_confirmation_label, "text", forward=lambda v: f"Really delete '{v}'?")
+        add_button.bind_enabled_from(command_input, "value")
 
         with ui.row():
-            ui.button("Execute", icon="play_arrow", on_click=run_command)
+            ui.button("Execute", icon="play_arrow", on_click=run_command).bind_enabled_from(command_input, "value")
             with ui.checkbox("Use original JSON") as use_orig_cb:
                 wiki_reference("Miscellaneous-Options#use-original-json")
             with ui.checkbox("Mirror for left hand") as mirror_left_cb:
                 wiki_reference("Miscellaneous-Options#mirror-operations-for-left-hand")
+        ui.separator()
+    
+        ui.label("Quick run:")
+        with ui.row():
+            quick_run_buttons()
 
     load_presets()
 
@@ -287,7 +317,7 @@ def index():
             for idx, (name, icon, *_) in enumerate(tab_list):
                 tab_list[idx][3] = ui.tab(name, icon=icon)
 
-        ui.button("Open wiki", icon="question_mark", on_click=lambda _:ui.open("https://github.com/adosikas/synth_mapping_helper/wiki", new_tab=True)).classes("ml-auto")
+        ui.button("Open wiki", icon="question_mark", color="white", on_click=lambda _:ui.open(wiki_base, new_tab=True)).classes("ml-auto").props("text-color=primary")
         ui.button(icon="close", color="red", on_click=stop).set_enabled(not args.dev_mode)
             
     with ui.tab_panels(tabs, value=tab_list[0][3]).classes("w-full"):
