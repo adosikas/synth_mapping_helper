@@ -218,7 +218,7 @@ class SynthFile:
                 if any(nt for nt in notes) or walls:
                     self.difficulties[diff] = DataContainer(bpm, *notes, walls)
 
-    def save_as(self, output_file: Union[Path|BytesIO]) -> None:
+    def save_as(self, output_file: Union[Path, BytesIO]) -> None:
         out_buffer = output_file if isinstance(output_file, BytesIO) else BytesIO()  # buffer output zip file in memory, only write on success
         in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
         with ZipFile(in_bio) as inzip, ZipFile(out_buffer, "w") as outzip:
