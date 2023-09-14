@@ -64,7 +64,7 @@ if __name__ in {"__main__", "__mp_main__"}:
             ui.button("Open wiki", icon="question_mark", color="white", on_click=lambda _:ui.open(wiki_base, new_tab=True)).classes("ml-auto").props("text-color=primary")
             ui.button(icon="close", color="red", on_click=stop).set_enabled(not args.dev_mode)
                 
-        with ui.tab_panels(tabs, value=tab_list[0][3]).classes("w-full"):
+        with ui.tab_panels(tabs, value=tab_list[0][0]).classes("w-full").bind_value(app.storage.user, "active_tab"):
             for _, _, func, elem in tab_list:
                 with ui.tab_panel(elem):
                     func()

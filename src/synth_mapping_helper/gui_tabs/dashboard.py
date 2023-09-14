@@ -26,18 +26,18 @@ def dashboard_tab():
         #     with ui.switch("Delete other"):
         #         wiki_reference("Pre--and-Post-Processing-Options#delete-everything-not-matching-filter")
         with ui.card().classes("h-16"), ui.row():
-            with ui.switch("Use original") as sw_use_orig:
+            with ui.switch("Use original").bind_value(app.storage.user, "dashboard_use_orig") as sw_use_orig:
                 wiki_reference("Miscellaneous-Options#use-original-json")
-            with ui.switch("Mirror left hand") as sw_mirror_left:
+            with ui.switch("Mirror left hand").bind_value(app.storage.user, "dashboard_mirror_left") as sw_mirror_left:
                 wiki_reference("Miscellaneous-Options#mirror-operations-for-left-hand")
         with ui.card().classes("h-16"), ui.row():
             with ui.label("Coordinates").classes("my-auto"):
                 wiki_reference("Movement-Options#pivot-and-relative")
-            coordinate_mode = ui.toggle(["absolute", "relative", "pivot"], value="absolute").classes("my-auto")
+            coordinate_mode = ui.toggle(["absolute", "relative", "pivot"], value="absolute").classes("my-auto").bind_value(app.storage.user, "dashboard_coord_mode")
             with ui.row() as pivot_settings:
-                pivot_x = ui.input("X", value="0").props("dense suffix=sq").classes("w-16 h-8")
-                pivot_y = ui.input("Y", value="0").props("dense suffix=sq").classes("w-16 h-8")
-                pivot_t = ui.input("Time", value="0").props("dense suffix=b").classes("w-16 h-8")
+                pivot_x = ui.input("X", value="0").props("dense suffix=sq").classes("w-16 h-8").bind_value(app.storage.user, "dashboard_pivot_x")
+                pivot_y = ui.input("Y", value="0").props("dense suffix=sq").classes("w-16 h-8").bind_value(app.storage.user, "dashboard_pivot_y")
+                pivot_t = ui.input("Time", value="0").props("dense suffix=b").classes("w-16 h-8").bind_value(app.storage.user, "dashboard_pivot_t")
                 pivot_settings.bind_visibility_from(coordinate_mode, "value", backward=lambda v: v=="pivot")
 
     class SMHActionButton(ui.button):
@@ -92,7 +92,7 @@ def dashboard_tab():
                                 ),
                             )
                         else:
-                            offset_xy = ui.input("X/Y", value="1").props("dense suffix=sq").classes("w-12 h-10")
+                            offset_xy = ui.input("X/Y", value="1").props("dense suffix=sq").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_offset_xy")
             ui.separator()
             with ui.row():
                 SMHActionButton(
@@ -103,7 +103,7 @@ def dashboard_tab():
                         offset_3d=np.array([0,0,-parse_number(offset_t.value)]),
                     ),
                 )
-                offset_t = ui.input("Time", value=1).props("dense suffix=b").classes("w-12 h-10")
+                offset_t = ui.input("Time", value="1").props("dense suffix=b").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_offset_t")
                 SMHActionButton(
                     tooltip="Offset later in time",
                     icon="add",
@@ -142,7 +142,7 @@ def dashboard_tab():
                     ),
                     color="secondary",
                 )
-                with ui.input("X/Y", value="110%").props("dense").classes("w-12 h-10") as scale_xy:
+                with ui.input("X/Y", value="110%").props("dense").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_scale_xy") as scale_xy:
                     ui.tooltip("Can be given as % or ratio")
                 SMHActionButton(
                     tooltip="Scale X up (wider)",
@@ -183,7 +183,7 @@ def dashboard_tab():
                         scale_3d=np.array([1,1,1/parse_number(scale_t.value)]),
                     ),
                 )
-                with ui.input("Time", value="2").props("dense").classes("w-12 h-10") as scale_t:
+                with ui.input("Time", value="2").props("dense").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_scale_t") as scale_t:
                     ui.tooltip("Can be given as % or ratio")
                 SMHActionButton(
                     tooltip="Scale time up (longer)",
@@ -205,7 +205,7 @@ def dashboard_tab():
                         angle=-parse_number(rotate_angle.value),
                     ),
                 )
-                rotate_angle = ui.input("Angle", value="45").props('dense suffix="°"').classes("w-12 h-10")
+                rotate_angle = ui.input("Angle", value="45").props('dense suffix="°"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_angle")
                 SMHActionButton(
                     tooltip="Rotate clockwise",
                     icon="rotate_right",
@@ -256,7 +256,7 @@ def dashboard_tab():
                         outset_scalar=-parse_number(outset_amount.value),
                     ),
                 )
-                outset_amount = ui.input("Amount", value=1).props('dense suffix="sq"').classes("w-12 h-10")
+                outset_amount = ui.input("Amount", value=1).props('dense suffix="sq"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_outset")
                 SMHActionButton(
                     tooltip="Outset (away from center/pivot)",
                     icon="open_in_full",
@@ -282,7 +282,7 @@ def dashboard_tab():
                 )
             ui.separator()
             with ui.row():
-                rail_interval = ui.input("Time", value="1/16").props('dense suffix="b"').classes("w-12 h-10")
+                rail_interval = ui.input("Time", value="1/16").props('dense suffix="b"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_rail_interval")
                 SMHActionButton(
                     tooltip="Redistribute rail nodes",
                     icon="line_style",
@@ -345,7 +345,7 @@ def dashboard_tab():
             with ui.label("Create parallel"):
                 wiki_reference("Pre--and-Post-Processing-Options#create-parallel-patterns")
             with ui.row():
-                with ui.input("Spacing", value="2").props('dense suffix="sq"').classes("w-12 h-10") as parallel_distance:
+                with ui.input("Spacing", value="2").props('dense suffix="sq"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_parallel") as parallel_distance:
                     ui.tooltip("Can be negative for crossovers")
                 SMHActionButton(
                     tooltip="Create parallel pattern",
