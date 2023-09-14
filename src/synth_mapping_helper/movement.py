@@ -107,7 +107,7 @@ def scale_from(
 
 
 def scale_relative(
-    data: "numpy array (n, 3+)", scale_3d: "numpy array (3)"
+    data: "numpy array (n, 3+)", scale_3d: "numpy array (3)", direction: int = 1
 ) -> "numpy array (n, 3+)":
     """scale positions relative to first node"""
     if data.shape[0] == 1:

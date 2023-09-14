@@ -34,7 +34,7 @@ def synth_curve(data: "numpy array (n, m)", *, direction: bool = 1):
         # intermediates = int(np.linalg.norm(coord_to_synth(240, data[i+1]-data[i])) / 0.15)
 
         # we use a different formula, which doesn't rely on BPM but produces very similar results
-        intermediates = int(np.linalg.norm((data[i+1]-data[i])*(0.1,0.1,8)))
+        intermediates = int(np.linalg.norm((data[i+1]-data[i])*(0.1,0.1,16)))
         curve_points.extend(curve(i + np.arange(1, intermediates)/intermediates))
     curve_points.append(data[-1])
     return np.array(curve_points)

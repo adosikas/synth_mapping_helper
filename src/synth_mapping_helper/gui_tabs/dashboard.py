@@ -16,6 +16,9 @@ def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_f
     else:
         data.apply_for_all(base_func, *args, mirror_left=mirror_left, **kwargs)
 
+def _safe_inverse(v: float) -> float:
+    return 0 if v == 0 else 1/v
+
 def dashboard_tab():
     with ui.row():
         # with ui.card().classes("h-16"), ui.row():
@@ -112,6 +115,7 @@ def dashboard_tab():
                         offset_3d=np.array([0,0,parse_number(offset_t.value)]),
                     ),
                 )
+
         with ui.card():
             with ui.label("Scaling"):
                 wiki_reference("Movement-Options#scaling")
@@ -138,7 +142,7 @@ def dashboard_tab():
                     icon="compare_arrows",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1/parse_number(scale_xy.value),1,1]),
+                        scale_3d=np.array([_safe_inverse(parse_number(scale_xy.value)),1,1]),
                     ),
                     color="secondary",
                 )
@@ -157,7 +161,7 @@ def dashboard_tab():
                     icon="zoom_in_map",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1/parse_number(scale_xy.value),1/parse_number(scale_xy.value),1]),
+                        scale_3d=np.array([_safe_inverse(parse_number(scale_xy.value)),_safe_inverse(parse_number(scale_xy.value)),1]),
                     ),
                     color="secondary",
                 )
@@ -166,11 +170,11 @@ def dashboard_tab():
                     icon="unfold_less",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,1/parse_number(scale_xy.value),1]),
+                        scale_3d=np.array([1,_safe_inverse(parse_number(scale_xy.value)),1]),
                     ),
                     color="secondary",
                 )
-                with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{1/parse_number(v):.1%}"):
+                with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_inverse(parse_number(v)):.1%}"):
                     ui.tooltip("This is the exact inverse of the scale up. Percent calculates are weird like that.")
                 scaleup_label.bind_text_from(scale_xy, "value", backward=lambda v: f"{parse_number(v):.1%}")
             ui.separator()
@@ -180,7 +184,7 @@ def dashboard_tab():
                     icon="compress",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,1,1/parse_number(scale_t.value)]),
+                        scale_3d=np.array([1,1,_safe_inverse(parse_number(scale_t.value))]),
                     ),
                 )
                 with ui.input("Time", value="2").props("dense").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_scale_t") as scale_t:
@@ -193,31 +197,9 @@ def dashboard_tab():
                         scale_3d=np.array([1,1,parse_number(scale_t.value)]),
                     ),
                 )
-        with ui.card():
-            with ui.label("Rotation"):
-                wiki_reference("Movement-Options#rotate")
-            with ui.row():
-                SMHActionButton(
-                    tooltip="Rotate counterclockwise",
-                    icon="rotate_left",
-                    func=lambda **kwargs: _movement_helper(**kwargs,
-                        base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                        angle=-parse_number(rotate_angle.value),
-                    ),
-                )
-                rotate_angle = ui.input("Angle", value="45").props('dense suffix="°"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_angle")
-                SMHActionButton(
-                    tooltip="Rotate clockwise",
-                    icon="rotate_right",
-                    func=lambda **kwargs: _movement_helper(**kwargs,
-                        base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                        angle=parse_number(rotate_angle.value),
-                    ),
-                )
             ui.separator()
-
-            with ui.label("Mirror"):
-                wiki_reference("Movement-Options#scaling")
+            with ui.label("Mirror & Flatten"):
+                ui.tooltip("Just scaling, but with -1 or 0")
             with ui.row():
                 SMHActionButton(
                     tooltip="Mirror X (left<->right)",
@@ -243,6 +225,54 @@ def dashboard_tab():
                         scale_3d=np.array([1,1,-1]),
                     ),
                 )
+            with ui.row():
+                with SMHActionButton(
+                    tooltip="Flatten to Y axis (X=0)",
+                    icon="",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                        scale_3d=np.array([0,1,1]),
+                    ),
+                ):
+                    ui.icon("vertical_align_center").classes("rotate-90")
+                SMHActionButton(
+                    tooltip="Flatten to X axis (Y=0)",
+                    icon="vertical_align_center",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                        scale_3d=np.array([1,0,1]),
+                    ),
+                )
+                SMHActionButton(
+                    tooltip="Move to pivot (X=Y=0)",
+                    icon="adjust",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                        scale_3d=np.array([0,0,1]),
+                    ),
+                )
+
+        with ui.card():
+            with ui.label("Rotation"):
+                wiki_reference("Movement-Options#rotate")
+            with ui.row():
+                SMHActionButton(
+                    tooltip="Rotate counterclockwise",
+                    icon="rotate_left",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
+                        angle=-parse_number(rotate_angle.value),
+                    ),
+                )
+                rotate_angle = ui.input("Angle", value="45").props('dense suffix="°"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_angle")
+                SMHActionButton(
+                    tooltip="Rotate clockwise",
+                    icon="rotate_right",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
+                        angle=parse_number(rotate_angle.value),
+                    ),
+                )
             ui.separator()
 
             with ui.label("In/Outset"):
@@ -265,6 +295,7 @@ def dashboard_tab():
                         outset_scalar=parse_number(outset_amount.value),
                     ),
                 )
+
         with ui.card():
             ui.label("Rails")
             with ui.row():
@@ -313,6 +344,7 @@ def dashboard_tab():
                     func=lambda data, types, **kwargs: data.apply_for_all(rails.shorten_rail, distance=-parse_number(rail_interval.value), types=types),
                     wiki_ref="Rail-Options#shorten-rails",
                 )
+
         with ui.card():
             ui.label("Rails and Notes")
             with ui.row():
@@ -352,6 +384,7 @@ def dashboard_tab():
                     icon="stacked_line_chart",
                     func=lambda data, **kwargs: pattern_generation.create_parallel(data, parse_number(parallel_distance.value)),
                 )
+
         # with ui.card():
         #     with ui.label("Change Notes"):
         #         wiki_reference("Pre--and-Post-Processing-Options#change-note-type")
