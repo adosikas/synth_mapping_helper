@@ -9,12 +9,7 @@ from . import synth_format, cli
 from .gui_tabs.utils import *
 from .gui_tabs.commands import command_tab
 from .gui_tabs.merge import merge_tab
-
-
-def home_tab():
-    with ui.card().style("max-width: 400px"):
-        ui.label("Welcome.")
-        ui.label("Select one of the tabs above.")
+from .gui_tabs.dashboard import dashboard_tab
 
 def bpmchange_tab():
     def upload(e: events.UploadEventArguments) -> None:
@@ -42,7 +37,7 @@ def bpmchange_tab():
 
 
 tab_list = [
-    ["Home", "home", home_tab, None],
+    ["Dashboard", "dashboard", dashboard_tab, None],
     ["Commands", "play_arrow", command_tab, None],
     ["Change BPM", "speed", bpmchange_tab, None],
     ["Merge Files", "merge", merge_tab, None],

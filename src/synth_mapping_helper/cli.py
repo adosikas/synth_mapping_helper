@@ -401,23 +401,7 @@ def main(options):
 
     # postprocessing
     if options.parallels:
-        left_orig, right_orig = data.left, data.right  # create a backup of the input
-        data.left = (
-            left_orig
-            | {t: nodes - [options.parallels,0,0] for t, nodes in sorted(right_orig.items())}  # shift over right hand by <distance>
-            | {t: nodes - [options.parallels/2,0,0] for t, nodes in sorted(data.single.items())}  # shift over single & both by <distance>/2
-            | {t: nodes - [options.parallels/2,0,0] for t, nodes in sorted(data.both.items())}
-        )
-        # vice versa for right hand
-        data.right = (
-            right_orig 
-            | {t: nodes + [options.parallels,0,0] for t, nodes in sorted(left_orig.items())}
-            | {t: nodes + [options.parallels/2,0,0] for t, nodes in sorted(data.single.items())}
-            | {t: nodes + [options.parallels/2,0,0] for t, nodes in sorted(data.both.items())}
-        )
-        # wipe single & both
-        data.single = {}
-        data.both = {}
+        pattern_generation.create_parallel(data, options.parallels)
     if options.split_rails:
         data.apply_for_note_types(rails.split_rails, types=filter_types)
     if options.rails_to_singles:

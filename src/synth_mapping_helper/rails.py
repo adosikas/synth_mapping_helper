@@ -240,7 +240,6 @@ def interpolate_nodes(
     else:
         raise RuntimeError("Invalid iterpolation mode")
 
-
 def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
     """Turn all rails into single notes"""
     out: SINGLE_COLOR_NOTES = {}
@@ -252,6 +251,22 @@ def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: b
         if keep_rail:
             out[nodes[0,2]] = nodes
         for node in nodes[int(keep_rail):]:  # when keeping the rail, don't overwrite the start with a single note
+            out[node[2]] = node[np.newaxis]
+
+    return out
+
+def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: bool, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+    """Turn all rails into notestacks"""
+    out: SINGLE_COLOR_NOTES = {}
+    for time in sorted(notes):
+        nodes = notes[time]
+        if nodes.shape[0] == 1:  # ignore single nodes
+            out[time] = nodes
+            continue
+        i_nodes = interpolate_nodes(nodes, "spline", interval=interval)
+        if keep_rail:
+            out[nodes[0,2]] = nodes
+        for node in i_nodes[int(keep_rail):]:  # when keeping the rail, don't overwrite the start with a single note
             out[node[2]] = node[np.newaxis]
 
     return out

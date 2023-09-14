@@ -1,5 +1,7 @@
 import numpy as np
 
+from .synth_format import DataContainer
+
 # generic helpers
 def angle_to_xy(angles: "numpy array like") -> "numpy array like":
     """convert a angles in degrees to x and y coordinates"""
@@ -34,3 +36,22 @@ def spikes(
         spiral(fidelity, length, start_angle) if fidelity else random_ring(int(length))
     )
     return output
+
+def create_parallel(data: DataContainer, distance: float) -> None:
+    left_orig, right_orig = data.left, data.right  # create a backup of the input
+    data.left = (
+        left_orig
+        | {t: nodes - [distance,0,0] for t, nodes in sorted(right_orig.items())}  # shift over right hand by <distance>
+        | {t: nodes - [distance/2,0,0] for t, nodes in sorted(data.single.items())}  # shift over single & both by <distance>/2
+        | {t: nodes - [distance/2,0,0] for t, nodes in sorted(data.both.items())}
+    )
+    # vice versa for right hand
+    data.right = (
+        right_orig 
+        | {t: nodes + [distance,0,0] for t, nodes in sorted(left_orig.items())}
+        | {t: nodes + [distance/2,0,0] for t, nodes in sorted(data.single.items())}
+        | {t: nodes + [distance/2,0,0] for t, nodes in sorted(data.both.items())}
+    )
+    # wipe single & both
+    data.single = {}
+    data.both = {}
