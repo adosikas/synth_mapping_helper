@@ -7,7 +7,11 @@ from nicegui import app, events, ui
 
 from .. import synth_format
 
-__all__ = ["logger", "error", "warning", "info", "wiki_reference", "try_load_synth_file", "add_suffix"]
+__all__ = [
+    "logger", "download_content", "wiki_base",
+    "error", "warning", "info",
+    "wiki_reference", "try_load_synth_file", "add_suffix",
+]
 
 logger = logging.getLogger("SMH-GUI")
 download_content: BytesIO = BytesIO()

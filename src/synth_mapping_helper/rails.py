@@ -2,7 +2,7 @@ import numpy as np
 from scipy.interpolate import CubicHermiteSpline
 
 from .synth_format import DataContainer, SINGLE_COLOR_NOTES
-from .utils import bounded_arange
+from .utils import bounded_arange_plusminus
 
 # How far last node and start note can be spaced for two rails to be merged
 MERGE_ACCURACY_GRID = 1 / 8
@@ -228,10 +228,10 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
 def interpolate_nodes(
     data: "numpy array (n, 3)", mode: "'spline' or 'linear'", interval: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
-    """places nodes at defined interval along the rail, interpolating between existing nodes"""
+    """places nodes at defined interval along the rail, interpolating between existing nodes. Can be negative to start from end."""
     if data.shape[0] == 1:  # ignore single nodes
         return data
-    new_z = bounded_arange(data[0, 2], data[-1, 2], interval)
+    new_z = bounded_arange_plusminus(data[0, 2], data[-1, 2], interval)
 
     if mode == "spline":
         return interpolate_spline(data, new_z)
@@ -256,7 +256,7 @@ def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: b
     return out
 
 def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: bool, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
-    """Turn all rails into notestacks"""
+    """Turn all rails into notestacks. Can be negative to start from wnd"""
     out: SINGLE_COLOR_NOTES = {}
     for time in sorted(notes):
         nodes = notes[time]
@@ -274,7 +274,7 @@ def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: b
 def shorten_rail(
     data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
-    """Cut a bit of the end or start of the rail"""
+    """Cut a bit of the end or start (if negative) of the rail"""
     if data.shape[0] == 1:  # ignore single nodes
         return data
     if distance > 0:  # cut at the end
@@ -285,3 +285,20 @@ def shorten_rail(
         new_z = data[0,2] - distance  # distance is negative to minus is correct here
         first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
         return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
+
+def segment_rail(
+    notes: SINGLE_COLOR_NOTES, max_length: float, *, direction: bool = 1
+) -> "numpy array (n, 3)":
+    """Segment rails into multiple range of maximum length. Can be negative to segment from end"""
+    out: SINGLE_COLOR_NOTES = {}
+    for time in sorted(notes):
+        nodes = notes[time]
+        if nodes.shape[0] == 1:  # ignore single nodes
+            out[time] = nodes
+            continue
+
+        steps = bounded_arange_plusminus(nodes[0,2], nodes[-1,2], max_length)
+        new_z = np.union1d(nodes[:,2], steps)
+        for start in steps[:-1]:
+            out[start] = interpolate_spline(nodes, new_z=new_z[np.logical_and(new_z>=start, new_z<=(start+abs(max_length)))])
+    return out

@@ -20,6 +20,21 @@ def _safe_inverse(v: float) -> float:
     return 0 if v == 0 else 1/v
 
 def dashboard_tab():
+    class SMHInput(ui.input):
+        def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, **kwargs):
+            super().__init__(label=label, value=str(value), **kwargs)
+            self.bind_value(self, f"dashboard_{storage_id}")
+            self.classes("w-12 h-10")
+            self.props('dense input-style="text-align: right"')
+            if suffix:
+                self.props(f'suffix="{suffix}"')
+            with self:
+                if tooltip is not None:
+                    ui.tooltip(tooltip)
+        @property
+        def parsed_value(self) -> float:
+            return self.parsed_value
+
     with ui.row():
         # with ui.card().classes("h-16"), ui.row():
         #     with ui.label("Filter").classes("my-auto"):
@@ -29,28 +44,33 @@ def dashboard_tab():
         #     with ui.switch("Delete other"):
         #         wiki_reference("Pre--and-Post-Processing-Options#delete-everything-not-matching-filter")
         with ui.card().classes("h-16"), ui.row():
-            with ui.switch("Use original").bind_value(app.storage.user, "dashboard_use_orig") as sw_use_orig:
+            with ui.switch("Use original", value=False).bind_value(app.storage.user, "dashboard_use_orig") as sw_use_orig:
                 wiki_reference("Miscellaneous-Options#use-original-json")
-            with ui.switch("Mirror left hand").bind_value(app.storage.user, "dashboard_mirror_left") as sw_mirror_left:
+            with ui.switch("Mirror left hand", value=False).bind_value(app.storage.user, "dashboard_mirror_left") as sw_mirror_left:
                 wiki_reference("Miscellaneous-Options#mirror-operations-for-left-hand")
+            with ui.switch("Realign start", value=False).bind_value(app.storage.user, "dashboard_realign") as sw_realign:
+                wiki_reference("Pre--and-Post-Processing-Options#keep-selection-alignment")
         with ui.card().classes("h-16"), ui.row():
             with ui.label("Coordinates").classes("my-auto"):
                 wiki_reference("Movement-Options#pivot-and-relative")
             coordinate_mode = ui.toggle(["absolute", "relative", "pivot"], value="absolute").classes("my-auto").bind_value(app.storage.user, "dashboard_coord_mode")
             with ui.row() as pivot_settings:
-                pivot_x = ui.input("X", value="0").props("dense suffix=sq").classes("w-16 h-8").bind_value(app.storage.user, "dashboard_pivot_x")
-                pivot_y = ui.input("Y", value="0").props("dense suffix=sq").classes("w-16 h-8").bind_value(app.storage.user, "dashboard_pivot_y")
-                pivot_t = ui.input("Time", value="0").props("dense suffix=b").classes("w-16 h-8").bind_value(app.storage.user, "dashboard_pivot_t")
-                pivot_settings.bind_visibility_from(coordinate_mode, "value", backward=lambda v: v=="pivot")
+                pivot_x = SMHInput("X", 0, "pivot_x", suffix="sq")
+                pivot_y = SMHInput("Y", 0, "pivot_y", suffix="sq")
+                pivot_t = SMHInput("Time", 0, "pivot_t", suffix="b")
+                pivot_settings.bind_visibility_from(coordinate_mode, "value", backward=lambda v: v=="pivot")        
 
     class SMHActionButton(ui.button):
-        def __init__(self, func: Callable, tooltip: str, icon: str="play_arrow", wiki_ref: Optional[str] = None, **kwargs):
-            super().__init__(icon=icon, on_click=self.do_action, **kwargs)
+        def __init__(self, func: Callable, tooltip: str, icon: str="play_arrow", icon_angle: int=0, wiki_ref: Optional[str] = None, **kwargs):
+            super().__init__(icon=icon if not icon_angle else "", on_click=self.do_action, **kwargs)
             self._tooltip = tooltip
             self._func = func
             self.classes("w-12 h-10")
             with self:
                 ui.tooltip(tooltip)
+                if icon_angle:
+                    # create dedicated object, which can rotate independently from button
+                    ui.icon(icon).classes(f"rotate-{icon_angle}")
                 if wiki_ref is not None:
                     wiki_reference(wiki_ref, True).props("floating")
 
@@ -63,10 +83,10 @@ def dashboard_tab():
             try:
                 self._func(
                     data=d,
-                    types=synth_format.ALL_TYPES, # placeholder
+                    types=synth_format.ALL_TYPES,  # placeholder
                     mirror_left=sw_mirror_left.value,
                     relative=(coordinate_mode.value=="relative"),
-                    pivot=[parse_number(pivot_x.value), parse_number(pivot_y.value), parse_number(pivot_t.value)] if (coordinate_mode.value=="pivot") else None
+                    pivot=[pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value] if (coordinate_mode.value=="pivot") else None
                 )
             except Exception as exc:
                 error(f"Error executing action", exc)
@@ -75,7 +95,7 @@ def dashboard_tab():
                 f"Completed: '{self._tooltip}'",
                 caption=f"{d.notecount} note{'s' if d.notecount != 1 else ''}, {d.wallcount} wall{'s' if d.wallcount != 1 else ''}",
             )
-            synth_format.export_clipboard(d)
+            synth_format.export_clipboard(d, realign_start=sw_realign.value)
 
     ui.separator().classes("my-1")
     with ui.row():
@@ -91,11 +111,11 @@ def dashboard_tab():
                                 icon=f'{("south", "", "north")[y+1]}{"_" if x and y else ""}{("west", "", "east")[x+1]}',
                                 func=lambda x=x, y=y, **kwargs: _movement_helper(**kwargs,
                                     base_func=movement.offset, relative_func=movement.offset_relative, pivot_func=movement.offset,
-                                    offset_3d=np.array([x,y,0])*parse_number(offset_xy.value),
+                                    offset_3d=np.array([x,y,0])*offset_xy.parsed_value,
                                 ),
                             )
                         else:
-                            offset_xy = ui.input("X/Y", value="1").props("dense suffix=sq").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_offset_xy")
+                            offset_xy = SMHInput("X/Y", 1, "offset_xy", suffix="sq")
             ui.separator()
             with ui.row():
                 SMHActionButton(
@@ -103,8 +123,9 @@ def dashboard_tab():
                     icon="remove",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.offset, relative_func=movement.offset_relative, pivot_func=movement.offset,
-                        offset_3d=np.array([0,0,-parse_number(offset_t.value)]),
+                        offset_3d=np.array([0,0,-offset_t.parsed_value]),
                     ),
+                    color="secondary",
                 )
                 offset_t = ui.input("Time", value="1").props("dense suffix=b").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_offset_t")
                 SMHActionButton(
@@ -112,7 +133,7 @@ def dashboard_tab():
                     icon="add",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.offset, relative_func=movement.offset_relative, pivot_func=movement.offset,
-                        offset_3d=np.array([0,0,parse_number(offset_t.value)]),
+                        offset_3d=np.array([0,0,offset_t.parsed_value]),
                     ),
                 )
 
@@ -126,7 +147,7 @@ def dashboard_tab():
                     icon="unfold_more",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,parse_number(scale_xy.value),1]),
+                        scale_3d=np.array([1,scale_xy.parsed_value,1]),
                     ),
                 )
                 SMHActionButton(
@@ -134,26 +155,25 @@ def dashboard_tab():
                     icon="zoom_out_map",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([parse_number(scale_xy.value),parse_number(scale_xy.value),1]),
+                        scale_3d=np.array([scale_xy.parsed_value,scale_xy.parsed_value,1]),
                     ),
                 )
                 SMHActionButton(
                     tooltip="Scale X down (less wide)",
-                    icon="compare_arrows",
+                    icon="unfold_less", icon_angle=90,
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([_safe_inverse(parse_number(scale_xy.value)),1,1]),
+                        scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),1,1]),
                     ),
                     color="secondary",
                 )
-                with ui.input("X/Y", value="110%").props("dense").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_scale_xy") as scale_xy:
-                    ui.tooltip("Can be given as % or ratio")
+                scale_xy = SMHInput("X/Y", "110%", "scale_xy", tooltip="Can be given as % or ratio. If less than 1 (100%), scale up/down are inverted")
                 SMHActionButton(
                     tooltip="Scale X up (wider)",
-                    icon="swap_horiz",
+                    icon="unfold_more", icon_angle=90,
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([parse_number(scale_xy.value),1,1]),
+                        scale_3d=np.array([scale_xy.parsed_value,1,1]),
                     ),
                 )
                 SMHActionButton(
@@ -161,7 +181,7 @@ def dashboard_tab():
                     icon="zoom_in_map",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([_safe_inverse(parse_number(scale_xy.value)),_safe_inverse(parse_number(scale_xy.value)),1]),
+                        scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),_safe_inverse(scale_xy.parsed_value),1]),
                     ),
                     color="secondary",
                 )
@@ -170,12 +190,12 @@ def dashboard_tab():
                     icon="unfold_less",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,_safe_inverse(parse_number(scale_xy.value)),1]),
+                        scale_3d=np.array([1,_safe_inverse(scale_xy.parsed_value),1]),
                     ),
                     color="secondary",
                 )
                 with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_inverse(parse_number(v)):.1%}"):
-                    ui.tooltip("This is the exact inverse of the scale up. Percent calculates are weird like that.")
+                    ui.tooltip("This is the exact inverse of the scale up. Percent calculations are weird like that.")
                 scaleup_label.bind_text_from(scale_xy, "value", backward=lambda v: f"{parse_number(v):.1%}")
             ui.separator()
             with ui.row():
@@ -184,17 +204,17 @@ def dashboard_tab():
                     icon="compress",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,1,_safe_inverse(parse_number(scale_t.value))]),
+                        scale_3d=np.array([1,1,_safe_inverse(scale_t.parsed_value)]),
                     ),
+                    color="secondary",
                 )
-                with ui.input("Time", value="2").props("dense").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_scale_t") as scale_t:
-                    ui.tooltip("Can be given as % or ratio")
+                scale_t = SMHInput("Time", 2, "scale_t", tooltip="Can be given as % or ratio. If less than 1 (100%), scale up/down are inverted")
                 SMHActionButton(
                     tooltip="Scale time up (longer)",
                     icon="expand",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,1,parse_number(scale_t.value)]),
+                        scale_3d=np.array([1,1,scale_t.parsed_value]),
                     ),
                 )
             ui.separator()
@@ -226,15 +246,14 @@ def dashboard_tab():
                     ),
                 )
             with ui.row():
-                with SMHActionButton(
+                SMHActionButton(
                     tooltip="Flatten to Y axis (X=0)",
-                    icon="",
+                    icon="vertical_align_center", icon_angle=90,
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
                         scale_3d=np.array([0,1,1]),
                     ),
-                ):
-                    ui.icon("vertical_align_center").classes("rotate-90")
+                )
                 SMHActionButton(
                     tooltip="Flatten to X axis (Y=0)",
                     icon="vertical_align_center",
@@ -261,21 +280,21 @@ def dashboard_tab():
                     icon="rotate_left",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                        angle=-parse_number(rotate_angle.value),
+                        angle=rotate_angle.parsed_value,
                     ),
                 )
-                rotate_angle = ui.input("Angle", value="45").props('dense suffix="°"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_angle")
+                rotate_angle = SMHInput("Angle", 45, "angle", suffix="°")
                 SMHActionButton(
                     tooltip="Rotate clockwise",
                     icon="rotate_right",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                        angle=parse_number(rotate_angle.value),
+                        angle=-rotate_angle.parsed_value,
                     ),
                 )
             ui.separator()
 
-            with ui.label("In/Outset"):
+            with ui.label("Outset"):
                 wiki_reference("Movement-Options#outset")
             with ui.row():
                 SMHActionButton(
@@ -283,21 +302,39 @@ def dashboard_tab():
                     icon="close_fullscreen",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.outset, relative_func=movement.outset_relative, pivot_func=movement.outset_from,
-                        outset_scalar=-parse_number(outset_amount.value),
+                        outset_scalar=-outset_amount.parsed_value,
                     ),
+                    color="secondary",
                 )
-                outset_amount = ui.input("Amount", value=1).props('dense suffix="sq"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_outset")
+                outset_amount = SMHInput("Amount", 1, "outset", suffix="sq")
                 SMHActionButton(
                     tooltip="Outset (away from center/pivot)",
                     icon="open_in_full",
                     func=lambda **kwargs: _movement_helper(**kwargs,
                         base_func=movement.outset, relative_func=movement.outset_relative, pivot_func=movement.outset_from,
-                        outset_scalar=parse_number(outset_amount.value),
+                        outset_scalar=outset_amount.parsed_value,
                     ),
                 )
 
+            ui.separator()
+            with ui.label("Create parallel"):
+                wiki_reference("Pre--and-Post-Processing-Options#create-parallel-patterns")
+            with ui.row():
+                SMHActionButton(
+                    tooltip="Create parallel crossovers",
+                    icon="shuffle",
+                    func=lambda data, **kwargs: pattern_generation.create_parallel(data, -parallel_distance.parsed_value),
+                    color="secondary",
+                )
+                parallel_distance = SMHInput("Spacing", 2, "parallel", suffix="sq")
+                SMHActionButton(
+                    tooltip="Create parallel pattern",
+                    icon="stacked_line_chart",
+                    func=lambda data, **kwargs: pattern_generation.create_parallel(data, parallel_distance.parsed_value),
+                )
+
         with ui.card():
-            ui.label("Rails")
+            ui.label("Rails and Notes")
             with ui.row():
                 SMHActionButton(
                     tooltip="Merge sequential rails",
@@ -310,49 +347,6 @@ def dashboard_tab():
                     icon="link_off",
                     func=lambda data, types, **kwargs: data.apply_for_note_types(rails.split_rails, types=types),
                     wiki_ref="Pre--and-Post-Processing-Options#split-rails",
-                )
-            ui.separator()
-            with ui.row():
-                rail_interval = ui.input("Time", value="1/16").props('dense suffix="b"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_rail_interval")
-                SMHActionButton(
-                    tooltip="Redistribute rail nodes",
-                    icon="line_style",
-                    func=lambda data, types, **kwargs: data.apply_for_all(rails.interpolate_nodes, mode="spline", interval=parse_number(rail_interval.value), types=types),
-                    wiki_ref="Rail-Options#interpolate",
-                )
-            with ui.row():
-                SMHActionButton(
-                    tooltip="Notestack (without rail)",
-                    icon="animation",
-                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=parse_number(rail_interval.value), keep_rail=False, types=types),
-                )
-                SMHActionButton(
-                    tooltip="Notestack (with rail)",
-                    icon="animation"+"show_chart",
-                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=parse_number(rail_interval.value), keep_rail=True, types=types),
-                )
-            with ui.row():
-                SMHActionButton(
-                    tooltip="Shorten rail (cut end)",
-                    icon="content_cut",
-                    func=lambda data, types, **kwargs: data.apply_for_all(rails.shorten_rail, distance=parse_number(rail_interval.value), types=types),
-                    wiki_ref="Rail-Options#shorten-rails",
-                )
-                SMHActionButton(
-                    tooltip="Shorten rail (cut beginning)",
-                    icon="start",
-                    func=lambda data, types, **kwargs: data.apply_for_all(rails.shorten_rail, distance=-parse_number(rail_interval.value), types=types),
-                    wiki_ref="Rail-Options#shorten-rails",
-                )
-
-        with ui.card():
-            ui.label("Rails and Notes")
-            with ui.row():
-                SMHActionButton(
-                    tooltip="Notes to rail",
-                    icon="linear_scale",
-                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.connect_singles, max_interval=1, types=types),
-                    wiki_ref="Pre--and-Post-Processing-Options#connect-single-notes-into-rails",
                 )
                 SMHActionButton(
                     tooltip="Snap notes to rail",
@@ -374,15 +368,50 @@ def dashboard_tab():
                     wiki_ref="Pre--and-Post-Processing-Options#convert-rails-into-single-notes",
                 )
             ui.separator()
-            with ui.label("Create parallel"):
-                wiki_reference("Pre--and-Post-Processing-Options#create-parallel-patterns")
             with ui.row():
-                with ui.input("Spacing", value="2").props('dense suffix="sq"').classes("w-12 h-10").bind_value(app.storage.user, "dashboard_parallel") as parallel_distance:
-                    ui.tooltip("Can be negative for crossovers")
+                rail_distance = SMHInput("Max-Dist", 1, "rail_distance", suffix="b", tooltip="Maximum distance")
                 SMHActionButton(
-                    tooltip="Create parallel pattern",
-                    icon="stacked_line_chart",
-                    func=lambda data, **kwargs: pattern_generation.create_parallel(data, parse_number(parallel_distance.value)),
+                    tooltip="Connect notes",
+                    icon="linear_scale", icon_angle=90,
+                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.connect_singles, max_interval=rail_distance.parsed_value, types=types),
+                    wiki_ref="Pre--and-Post-Processing-Options#connect-single-notes-into-rails",
+                )
+                SMHActionButton(
+                    tooltip="Connect rails",
+                    icon="add_link",
+                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.merge_rails, max_interval=rail_distance.parsed_value, types=types),
+                    wiki_ref="Pre--and-Post-Processing-Options#merge-rails",
+                )
+            ui.separator()
+            with ui.row():
+                rail_interval = SMHInput("Interval", "1/16", "rail_interval", suffix="b", tooltip="Can be negative to start from end")
+                SMHActionButton(
+                    tooltip="Split rail into intervals",
+                    icon="format_line_spacing"+"link_off",
+                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.segment_rail, max_length=rail_interval.parsed_value, types=types),
+                )
+                SMHActionButton(
+                    tooltip="Interpolate rail nodes",
+                    icon="format_line_spacing"+"commit",
+                    func=lambda data, types, **kwargs: data.apply_for_all(rails.interpolate_nodes, mode="spline", interval=rail_interval.parsed_value, types=types),
+                    wiki_ref="Rail-Options#interpolate",
+                )
+            with ui.row():
+                SMHActionButton(
+                    tooltip="To notestack (delete rail)",
+                    icon="animation",
+                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value, keep_rail=False, types=types),
+                )
+                SMHActionButton(
+                    tooltip="To notestack (keep rail)",
+                    icon="animation"+"show_chart",
+                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value, keep_rail=True, types=types),
+                )
+                SMHActionButton(
+                    tooltip="Shorten rail (cuts from start if negative)",
+                    icon="content_cut",
+                    func=lambda data, types, **kwargs: data.apply_for_all(rails.shorten_rail, distance=rail_interval.parsed_value, types=types),
+                    wiki_ref="Rail-Options#shorten-rails",
                 )
 
         # with ui.card():

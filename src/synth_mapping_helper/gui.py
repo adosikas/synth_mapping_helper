@@ -56,13 +56,29 @@ if __name__ in {"__main__", "__mp_main__"}:
 
     @ui.page("/")
     def index():
+        ui.add_head_html("""<style>
+            .q-field__suffix {
+                color: grey !important;
+            }
+        </style>""")
         with ui.header(elevated=True):
             with ui.tabs() as tabs:
                 for idx, (name, icon, *_) in enumerate(tab_list):
                     tab_list[idx][3] = ui.tab(name, icon=icon)
+            with ui.element().classes("ml-auto"):
+                ui.tooltip("Switch dark mode")
+                dark = ui.dark_mode(True)  # start in dark mode (matching editor)
+                ui.button(icon="dark_mode", on_click=dark.enable).bind_visibility_from(dark, "value", backward=lambda v: v is not True).props('text-color=white')
+                ui.button(icon="light_mode", on_click=dark.disable).bind_visibility_from(dark, "value", backward=lambda v: v is not False).props('text-color=white')
 
-            ui.button("Open wiki", icon="question_mark", color="white", on_click=lambda _:ui.open(wiki_base, new_tab=True)).classes("ml-auto").props("text-color=primary")
-            ui.button(icon="close", color="red", on_click=stop).set_enabled(not args.dev_mode)
+            with ui.button(icon="question_mark", color="white", on_click=lambda _:ui.open(wiki_base, new_tab=True)).props("text-color=primary"):
+                ui.tooltip("Open wiki")
+            with ui.button(icon="close", color="red", on_click=stop) as close_button:
+                if args.dev_mode:
+                    ui.tooltip("Cannot stop in dev mode, abort script manually")
+                    close_button.set_enabled(False)
+                else:
+                    ui.tooltip("Quit")
                 
         with ui.tab_panels(tabs, value=tab_list[0][0]).classes("w-full").bind_value(app.storage.user, "active_tab"):
             for _, _, func, elem in tab_list:
@@ -81,6 +97,5 @@ if __name__ in {"__main__", "__mp_main__"}:
         title="SMH-GUI [beta]",
         favicon="🚧" if args.dev_mode else "🤦",
         reload=args.dev_mode,
-        dark=None,  # auto
         storage_secret="smh_gui"
     )

@@ -13,6 +13,13 @@ def bounded_arange(start: float, end: float, step: float) -> "numpy array (x)":
     new_times[-1] = end
     return new_times
 
+def bounded_arange_plusminus(start: float, end: float, step: float) -> "numpy array (x)":
+    # allow step to be negative, start from end then
+    if step > 0:
+        return bounded_arange(start, end, step)
+    else:
+        return end - bounded_arange(0, end-start, -step)
+
 def parse_number(val: str) -> float:
     if "/" in val:
         num, denom = val.split("/", 1)
