@@ -18,7 +18,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from . import movement, synth_format, utils, __version__
-from .rails import bounded_arange, interpolate_spline
+from .rails import interpolate_spline
 from .synth_format import DataContainer, SynthFile
 
 @FuncFormatter
@@ -121,7 +121,7 @@ def prepare_data(data: DataContainer, options) -> tuple[
                 pos_dict[p[2]] = p[:3]
             if pos.shape[0] > 1:
                 # add interpolated spline for this rail (ensuring last position matches the input, ie the interpolation doesn't make it longer)
-                rails.append(interpolate_spline(pos, bounded_arange(pos[0,2], pos[-1,2], options.interpolation)))
+                rails.append(interpolate_spline(pos, utils.bounded_arange(pos[0,2], pos[-1,2], options.interpolation)))
             last_time = pos[-1,2]
 
         pos_dict[last_time+1] = None  # cap off with None to simply the coming loop
@@ -137,7 +137,7 @@ def prepare_data(data: DataContainer, options) -> tuple[
                     all_pos.extend(current_window)
                 elif len(current_window) > 1:
                     # same as rail interpolation above, but on window instead of rail
-                    all_pos.extend(interpolate_spline(np.array(current_window), bounded_arange(current_window[0][2], current_window[-1][2], options.interpolation)))
+                    all_pos.extend(interpolate_spline(np.array(current_window), utils.bounded_arange(current_window[0][2], current_window[-1][2], options.interpolation)))
                 # add spacer to break up vel/acc plots
                 all_pos.append((np.nan, np.nan, np.nan))
                 current_window = []
