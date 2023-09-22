@@ -21,6 +21,8 @@ def bounded_arange_plusminus(start: float, end: float, step: float) -> "numpy ar
         return end - bounded_arange(0, end-start, -step)
 
 def parse_number(val: str) -> float:
+    if not val:
+        raise ValueError("Value empty")
     if "/" in val:
         num, denom = val.split("/", 1)
         if " " in num:

@@ -1,4 +1,4 @@
-from typing import Callable, Optional, List
+from typing import Any, Callable, Optional, List
 
 import numpy as np
 from nicegui import app, events, ui
@@ -17,7 +17,20 @@ def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_f
         data.apply_for_all(base_func, *args, mirror_left=mirror_left, **kwargs)
 
 def _safe_inverse(v: float) -> float:
-    return 0 if v == 0 else 1/v
+    return 0.0 if v == 0 else 1/v
+
+def _safe_parse_number(v: Any) -> float:
+    try:
+        return parse_number(v)
+    except ValueError:
+        return 0.0
+
+class ParseInputError(ValueError):
+    def __init__(self, input_id: str, error: str) -> None:
+        super().__init__(error)
+        self.input_id = input_id
+    def __repr__(self) -> str:
+        return self.args[0]
 
 def dashboard_tab():
     class SMHInput(ui.input):
@@ -25,15 +38,30 @@ def dashboard_tab():
             super().__init__(label=label, value=str(value), **kwargs)
             self.bind_value(self, f"dashboard_{storage_id}")
             self.classes("w-12 h-10")
-            self.props('dense input-style="text-align: right"')
+            self.props('dense input-style="text-align: right" no-error-icon')
+            self.storage_id = storage_id
             if suffix:
                 self.props(f'suffix="{suffix}"')
             with self:
                 if tooltip is not None:
                     ui.tooltip(tooltip)
+            with self.add_slot("error"):
+                ui.element().style("visiblity: hidden")
+
+        def on_value_change(self, value: Any) -> None:
+            super().on_value_change(value)
+            try:
+                parse_number(value)
+                self.props(remove="error")
+            except ValueError:
+                self.props(add="error")
+
         @property
         def parsed_value(self) -> float:
-            return self.parsed_value
+            try:
+                return parse_number(self.value)
+            except ValueError as ve:
+                raise ParseInputError(self.storage_id, *ve.args) from ve
 
     with ui.row():
         # with ui.card().classes("h-16"), ui.row():
@@ -88,6 +116,9 @@ def dashboard_tab():
                     relative=(coordinate_mode.value=="relative"),
                     pivot=[pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value] if (coordinate_mode.value=="pivot") else None
                 )
+            except ParseInputError as pie:
+                error(f"Error parsing value: {pie.input_id}", pie)
+                return
             except Exception as exc:
                 error(f"Error executing action", exc)
                 return
@@ -194,9 +225,9 @@ def dashboard_tab():
                     ),
                     color="secondary",
                 )
-                with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_inverse(parse_number(v)):.1%}"):
+                with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_inverse(_safe_parse_number(v)):.1%}"):
                     ui.tooltip("This is the exact inverse of the scale up. Percent calculations are weird like that.")
-                scaleup_label.bind_text_from(scale_xy, "value", backward=lambda v: f"{parse_number(v):.1%}")
+                scaleup_label.bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_parse_number(v):.1%}")
             ui.separator()
             with ui.row():
                 SMHActionButton(

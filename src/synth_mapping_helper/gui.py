@@ -50,6 +50,12 @@ async def stop():
 if __name__ in {"__main__", "__mp_main__"}:
     parser = ArgumentParser()
     parser.add_argument("-l", "--log-level", type=str, default="INFO", help="Set log level")
+    parser.add_argument("--host", type=str, default="127.0.0.1",
+        help="""Host for the webserver. Defaults to localhost.
+            Can be set to a local IP if you want to access the GUI from another device, eg. tablet.\n
+            Note that there is NO PASSWORD CHECK, so only use if you trust ALL devices on that network.""")
+    parser.add_argument("--port", type=int, default=8080, help="Port for the webserver")
+    parser.add_argument("--background", action="store_true", help="Open in background (does not open browser)")
     parser.add_argument("--dev-mode", action="store_true", help="Open in dev mode (reloads when editing python files)")
 
     args = parser.parse_args()
@@ -59,6 +65,9 @@ if __name__ in {"__main__", "__mp_main__"}:
         ui.add_head_html("""<style>
             .q-field__suffix {
                 color: grey !important;
+            }
+            .q-field__bottom {
+                display: none !important;
             }
         </style>""")
         with ui.header(elevated=True):
@@ -92,10 +101,12 @@ if __name__ in {"__main__", "__mp_main__"}:
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    logger.info("Starting...")
+    logger.info(f"Starting{' in background' if args.background else ''}...")
     ui.run(
+        host=args.host,
         title="SMH-GUI [beta]",
         favicon="🚧" if args.dev_mode else "🤦",
         reload=args.dev_mode,
-        storage_secret="smh_gui"
+        storage_secret="smh_gui",
+        show=not args.background,
     )
