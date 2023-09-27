@@ -34,7 +34,12 @@ setuptools.setup(
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.10',
-    install_requires=['numpy', 'scipy', 'matplotlib', 'pyperclip', 'watchdog', 'nicegui'],
+    install_requires=[
+        'numpy', 'scipy', 'matplotlib',
+        'pyperclip', 'watchdog',
+        'nicegui',
+        'pywin32;platform_system=="Windows"',
+    ],
     extras_require={
         'dev': ['check-manifest'],
         # 'test': ['coverage'],

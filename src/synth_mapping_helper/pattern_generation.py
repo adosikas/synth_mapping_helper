@@ -19,7 +19,9 @@ def random_xy(count: int, min: "numpy array (2)", max: "numpy array (2)") -> "nu
 def spiral(
     fidelity: float, length: float, start_angle: float = 0
 ) -> "numpy array (n, 2)":
-    """spiral with radius 1"""
+    """spiral with radius 1, uses random when fidelity is 0"""
+    if not fidelity: 
+        return random_ring(int(length))
     rot = np.arange(length) / fidelity  # in rotations, ie 1.0 = 360°
     if length % 1:
         # add a partial angle at the end
@@ -33,7 +35,7 @@ def spikes(
     """spikes with radius 1, uses random when fidelity is 0"""
     output = np.zeros((int(length) * 3, 2))
     output[1::3] = (
-        spiral(fidelity, length, start_angle) if fidelity else random_ring(int(length))
+        spiral(fidelity, length, start_angle) 
     )
     return output
 

@@ -10,6 +10,7 @@ from .gui_tabs.utils import *
 from .gui_tabs.commands import command_tab
 from .gui_tabs.merge import merge_tab
 from .gui_tabs.dashboard import dashboard_tab
+from .gui_tabs.autobackup import autobackup_tab
 
 def bpmchange_tab():
     def upload(e: events.UploadEventArguments) -> None:
@@ -38,6 +39,7 @@ def bpmchange_tab():
 
 tab_list = [
     ["Dashboard", "dashboard", dashboard_tab, None],
+    ["Autobackup", "manage_history", autobackup_tab, None],
     ["Commands", "play_arrow", command_tab, None],
     ["Change BPM", "speed", bpmchange_tab, None],
     ["Merge Files", "merge", merge_tab, None],
@@ -67,7 +69,8 @@ if __name__ in {"__main__", "__mp_main__"}:
                 color: grey !important;
             }
             .q-field__bottom {
-                display: none !important;
+                min-height: 0 !important;
+                padding: 0 !important;
             }
         </style>""")
         with ui.header(elevated=True):

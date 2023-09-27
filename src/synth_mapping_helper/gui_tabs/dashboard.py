@@ -25,6 +25,19 @@ def _safe_parse_number(v: Any) -> float:
     except ValueError:
         return 0.0
 
+def _swap_hands(data: synth_format.DataContainer, **kwargs):
+    data.left, data.right = data.right, data.left
+
+def _change_color(data: synth_format.DataContainer, types: List[str], new_type: str, **kwargs):
+    # to single type: just merge all dicts
+    changed = {}
+    for t in types:
+        if t in synth_format.NOTE_TYPES and t != new_type:
+            changed |= getattr(data, t)
+            setattr(data, t, {})
+    # existing notes always have priority
+    setattr(data, new_type, changed | getattr(data, new_type))
+
 class ParseInputError(ValueError):
     def __init__(self, input_id: str, error: str) -> None:
         super().__init__(error)
@@ -249,7 +262,7 @@ def dashboard_tab():
                     ),
                 )
             ui.separator()
-            with ui.label("Mirror & Flatten"):
+            with ui.label("Mirror and Flatten"):
                 ui.tooltip("Just scaling, but with -1 or 0")
             with ui.row():
                 SMHActionButton(
@@ -445,15 +458,99 @@ def dashboard_tab():
                     wiki_ref="Rail-Options#shorten-rails",
                 )
 
-        # with ui.card():
-        #     with ui.label("Change Notes"):
-        #         wiki_reference("Pre--and-Post-Processing-Options#change-note-type")
-        #     with ui.row():
-        #         ui.button(icon="change_circle", color="#009BAA").classes("w-12 h-10")
-        #         ui.button(icon="change_circle", color="#E32862").classes("w-12 h-10")
-        #     with ui.row():
-        #         ui.button(icon="change_circle", color="#49BB08").classes("w-12 h-10")
-        #         ui.button(icon="change_circle", color="#FB9D10").classes("w-12 h-10")
-        #     with ui.row():
-        #         with ui.button(icon="swap_horizontal_circle").classes("w-12 h-10"):
-        #             wiki_reference("Pre--and-Post-Processing-Options#swap-hands", True).props("floating")
+        with ui.card():
+            with ui.label("Color"):
+                wiki_reference("Pre--and-Post-Processing-Options#change-note-type")
+
+            SMHActionButton(
+                tooltip="Swap Hands",
+                icon="swap_horizontal_circle",
+                func=_swap_hands,
+                wiki_ref="Pre--and-Post-Processing-Options#swap-hands",
+            )
+            SMHActionButton(
+                tooltip="Change to left hand",
+                icon="change_circle",
+                func=lambda **kwargs: _change_color(new_type="left", **kwargs),
+                color="#009BAA",
+            )
+            SMHActionButton(
+                tooltip="Change to right hand",
+                icon="change_circle",
+                func=lambda **kwargs: _change_color(new_type="right", **kwargs),
+                color="#E32862",
+            )
+            SMHActionButton(
+                tooltip="Change to single hand",
+                icon="change_circle",
+                func=lambda **kwargs: _change_color(new_type="single", **kwargs),
+                color="#49BB08",
+            )
+            SMHActionButton(
+                tooltip="Change to both hands",
+                icon="change_circle",
+                func=lambda **kwargs: _change_color(new_type="both", **kwargs),
+                color="#FB9D10",
+            )
+
+        with ui.card():
+            with ui.row():
+                spiral_angle = SMHInput("Angle", 45, "spiral_angle", suffix="°", tooltip="Angle between nodes. Choose 180 for zigzag.")
+                spiral_start = SMHInput("Start", 0, "spiral_start", suffix="°", tooltip="Angle of first node: 0=right, 90=up, 180=left, 270/-90=down")
+                spiral_radius = SMHInput("Radius", 1, "spiral_radius", suffix="sq", tooltip="Radius of spiral / Length of spikes")
+            with ui.label("Spiral"):
+                wiki_reference("Rail-Options#spiral")
+            with ui.row():
+                def _add_spiral(nodes: "numpy array (n, 3)", fidelity: float, direction: int = 1) -> "numpy array (n, 3)":
+                    nodes[:, :2] += pattern_generation.spiral(
+                        fidelity * direction,
+                        nodes.shape[0],
+                        spiral_start.parsed_value if direction == 1 else 180 - spiral_start.parsed_value
+                    ) * spiral_radius.parsed_value
+                    return nodes
+                SMHActionButton(
+                    tooltip="Spiral (counter-clockwise)",
+                    icon="rotate_left",
+                    func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fidelity=360*_safe_inverse(spiral_angle.parsed_value), types=types, mirror_left=mirror_left),
+                )
+                SMHActionButton(
+                    tooltip="Spiral (clockwise)",
+                    icon="rotate_right",
+                    func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fidelity=360*_safe_inverse(-spiral_angle.parsed_value), types=types, mirror_left=mirror_left),
+                )
+                SMHActionButton(
+                    tooltip="Random nodes",
+                    icon="casino",
+                    func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fidelity=0, types=types, mirror_left=mirror_left),
+                )
+            with ui.row():
+                with ui.label("Spikes"):
+                    wiki_reference("Rail-Options#spikes")
+                spike_duration = SMHInput("Duration", 0, "spike_duration", suffix="b", tooltip="Duration of spikes.")
+            with ui.row():
+                def _add_spikes(nodes: "numpy array (n, 3)", fidelity: float, direction: int = 1) -> "numpy array (n, 3)":
+                    node_count = nodes.shape[0]  # backup count before repeat
+                    nodes = np.repeat(nodes, 3, axis=0)
+                    nodes[::3] -= spike_duration.parsed_value
+                    nodes[1::3] -= spike_duration.parsed_value/2
+                    nodes[:, :2] += pattern_generation.spikes(
+                        fidelity * direction,
+                        node_count,
+                        spiral_start.parsed_value if direction == 1 else 180 - spiral_start.parsed_value
+                    ) * spiral_radius.parsed_value
+                    return nodes
+                SMHActionButton(
+                    tooltip="Spikes (counter-clockwise)",
+                    icon="rotate_left",
+                    func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fidelity=360*_safe_inverse(spiral_angle.parsed_value), types=types, mirror_left=mirror_left),
+                )
+                SMHActionButton(
+                    tooltip="Spikes (clockwise)",
+                    icon="rotate_right",
+                    func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fidelity=360*_safe_inverse(-spiral_angle.parsed_value), types=types, mirror_left=mirror_left),
+                )
+                SMHActionButton(
+                    tooltip="Spikes (random)",
+                    icon="casino",
+                    func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fidelity=0, types=types, mirror_left=mirror_left),
+                )
