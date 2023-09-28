@@ -58,6 +58,19 @@ META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 
 BETA_WARNING_SHOWN = False
 
+class JSONParseError(ValueError):
+    def __init__(self, d: dict, t: str, message: str) -> None:
+        super().__init__()
+        self.dict = d
+        self.type = t
+        self.message = message
+
+    def __str__(self) -> str:
+        return f"{self.message} while parsing JSON of {self.type}: {self.dict}"
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self})"
+
 
 def beta_warning() -> None:
     global BETA_WARNING_SHOWN
@@ -284,13 +297,16 @@ class SynthFile:
                 self.difficulties[d] = c
 
 # basic coordinate
-def coord_from_synth(bpm: float, startMeasure: float, coord: list[float]) -> "numpy array (3)":
-    return np.array([
-        (coord[0] - X_OFFSET) / GRID_SCALE,
-        (coord[1] - Y_OFFSET) / GRID_SCALE,
-        # convert absolute coordinate to number of beats since start
-        round_time_to_fractions(coord[2] * bpm / BPM_DIVISOR - startMeasure / 64),
-    ])
+def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":
+    try:
+        return np.array([
+            (coord[0] - X_OFFSET) / GRID_SCALE,
+            (coord[1] - Y_OFFSET) / GRID_SCALE,
+            # convert absolute coordinate to number of beats since start
+            round_time_to_fractions(coord[2] * bpm / BPM_DIVISOR - startMeasure / 64),
+        ])
+    except (ValueError, TypeError) as exc:
+        raise JSONParseError(coord, c_type, repr(exc))
 
 def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
@@ -301,12 +317,14 @@ def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
 
 # full note dict
 def note_from_synth(bpm: float, startMeasure: float, note_dict: dict) -> tuple[int, "numpy array (n, 3)"]:
-    start = coord_from_synth(bpm, startMeasure, note_dict["Position"])
+    start = coord_from_synth(bpm, startMeasure, note_dict["Position"], "note" if note_dict["Segments"] is None else "rail head")
     note_type = note_dict["Type"]
     if note_dict["Segments"] is None:
         return note_type, start[np.newaxis]  # just add new axis
     else:
-        return note_type, np.stack((start,) + tuple(coord_from_synth(bpm, startMeasure, node) for node in note_dict["Segments"]))
+        return note_type, np.stack((start,) + tuple(coord_from_synth(
+            bpm, startMeasure, node, f"rail node #{i} of rail starting at json index {startMeasure + start[2]*64}"
+        ) for i, node in enumerate(note_dict["Segments"])))
 
 def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> dict:
     return {
@@ -317,8 +335,10 @@ def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> di
 
 # full wall dict
 def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> tuple[int, "numpy array (1, 5)"]:
+    if wall_type not in WALL_LOOKUP:
+        raise JSONParseError(wall_dict, "wall", f"Unexpected wall type ({wall_type})")
     return np.concatenate((
-        coord_from_synth(bpm, startMeasure, wall_dict["position"]) + WALL_OFFSETS[wall_type],
+        coord_from_synth(bpm, startMeasure, wall_dict["position"], f"{WALL_LOOKUP[wall_type]} wall") + WALL_OFFSETS[wall_type],
         (wall_type, wall_dict.get("zRotation", 0.0))
     ))[np.newaxis]
 

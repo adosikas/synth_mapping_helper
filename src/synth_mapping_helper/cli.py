@@ -157,6 +157,8 @@ def main(options):
             data = synth_format.import_clipboard(options.use_original)
         except (JSONDecodeError, KeyError) as err:
             abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
+        except synth_format.JSONParseError as jpe:
+            abort(f"Detected invalid map data. The editor or your map may be corrupted.\n\tIf you don't have a recent backup and know how to fix the json manually, the following should help (otherwise you may find help on the discord):\n\t{jpe!r}")
 
     # argument post-parsing
     # convert time parsed in seconds to beats
