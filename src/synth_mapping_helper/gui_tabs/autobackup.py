@@ -79,6 +79,6 @@ def autobackup_tab():
         for _, b in sorted(last_backup.values(), key=lambda tb: tb[0], reverse=True):
             ui.label(str(b))
 
-    ui.label("Last backup:")
+    ui.label("Last backup:").classes("my-4")
     with ui.card().classes("w-full"):
             log()

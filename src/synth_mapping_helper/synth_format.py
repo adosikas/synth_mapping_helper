@@ -59,14 +59,14 @@ META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 BETA_WARNING_SHOWN = False
 
 class JSONParseError(ValueError):
-    def __init__(self, d: dict, t: str, message: str) -> None:
+    def __init__(self, d: dict, t: str, exc: Exception) -> None:
         super().__init__()
         self.dict = d
         self.type = t
-        self.message = message
+        self.exc = exc
 
     def __str__(self) -> str:
-        return f"{self.message} while parsing JSON of {self.type}: {self.dict}"
+        return f"{self.exc!r} while parsing JSON of {self.type}: {self.dict}"
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self})"
@@ -188,12 +188,15 @@ class SynthFile:
     bookmarks: dict[float, str]
     difficulties: dict[str, DataContainer]
 
+    errors: dict[str, list[tuple[str, JSONParseError]]] = dataclasses.field(default_factory=dict)
+
     @property
     def bpm(self) -> float:
         for d, c in self.difficulties.items():
             return c.bpm
 
     def reload(self) -> None:
+        self.errors: dict[str, list[tuple[str, JSONParseError]]] = {}
         in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
         with ZipFile(in_bio) as inzip:
             # load beatmap json
@@ -207,29 +210,56 @@ class SynthFile:
             }
 
             for diff in DIFFICULTIES:
+                diff_removed : list[tuple[str, JSONParseError]] = []
                 # r, l, s, b
                 notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
-                for _, time_notes in beatmap["Track"][diff].items():
+                for time, time_notes in beatmap["Track"][diff].items():
                     for note in time_notes:
-                        note_type, nodes = note_from_synth(bpm, 0, note)
-                        notes[note_type][nodes[0,2]] = nodes
+                        try:
+                            note_type, nodes = note_from_synth(bpm, 0, note)
+                            notes[note_type][nodes[0,2]] = nodes
+                        except JSONParseError as jpe:
+                            try:
+                                time = f"{time} (measure {float(time)/64})"
+                            except:
+                                pass
+                            diff_removed.append((jpe, time))
 
                 walls: dict[float, list["numpy array (1, 5)"]] = {}
                 # slides (right, left, angle_right, center, angle_right)
                 for wall_dict in beatmap["Slides"][diff]:
-                    wall = wall_from_synth(bpm, 0, wall_dict, wall_dict["slideType"])
-                    walls[wall[0, 2]] = wall
+                    try:
+                        wall = wall_from_synth(bpm, 0, wall_dict, wall_dict["slideType"])
+                        walls[wall[0, 2]] = wall
+                    except JSONParseError as jpe:
+                        time = str(wall_dict.get("time"))
+                        try:
+                            time = f"{time} (measure {float(time)/64})"
+                        except:
+                            pass
+                        diff_removed.append((jpe, time))
                 # other (crouch, square, triangle)
                 for wall_type in ("Crouch", "Square", "Triangle"):
                     if wall_type + "s" not in beatmap:
                         beta_warning()
                         continue  # these are only in the beta editor
                     for wall_dict in beatmap[wall_type + "s"][diff]:
-                        wall = wall_from_synth(bpm, 0, wall_dict, WALL_TYPES[wall_type.lower()][0])
-                        walls[wall[0, 2]] = wall
+                        try:
+                            wall = wall_from_synth(bpm, 0, wall_dict, WALL_TYPES[wall_type.lower()][0])
+                            walls[wall[0, 2]] = wall
+                        except JSONParseError as jpe:
+                            time = str(wall_dict.get("time"))
+                            try:
+                                time = f"{time} (measure {float(time)/64})"
+                            except:
+                                pass
+                            diff_removed.append((jpe, time))
                 # add difficulty when there is a note of any type or a wall
                 if any(nt for nt in notes) or walls:
                     self.difficulties[diff] = DataContainer(bpm, *notes, walls)
+
+                if diff_removed:
+                    self.errors[diff] = diff_removed
 
     def save_as(self, output_file: Union[Path, BytesIO]) -> None:
         out_buffer = output_file if isinstance(output_file, BytesIO) else BytesIO()  # buffer output zip file in memory, only write on success
@@ -295,6 +325,11 @@ class SynthFile:
                 self.difficulties[d].merge(c)
             else:
                 self.difficulties[d] = c
+        for d, e in other.errors.items():
+            if d in self.errors:
+                self.errors[d].extend(e)
+            else:
+                self.errors[d] = e
 
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":
@@ -306,7 +341,7 @@ def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type
             round_time_to_fractions(coord[2] * bpm / BPM_DIVISOR - startMeasure / 64),
         ])
     except (ValueError, TypeError) as exc:
-        raise JSONParseError(coord, c_type, repr(exc))
+        raise JSONParseError(coord, c_type, exc)
 
 def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
@@ -336,7 +371,7 @@ def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> di
 # full wall dict
 def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> tuple[int, "numpy array (1, 5)"]:
     if wall_type not in WALL_LOOKUP:
-        raise JSONParseError(wall_dict, "wall", f"Unexpected wall type ({wall_type})")
+        raise JSONParseError(wall_dict, "wall", ValueError(f"Unexpected wall type ({wall_type})"))
     return np.concatenate((
         coord_from_synth(bpm, startMeasure, wall_dict["position"], f"{WALL_LOOKUP[wall_type]} wall") + WALL_OFFSETS[wall_type],
         (wall_type, wall_dict.get("zRotation", 0.0))

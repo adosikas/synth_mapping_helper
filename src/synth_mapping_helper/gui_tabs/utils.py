@@ -46,12 +46,20 @@ def wiki_reference(page: str, invert_colors: bool = False) -> ui.badge:
 
 def try_load_synth_file(e: events.UploadEventArguments) -> Optional[synth_format.SynthFile]:
     try:
-        return synth_format.import_file(BytesIO(e.content.read()))
+        data = synth_format.import_file(BytesIO(e.content.read()))
     except Exception as exc:
         msg = f"Error reading {e.name} as SynthFile: {exc!r}"
         e.sender.reset()
         error(msg)
-    return None
+        return None
+    if data.errors:
+        warning("There was invalid data in the file, affected items were REMOVED:")
+        for diff, errors in data.errors.items():
+            for jpe, time in errors:
+                warning(f"{diff}@{time}: {jpe}")
+    return data
 
 def add_suffix(filename: str, suffix: str) -> str:
+    if not suffix:
+        return filename
     return f"{filename.removesuffix('.synth')}_{suffix}.synth"

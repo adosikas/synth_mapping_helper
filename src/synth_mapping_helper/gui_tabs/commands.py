@@ -168,8 +168,7 @@ def command_tab():
             ui.upload(label="Load from files", auto_upload=True, multiple=True, on_upload=load_commands).classes("h-14 w-40")
             with ui.button(icon="post_add", on_click=restore_presets, color="red").classes("my-auto"):
                 ui.tooltip("Restore default presets")
-        ui.separator()
-        command_input = ui.textarea("Commands", placeholder="--offset=1,0,0", on_change=lambda e: presets.get(preset_selector.value) == e.value or preset_selector.set_value(None)).classes("w-full")
+        command_input = ui.textarea("Commands", placeholder="--offset=1,0,0", on_change=lambda e: presets.get(preset_selector.value) == e.value or preset_selector.set_value(None)).props("outlined").classes("w-full")
         command_input.bind_value(app.storage.user, "command_input")
         preset_selector.bind_value_to(command_input, forward=lambda v: v and presets.get(v))
         preset_selector.bind_value_to(remove_confirmation_label, "text", forward=lambda v: f"Really delete '{v}'?")

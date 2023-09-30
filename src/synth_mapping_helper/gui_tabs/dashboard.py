@@ -76,7 +76,7 @@ def dashboard_tab():
             except ValueError as ve:
                 raise ParseInputError(self.storage_id, *ve.args) from ve
 
-    with ui.row():
+    with ui.row().classes("mb-4"):
         # with ui.card().classes("h-16"), ui.row():
         #     with ui.label("Filter").classes("my-auto"):
         #         wiki_reference("Miscellaneous-Options#filtering")
@@ -141,7 +141,6 @@ def dashboard_tab():
             )
             synth_format.export_clipboard(d, realign_start=sw_realign.value)
 
-    ui.separator().classes("my-1")
     with ui.row():
         with ui.card():
             with ui.label("Offset"):
