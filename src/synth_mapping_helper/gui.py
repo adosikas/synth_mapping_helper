@@ -86,6 +86,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     logger.info(f"Starting v{__version__}{' in background' if args.background else ''}...")
     ui.run(
         host=args.host,
+        port=args.port,
         title=f"SMH-GUI v{__version__} [beta]",
         favicon="🚧" if args.dev_mode else "🤦",
         reload=args.dev_mode,
