@@ -260,6 +260,22 @@ def dashboard_tab():
                         scale_3d=np.array([1,1,scale_t.parsed_value]),
                     ),
                 )
+            with ui.row():
+                ui.element().classes("w-12")
+                scale_bpm = SMHInput("New BPM", 120, "scale_bpm")
+                SMHActionButton(
+                    tooltip="Change BPM of clipboard (keeps timing)",
+                    icon="straighten",
+                    func=lambda data, **kwargs: (
+                        _movement_helper(data, **kwargs,
+                            base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                            scale_3d=np.array([1,1,scale_bpm.parsed_value / data.bpm])
+                        ),
+                        setattr(data, "bpm", scale_bpm.parsed_value),
+                    ),
+                    wiki_ref="Pre--and-Post-Processing-Options#change-bpm",
+                )
+
             ui.separator()
             with ui.label("Mirror and Flatten"):
                 ui.tooltip("Just scaling, but with -1 or 0")

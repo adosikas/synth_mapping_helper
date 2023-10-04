@@ -275,14 +275,18 @@ def shorten_rail(
     data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
     """Cut a bit of the end or start (if negative) of the rail"""
-    if data.shape[0] == 1:  # ignore single nodes
+    if data.shape[0] == 1:  # ignore single nodes or shorter rails
         return data
     if distance > 0:  # cut at the end
+        if (data[-1,2] - data[0,2]) <= distance:  # shorter -> return rail start only
+            return data[0][np.newaxis]
         new_z = data[-1,2] - distance
         last_index = np.argwhere(data[:, 2] < new_z)[-1][0]  # last node before new end
         return np.concatenate((data[:last_index+1], interpolate_spline(data, [new_z])))
     else:  # cut at the start
-        new_z = data[0,2] - distance  # distance is negative to minus is correct here
+        if (data[-1,2] - data[0,2]) <= -distance:  # shorter -> return rail end only
+            return data[-1][np.newaxis]
+        new_z = data[0,2] - distance  # distance is negative, so "- distance" is correct here
         first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
         return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
 
