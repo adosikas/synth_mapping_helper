@@ -49,7 +49,7 @@ def dashboard_tab():
     class SMHInput(ui.input):
         def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, **kwargs):
             super().__init__(label=label, value=str(value), **kwargs)
-            self.bind_value(self, f"dashboard_{storage_id}")
+            self.bind_value(app.storage.user, f"dashboard_{storage_id}")
             self.classes("w-12 h-10")
             self.props('dense input-style="text-align: right" no-error-icon')
             self.storage_id = storage_id
@@ -170,7 +170,7 @@ def dashboard_tab():
                     ),
                     color="secondary",
                 )
-                offset_t = ui.input("Time", value="1").props("dense suffix=b").classes("w-12 h-10").bind_value(app.storage.user, "dashboard_offset_t")
+                offset_t = SMHInput("Time", 1, "dashboard_offset_t", suffix="b")
                 SMHActionButton(
                     tooltip="Offset later in time",
                     icon="add",
@@ -261,7 +261,11 @@ def dashboard_tab():
                     ),
                 )
             with ui.row():
-                ui.element().classes("w-12")
+                SMHActionButton(
+                    tooltip="Read BPM from clipboard",
+                    icon="colorize",
+                    func=lambda data, **kwargs: setattr(scale_bpm, "value", str(data.bpm)),
+                ).props("outline")
                 scale_bpm = SMHInput("New BPM", 120, "scale_bpm")
                 SMHActionButton(
                     tooltip="Change BPM of clipboard (keeps timing)",
