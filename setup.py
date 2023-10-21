@@ -35,7 +35,7 @@ setuptools.setup(
     ],
     python_requires='>=3.10',
     install_requires=[
-        'numpy', 'scipy', 'matplotlib', 'plotly'
+        'numpy', 'scipy', 'matplotlib', 'plotly',
         'pyperclip', 'watchdog',
         'nicegui',
         'pywin32;platform_system=="Windows"',
