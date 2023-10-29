@@ -38,6 +38,12 @@ def _change_color(data: synth_format.DataContainer, types: List[str], new_type: 
     # existing notes always have priority
     setattr(data, new_type, changed | getattr(data, new_type))
 
+def _space_walls(data: synth_format.DataContainer, interval: float) -> None:
+    out: synth_format.WALLS = {}
+    for i, (_, w) in enumerate(sorted(data.walls.items())):
+        out[i*interval] = (w*[1,1,0,1,1]) + [0,0,i*interval,0,0]
+    data.walls = out
+
 class ParseInputError(ValueError):
     def __init__(self, input_id: str, error: str) -> None:
         super().__init__(error)
@@ -92,9 +98,9 @@ def dashboard_tab():
             with ui.switch("Realign start", value=False).bind_value(app.storage.user, "dashboard_realign") as sw_realign:
                 wiki_reference("Pre--and-Post-Processing-Options#keep-selection-alignment")
         with ui.card().classes("h-16"), ui.row():
-            with ui.label("Coordinates").classes("my-auto"):
+            with ui.label("Coordinates").classes("my-2"):
                 wiki_reference("Movement-Options#pivot-and-relative")
-            coordinate_mode = ui.toggle(["absolute", "relative", "pivot"], value="absolute").classes("my-auto").bind_value(app.storage.user, "dashboard_coord_mode")
+            coordinate_mode = ui.toggle(["absolute", "relative", "pivot"], value="absolute").props('color="grey-7" rounded').bind_value(app.storage.user, "dashboard_coord_mode")
             with ui.row() as pivot_settings:
                 pivot_x = SMHInput("X", 0, "pivot_x", suffix="sq")
                 pivot_y = SMHInput("Y", 0, "pivot_y", suffix="sq")
@@ -476,6 +482,22 @@ def dashboard_tab():
                     func=lambda data, types, **kwargs: data.apply_for_all(rails.shorten_rail, distance=rail_interval.parsed_value, types=types),
                     wiki_ref="Rail-Options#shorten-rails",
                 )
+            with ui.row():
+                SMHActionButton(
+                    tooltip="Extend level",
+                    icon="swipe_right_alt" + "horizontal_rule",
+                    func=lambda data, types, **kwargs: data.apply_for_all(rails.extend_level, distance=rail_interval.parsed_value, types=types),
+                )
+                SMHActionButton(
+                    tooltip="Extend directional / straight",
+                    icon="swipe_right_alt" + "double_arrow",
+                    func=lambda data, types, **kwargs: data.apply_for_all(rails.extend_straight, distance=rail_interval.parsed_value, types=types),
+                )
+                SMHActionButton(
+                    tooltip="Extend pointing to next",
+                    icon="swipe_right_alt" + "swipe_right_alt",
+                    func=lambda data, types, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value, types=types),
+                )
 
         with ui.card():
             with ui.label("Color"):
@@ -486,7 +508,7 @@ def dashboard_tab():
                 icon="swap_horizontal_circle",
                 func=_swap_hands,
                 wiki_ref="Pre--and-Post-Processing-Options#swap-hands",
-            )
+            ).props("outline")
             SMHActionButton(
                 tooltip="Change to left hand",
                 icon="change_circle",
@@ -531,17 +553,17 @@ def dashboard_tab():
                     tooltip="Spiral (counter-clockwise)",
                     icon="rotate_left",
                     func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fidelity=360*_safe_inverse(spiral_angle.parsed_value), types=types, mirror_left=mirror_left),
-                )
+                ).props("rounded")
                 SMHActionButton(
                     tooltip="Spiral (clockwise)",
                     icon="rotate_right",
                     func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fidelity=360*_safe_inverse(-spiral_angle.parsed_value), types=types, mirror_left=mirror_left),
-                )
+                ).props("rounded")
                 SMHActionButton(
                     tooltip="Random nodes",
                     icon="casino",
                     func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fidelity=0, types=types, mirror_left=mirror_left),
-                )
+                ).props("rounded outline")
             with ui.row():
                 with ui.label("Spikes"):
                     wiki_reference("Rail-Options#spikes")
@@ -572,4 +594,23 @@ def dashboard_tab():
                     tooltip="Spikes (random)",
                     icon="casino",
                     func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fidelity=0, types=types, mirror_left=mirror_left),
+                )
+
+        with ui.card():
+            ui.label("Wall spacing")
+            with ui.row():
+                compress_interval = SMHInput("Spacing", "1/64", "compress_interval", suffix="b", tooltip="Space between walls")
+                SMHActionButton(
+                    tooltip="Compress",
+                    icon="compress",
+                    icon_angle=90,
+                    func=lambda data, **kwargs: _space_walls(data, interval=compress_interval.parsed_value),
+                )
+            with ui.row():
+                wall_limit = SMHInput("Walls/4s", 195, "spawn_limit", tooltip="200=wireframe limit, 500=spawn limit")
+                SMHActionButton(
+                    tooltip="Distribute walls to configured density",
+                    icon="expand",
+                    icon_angle=90,
+                    func=lambda data, **kwargs: _space_walls(data, interval=(4*data.bpm/60)/wall_limit.parsed_value),
                 )

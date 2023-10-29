@@ -275,7 +275,7 @@ def shorten_rail(
     data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
     """Cut a bit of the end or start (if negative) of the rail"""
-    if data.shape[0] == 1:  # ignore single nodes or shorter rails
+    if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails
         return data
     if distance > 0:  # cut at the end
         if (data[-1,2] - data[0,2]) <= distance:  # shorter -> return rail start only
@@ -290,6 +290,58 @@ def shorten_rail(
         first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
         return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
 
+def extend_level(
+    data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
+) -> "numpy array (n, 3)":
+    """Add a level rail section at the end or start (if negative). Turns single notes into rails"""
+    if not distance:
+        return data
+    elif distance > 0:
+        return np.concatenate((data, data[np.newaxis,-1]+[0,0,distance]))
+    else:
+        return np.concatenate((data[np.newaxis,0]+[0,0,distance], data))
+
+def extend_straight(
+    data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
+) -> "numpy array (n, 3)":
+    """Add a straight rail section at the end or start (if negative) which keeps the same direction of the previous segment"""
+    if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails
+        return data
+    elif distance > 0:
+        delta = data[-1] - data[-2]
+        return np.concatenate((data, data[np.newaxis,-1]+delta*(distance/delta[2])))
+    else:
+        delta = data[0] - data[1]
+        return np.concatenate((data[np.newaxis,0]+delta*(distance/delta[2]), data))
+
+def extend_to_next(
+    notes: SINGLE_COLOR_NOTES, distance: float, *, direction: bool = 1
+) -> "numpy array (n, 3)":
+    """Add a rail section at the end pointing to next note/rail. Vice-versa for negative. Turns single notes into rails."""
+    if len(notes) < 2 or not distance:  # ignore when there is nothing to work with
+        return notes
+    out: SINGLE_COLOR_NOTES = {}
+    last_nodes: "numpy array (n, 3)" = None
+    if distance > 0:
+        for time in sorted(notes):
+            nodes = notes[time]
+            if last_nodes is not None:
+                delta = nodes[0] - last_nodes[-1]
+                out[last_nodes[0,2]] = np.concatenate((last_nodes, last_nodes[np.newaxis,-1]+delta*(distance/delta[2])))
+            last_nodes = nodes
+        out[last_nodes[0,2]] = last_nodes
+    else:
+        for time in sorted(notes):
+            nodes = notes[time]
+            if last_nodes is not None:
+                delta = nodes[0] - last_nodes[-1]
+                new = np.concatenate((nodes[np.newaxis,0]+delta*(distance/delta[2]), nodes))
+                out[new[0,2]] = new
+            else:
+                out[nodes[0,2]] = nodes
+            last_nodes = nodes
+    return out
+
 def segment_rail(
     notes: SINGLE_COLOR_NOTES, max_length: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
@@ -297,7 +349,7 @@ def segment_rail(
     out: SINGLE_COLOR_NOTES = {}
     for time in sorted(notes):
         nodes = notes[time]
-        if nodes.shape[0] == 1:  # ignore single nodes
+        if nodes.shape[0] == 1 or (nodes[-1,2]-nodes[0,2]) <= max_length:  # ignore single nodes or short rails
             out[time] = nodes
             continue
 
