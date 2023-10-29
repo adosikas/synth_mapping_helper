@@ -103,13 +103,24 @@ class DataContainer:
     both: SINGLE_COLOR_NOTES
     walls: WALLS
 
-    @property
-    def notecount(self) -> None:
-        return len(self.right) + len(self.left) + len(self.single) + len(self.both)
-
-    @property
-    def wallcount(self) -> None:
-        return len(self.walls)
+    def get_counts(self) -> dict[str, dict[str, int]]:
+        out = {
+            "walls": {k: 0 for k in WALL_TYPES},
+            "notes": {},
+            "rails": {},
+            "rail_nodes": {},
+        }
+        for wall in self.walls.values():
+            out["walls"][WALL_LOOKUP[wall[0, 3]]] += 1
+        for t in NOTE_TYPES:
+            n_nodes = [n.shape[0] for n in getattr(self, t).values()]
+            notes = sum(1 if n==1 else 0 for n in n_nodes)
+            out["notes"][t] = notes
+            out["rails"][t] = len(n_nodes) - notes
+            out["rail_nodes"][t] = sum(n_nodes) - len(n_nodes)
+        for e in ("walls", "notes", "rails", "rail_nodes"):
+            out[e]["total"] = sum(out[e].values())
+        return out
 
     # Note: None of these functions are allowed to *modify* the dicts, instead they must create new dicts
     # This avoids requring deep copies for everything

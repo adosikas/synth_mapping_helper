@@ -141,9 +141,10 @@ def dashboard_tab():
             except Exception as exc:
                 error(f"Error executing action", exc)
                 return
+            counts = d.get_counts()
             info(
                 f"Completed: '{self._tooltip}'",
-                caption=f"{d.notecount} note{'s' if d.notecount != 1 else ''}, {d.wallcount} wall{'s' if d.wallcount != 1 else ''}",
+                caption=", ".join(f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")),
             )
             synth_format.export_clipboard(d, realign_start=sw_realign.value)
 

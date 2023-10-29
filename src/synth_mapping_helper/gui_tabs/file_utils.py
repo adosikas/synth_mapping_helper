@@ -9,13 +9,12 @@ from .utils import *
 from .. import synth_format
 from .. import __version__
 
-def wall_density(data: synth_format.DataContainer) -> tuple[list[float], list[int]]:
-    delta = 4*data.bpm/60  # 4 seconds
+def density(times: list[float], window: float) -> tuple[list[float], list[int]]:
     out = []
     visible_t = []
     c = 0
-    for t in sorted(data.walls):
-        start = t - delta
+    for t in sorted(times):
+        start = t - window
         while c and visible_t[0] < start:
             out.append((visible_t[0], c))
             out.append((visible_t[0], c-1))
@@ -107,20 +106,8 @@ def file_utils_tab():
         @ui.refreshable
         def info_card(self) -> None:
             if self.data is None:
+                ui.label("Load a map to show stats and graphs")
                 return
-            ui.aggrid({
-                "domLayout": "autoHeight",
-                "columnDefs": [
-                    {"headerName": "Difficulty", "field": "diff"},
-                    {"headerName": "Notes", "field": "notes"},
-                    {"headerName": "Walls", "field": "walls"},
-                    {"headerName": "Fixed Errors", "field": "errors"},
-                ],
-                "rowData": [
-                    {"diff": d, "notes": c.notecount, "walls": len(c.walls), "errors": len(self.data.errors.get(d, []))} 
-                    for d, c in self.data.difficulties.items()
-                ],
-            }).classes("w-96 h-auto")
             ui.label(f"{len(self.data.bookmarks)} Bookmarks")
             if self.merged_filenames:
                 ui.label("Merged:")
@@ -130,14 +117,42 @@ def file_utils_tab():
                 with ui.button("Save error report", icon="summarize", color="warning", on_click=self.save_errors).classes("ml-auto"):
                     ui.tooltip("Use this if you want to re-add notes that were corrupted.")
 
-            densities = {
-                d: wall_density(self.data.difficulties[d])
+            ui.label("Object counts (click to see more)")
+            def _stats_notify(ev: events.GenericEventArguments) -> None:
+                if "." in ev.args["colId"]:
+                    col = ev.args["colId"].rsplit(".",1)[0]
+                    col_data = ev.args["data"][col]
+                    ui.notify(
+                        f"{col_data['total']} {col}: " + ", ".join(f"{k}: {v}" for k,v in col_data.items() if k != "total"),
+                        position="center",
+                        type="info"
+                    )
+            ui.aggrid({
+                "domLayout": "autoHeight",
+                "columnDefs": [
+                    {"headerName": "Difficulty", "field": "diff"},
+                    {"headerName": "Fixed Errors", "field": "errors"},
+                    {"headerName": "Notes", "field": "notes.total"},
+                    {"headerName": "Rails", "field": "rails.total"},
+                    {"headerName": "Rail nodes", "field": "rail_nodes.total"},
+                    {"headerName": "Walls", "field": "walls.total"},
+                ],
+                "rowData": [
+                    c.get_counts() | {"diff": d, "errors": len(self.data.errors.get(d, []))} 
+                    for d, c in self.data.difficulties.items()
+                ],
+            }).classes("w-full h-auto").on("cellClicked", _stats_notify)
+
+            ui.label("Wall density")
+            wall_densities = {
+                d: density(self.data.difficulties[d].walls.keys(), 4*self.data.bpm/60)
                 for d in self.data.difficulties
             }
-            fig = go.Figure(
+            wfig = go.Figure(
                 [
                     go.Scatter(x=x, y=y, name=f"{d} [{wall_mode(max(y))}]", showlegend=True)
-                    for d, (x, y) in densities.items()
+                    for d, (x, y) in wall_densities.items()
+                    if y
                 ],
                 layout=go.Layout(
                     xaxis=go.layout.XAxis(title="Measure"),
@@ -147,12 +162,59 @@ def file_utils_tab():
                 ),
             )
             # show horizontal lines when close to or over the limit
-            max_d = max(max(y) for _,y in densities.values())
+            max_d = max(max(y) if y else 0 for _,y in wall_densities.values() )
             if max_d >= 180:
-                fig.add_hline(200, line={"color": "gray"}, annotation=go.layout.Annotation(text="Wireframe", xanchor="left", yanchor="bottom"), annotation_position="left")
+                wfig.add_hline(200, line={"color": "gray"}, annotation=go.layout.Annotation(text="Wireframe", xanchor="left", yanchor="bottom"), annotation_position="left")
             if max_d >= 450:
-                fig.add_hline(500, line={"color": "red"}, annotation=go.layout.Annotation(text="Spawn limit", xanchor="left", yanchor="bottom"), annotation_position="left")
-            ui.plotly(fig).classes("w-full h-96")
+                wfig.add_hline(500, line={"color": "red"}, annotation=go.layout.Annotation(text="Spawn limit", xanchor="left", yanchor="bottom"), annotation_position="left")
+            ui.plotly(wfig).classes("w-full h-96")
+
+            # same thing, but for combined notes and rail nodes
+            ui.label("Note & Rail density")
+            note_densities = {
+                d: (
+                    # notes & all rail nodes
+                    density([
+                        n[2]
+                        for ty in synth_format.NOTE_TYPES  # all types
+                        for ns in getattr(c, ty).values()  # all nodes & rails
+                        for n in ns # all rail nodes
+                    ], window=4*self.data.bpm/60),
+                    # notes & rail starts (aka orbs)
+                    density([
+                        ti
+                        for ty in synth_format.NOTE_TYPES  # all types
+                        for ti in getattr(c, ty)  # all nodes & rails
+                    ], window=4*self.data.bpm/60),
+                    # just rail nodes
+                    density([
+                        n[2]
+                        for ty in synth_format.NOTE_TYPES  # all types
+                        for ns in getattr(c, ty).values()  # all nodes & rails
+                        for n in ns[1:] # just rail nodes
+                    ], window=4*self.data.bpm/60),
+                )
+                for d, c in self.data.difficulties.items()
+            }
+            nfig = go.Figure(
+                [
+                    go.Scatter(
+                        x=x, y=y, name=f"{d} ({l}) [max {max(y)}]",
+                        showlegend=True,
+                        visible=(l == "Combined") or "legendonly", # start with only "Combined" visible
+                    )
+                    for d, con in note_densities.items()
+                    for l, (x,y) in zip(("Combined", "Notes & Rail Heads", "Rail Nodes"), con)
+                    if y
+                ],
+                layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Measure"),
+                    yaxis=go.layout.YAxis(title="Visible (4s)"),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                ),
+            )
+            ui.plotly(nfig).classes("w-full h-96")
 
     fi = FileInfo()
 
@@ -177,5 +239,5 @@ def file_utils_tab():
             ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).classes("h-14 w-full").bind_enabled_from(fi, "is_valid")
             ui.label("Note: BPM will be matched automatically.")
             ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
-    with ui.card():
+    with ui.card().classes("w-full"):
         fi.info_card()
