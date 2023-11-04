@@ -51,7 +51,9 @@ if __name__ in {"__main__", "__mp_main__"}:
             with ui.tabs() as tabs:
                 for idx, (name, icon, *_) in enumerate(tab_list):
                     tab_list[idx][3] = ui.tab(name, icon=icon)
-            with ui.element().classes("ml-auto"):
+            with ui.button(icon="bug_report" + "support", color="negative", on_click=lambda _:ui.download("error_report", "smh_gui_error.json")).props("text-color=white").classes("ml-auto"):
+                ui.tooltip("Save report of last error")
+            with ui.element():
                 ui.tooltip("Switch dark mode")
                 dark = ui.dark_mode(True)  # start in dark mode (matching editor)
                 ui.button(icon="dark_mode", on_click=dark.enable).bind_visibility_from(dark, "value", backward=lambda v: v is not True).props('text-color=white')

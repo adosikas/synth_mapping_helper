@@ -94,7 +94,7 @@ def command_tab():
             try:
                 opts, remaining = p.parse_known_args(args)
             except ArgumentError as exc:
-                error(f"Error parsing line {i+1}: {exc!s}")
+                error(f"Error parsing line {i+1}", exc)
                 break
             if remaining:
                 error(f"Unknown arguments in line {i+1}: {remaining}")

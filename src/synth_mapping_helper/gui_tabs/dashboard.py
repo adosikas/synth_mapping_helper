@@ -2,6 +2,7 @@ from typing import Any, Callable, Optional, List
 
 import numpy as np
 from nicegui import app, events, ui
+import pyperclip
 
 from .utils import *
 from .. import movement, pattern_generation, rails, synth_format
@@ -45,11 +46,9 @@ def _space_walls(data: synth_format.DataContainer, interval: float) -> None:
     data.walls = out
 
 class ParseInputError(ValueError):
-    def __init__(self, input_id: str, error: str) -> None:
-        super().__init__(error)
+    def __init__(self, input_id: str, value: Any) -> None:
         self.input_id = input_id
-    def __repr__(self) -> str:
-        return self.args[0]
+        self.value = value
 
 def dashboard_tab():
     class SMHInput(ui.input):
@@ -80,7 +79,7 @@ def dashboard_tab():
             try:
                 return parse_number(self.value)
             except ValueError as ve:
-                raise ParseInputError(self.storage_id, *ve.args) from ve
+                raise ParseInputError(self.storage_id, self.value) from ve
 
     with ui.row().classes("mb-4"):
         # with ui.card().classes("h-16"), ui.row():
@@ -122,10 +121,15 @@ def dashboard_tab():
                     wiki_reference(wiki_ref, True).props("floating")
 
         def do_action(self, e: events.ClickEventArguments):
+            clipboard = pyperclip.paste()
+            settings = {
+                k.removeprefix("dashboard_"): v for k, v in app.storage.user.items()
+                if k.startswith("dashboard_")
+            }
             try:
-                d = synth_format.import_clipboard(use_original=sw_use_orig.value)
+                d = synth_format.import_clipboard_json(clipboard, use_original=sw_use_orig.value)
             except ValueError as ve:
-                error(f"Error reading data from clipboard", ve)
+                error(f"Error reading data from clipboard", ve, settings=settings, data=clipboard)
                 return
             try:
                 self._func(
@@ -136,10 +140,10 @@ def dashboard_tab():
                     pivot=[pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value] if (coordinate_mode.value=="pivot") else None
                 )
             except ParseInputError as pie:
-                error(f"Error parsing value: {pie.input_id}", pie)
+                error(f"Error parsing value: {pie.input_id}", pie, settings=settings, data=pie.value)
                 return
             except Exception as exc:
-                error(f"Error executing action", exc)
+                error(f"Error executing '{self._tooltip}'", exc, settings=settings, data=clipboard)
                 return
             counts = d.get_counts()
             info(
@@ -468,12 +472,12 @@ def dashboard_tab():
                 )
             with ui.row():
                 SMHActionButton(
-                    tooltip="To notestack (delete rail)",
+                    tooltip="Rail to notestack (delete rail)",
                     icon="animation",
                     func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value, keep_rail=False, types=types),
                 )
                 SMHActionButton(
-                    tooltip="To notestack (keep rail)",
+                    tooltip="Rail to notestack (keep rail)",
                     icon="animation"+"show_chart",
                     func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value, keep_rail=True, types=types),
                 )

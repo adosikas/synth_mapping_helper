@@ -59,14 +59,13 @@ META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 BETA_WARNING_SHOWN = False
 
 class JSONParseError(ValueError):
-    def __init__(self, d: dict, t: str, exc: Exception) -> None:
+    def __init__(self, d: dict, t: str) -> None:
         super().__init__()
         self.dict = d
         self.type = t
-        self.exc = exc
 
     def __str__(self) -> str:
-        return f"{self.exc!r} while parsing JSON of {self.type}: {self.dict}"
+        return f"Error while parsing JSON of {self.type}: {self.dict}"
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self})"
@@ -352,7 +351,7 @@ def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type
             round_time_to_fractions(coord[2] * bpm / BPM_DIVISOR - startMeasure / 64),
         ])
     except (ValueError, TypeError) as exc:
-        raise JSONParseError(coord, c_type, exc)
+        raise JSONParseError(coord, c_type) from exc
 
 def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
@@ -382,7 +381,7 @@ def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> di
 # full wall dict
 def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> tuple[int, "numpy array (1, 5)"]:
     if wall_type not in WALL_LOOKUP:
-        raise JSONParseError(wall_dict, "wall", ValueError(f"Unexpected wall type ({wall_type})"))
+        raise JSONParseError(wall_dict, "wall") from ValueError(f"Unexpected wall type ({wall_type})")
     return np.concatenate((
         coord_from_synth(bpm, startMeasure, wall_dict["position"], f"{WALL_LOOKUP[wall_type]} wall") + WALL_OFFSETS[wall_type],
         (wall_type, wall_dict.get("zRotation", 0.0))

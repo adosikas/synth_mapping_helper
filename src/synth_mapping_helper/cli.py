@@ -158,7 +158,13 @@ def main(options):
         except (JSONDecodeError, KeyError) as err:
             abort(f"Could not decode clipboard, did you copy somethinge else?\n\t{err!r}")
         except synth_format.JSONParseError as jpe:
-            abort(f"Detected invalid map data. The editor or your map may be corrupted.\n\tIf you don't have a recent backup and know how to fix the json manually, the following should help (otherwise you may find help on the discord):\n\t{jpe!r}")
+            abort(
+                "Detected invalid map data. The editor or your map may be corrupted.\n"
+                "\tYou can try repairing the file using 'File Utils' tab of the GUI, or restoring from a backup.\n"
+                "\tIf you know how to fix the json manually, the following should help (otherwise you may find help on the discord):\n"
+                f"\t{jpe!r}\n"
+                f"\tCaused by {jpe.__cause__!r}"
+            )
 
     # argument post-parsing
     # convert time parsed in seconds to beats
