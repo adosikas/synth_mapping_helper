@@ -91,10 +91,13 @@ def dashboard_tab():
         #         wiki_reference("Pre--and-Post-Processing-Options#delete-everything-not-matching-filter")
         with ui.card().classes("h-16"), ui.row():
             with ui.switch("Use original", value=False).bind_value(app.storage.user, "dashboard_use_orig") as sw_use_orig:
+                ui.tooltip("Enable this to quickly try different settings without having to undo and copy the input again")
                 wiki_reference("Miscellaneous-Options#use-original-json")
-            with ui.switch("Mirror left hand", value=False).bind_value(app.storage.user, "dashboard_mirror_left") as sw_mirror_left:
+            with ui.switch("Mirror for left", value=False).bind_value(app.storage.user, "dashboard_mirror_left") as sw_mirror_left:
+                ui.tooltip("Mirrors the operations for left notes and walls, e.g. offseting right will move those left instead")
                 wiki_reference("Miscellaneous-Options#mirror-operations-for-left-hand")
             with ui.switch("Realign start", value=False).bind_value(app.storage.user, "dashboard_realign") as sw_realign:
+                ui.tooltip("This will realign the start of the selection to the very first object AFTER the operation")
                 wiki_reference("Pre--and-Post-Processing-Options#keep-selection-alignment")
         with ui.card().classes("h-16"), ui.row():
             with ui.label("Coordinates").classes("my-2"):

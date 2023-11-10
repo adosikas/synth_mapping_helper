@@ -136,6 +136,8 @@ def file_utils_tab():
                     {"headerName": "Rails", "field": "rails.total"},
                     {"headerName": "Rail nodes", "field": "rail_nodes.total"},
                     {"headerName": "Walls", "field": "walls.total"},
+                    {"headerName": "Lights", "field": "lights"},
+                    {"headerName": "Effects", "field": "effects"},
                 ],
                 "rowData": [
                     c.get_counts() | {"diff": d, "errors": len(self.data.errors.get(d, []))} 

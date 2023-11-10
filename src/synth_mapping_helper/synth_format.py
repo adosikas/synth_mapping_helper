@@ -46,8 +46,9 @@ WALL_TYPES = {
 WALL_LOOKUP = {id: name for name, (id, _) in WALL_TYPES.items()}
 WALL_OFFSETS = {id: np.array(offset + [0]) for _, (id, offset) in WALL_TYPES.items()}
 SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
+LEFT_WALLS = [id for name, (id, _) in WALL_TYPES.items() if "left" in name]
 
-ALL_TYPES = NOTE_TYPES + tuple(WALL_TYPES)
+ALL_TYPES = NOTE_TYPES + tuple(WALL_TYPES) + ("lights", "effects")
 
 SINGLE_COLOR_NOTES = dict[float, "numpy array (n, 3)"]   # rail segment (n>1) and x,y,t
 WALLS = dict[float, "numpy array (1, 5)"]    # x,y,t, type, angle
@@ -101,6 +102,9 @@ class DataContainer:
     single: SINGLE_COLOR_NOTES
     both: SINGLE_COLOR_NOTES
     walls: WALLS
+    # reuse same structure as notes for common code
+    lights: SINGLE_COLOR_NOTES
+    effects: SINGLE_COLOR_NOTES
 
     def get_counts(self) -> dict[str, dict[str, int]]:
         out = {
@@ -108,6 +112,8 @@ class DataContainer:
             "notes": {},
             "rails": {},
             "rail_nodes": {},
+            "lights": len(self.lights),
+            "effects": len(self.effects),
         }
         for wall in self.walls.values():
             out["walls"][WALL_LOOKUP[wall[0, 3]]] += 1
@@ -125,8 +131,8 @@ class DataContainer:
     # This avoids requring deep copies for everything
 
     def apply_for_notes(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
-        for t in types:
-            if t not in NOTE_TYPES:
+        for t in NOTE_TYPES:
+            if t not in types:
                 continue
             notes = getattr(self, t)
             out = {}
@@ -136,11 +142,11 @@ class DataContainer:
             setattr(self, str(t), out)
 
     def apply_for_walls(self, f, *args, types: list = WALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
-        wall_types = [WALL_TYPES[t][0] for t in types if t in WALL_TYPES]
+        wall_types = [WALL_TYPES[t][0] for t in WALL_TYPES if t in types]
         out_walls = {}
         for time_index, wall in sorted(self.walls.items()):
             if wall[0, 3] in wall_types:
-                wall = f(wall, *args, **kwargs)  # TODO: support mirror_left
+                wall = f(wall, *args, direction=(-1 if mirror_left and wall[0, 3] in LEFT_WALLS else 1), **kwargs)
                 out_walls[wall[0, 2]] = wall
             else:
                 out_walls[time_index] = wall
@@ -149,8 +155,18 @@ class DataContainer:
     def apply_for_all(self, f, *args, types: list = ALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
         self.apply_for_notes(f, *args, types=types, mirror_left=mirror_left, **kwargs)
         self.apply_for_walls(f, *args, types=types, mirror_left=mirror_left, **kwargs)
+        for t in ("lights", "effects"):
+            if t not in types:
+                continue
+            objs = getattr(self, t)
+            out = {}
+            for _, nodes in sorted(objs.items()):
+                out_nodes = f(nodes, *args, **kwargs)
+                out[out_nodes[0, 2]] = out_nodes
+            setattr(self, t, out)
 
-    # used when the functions needs access to all notes and rails of a color at one
+
+    # used when the functions needs access to all notes and rails of a color at once
     def apply_for_note_types(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
         for t in types:
             if t not in NOTE_TYPES:
@@ -176,9 +192,11 @@ class DataContainer:
             other_notes = getattr(other, t)
             setattr(self, t, self_notes | other_notes)
         self.walls |= other.walls
+        self.lights |= other.lights
+        self.effects |= other.effects
 
     def get_object_dict(self, type_name: str) -> Union[SINGLE_COLOR_NOTES, WALLS]:
-        if type_name in NOTE_TYPES:
+        if type_name in NOTE_TYPES + ("lights", "effects"):
             return getattr(self, type_name)
         wall_type = WALL_TYPES[type_name][0]
         return {
@@ -264,9 +282,19 @@ class SynthFile:
                             except:
                                 pass
                             diff_removed.append((jpe, time))
-                # add difficulty when there is a note of any type or a wall
-                if any(nt for nt in notes) or walls:
-                    self.difficulties[diff] = DataContainer(bpm, *notes, walls)
+                lights = {
+                    b: np.array([[0,0,b]])
+                    for t in beatmap["Lights"][diff]
+                    for b in [round_time_to_fractions(t / 64)]
+                }
+                effects = {
+                    b: np.array([[0,0,b]])
+                    for t in beatmap["Effects"][diff]
+                    for b in [round_time_to_fractions(t / 64)]
+                }
+                # add difficulty when there is a note of any type, a wall or lights/effects
+                if any(notes) or walls or lights or effects:
+                    self.difficulties[diff] = DataContainer(bpm, *notes, walls, lights, effects)
 
                 if diff_removed:
                     self.errors[diff] = diff_removed
@@ -306,6 +334,8 @@ class SynthFile:
                     walls[dest_list].append(wall_dict)
                 for t, wall_list in walls.items():
                     beatmap[t.capitalize()][diff] = wall_list
+                beatmap["Lights"][diff] = [round_tick_for_json(t * 64) for t in data.lights]
+                beatmap["Effects"][diff] = [round_tick_for_json(t * 64) for t in data.effects]
 
             # write modified beatmap json
             outzip.writestr(inzip.getinfo(BEATMAP_JSON_FILE), json.dumps(beatmap))
@@ -434,8 +464,19 @@ def import_clipboard_json(original_json: str, use_original: bool = False) -> Cli
         for wall_dict in clipboard[wall_type + "s"]:
             wall = wall_from_synth(bpm, startMeasure, wall_dict, WALL_TYPES[wall_type][0])
             walls[wall[0, 2]] = wall
+    
+    lights = {
+        b: np.array([[0,0,b]])
+        for t in clipboard["lights"]
+        for b in [round_time_to_fractions((t-startMeasure)/64)]
+    }
+    effects = {
+        b: np.array([[0,0,b]])
+        for t in clipboard["effects"]
+        for b in [round_time_to_fractions((t-startMeasure)/64)]
+    }
 
-    return ClipboardDataContainer(bpm, *notes, walls, original_json)
+    return ClipboardDataContainer(bpm, *notes, walls, lights, effects, original_json)
 
 def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
     return import_clipboard_json(pyperclip.paste(), use_original)
@@ -475,6 +516,18 @@ def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> st
         dest_list, wall_dict = wall_to_synth(data.bpm, wall)
         clipboard[dest_list].append(wall_dict)
 
+    for t in data.lights:
+        if t < first:
+            first = t
+        if t > last:
+            last = t
+        clipboard["lights"].append(round_tick_for_json(t * 64))
+    for t in data.effects:
+        if t < first:
+            first = t
+        if t > last:
+            last = t
+        clipboard["effects"].append(round_tick_for_json(t * 64))
 
     ms_per_min = 60 * 1000
     if realign_start:
