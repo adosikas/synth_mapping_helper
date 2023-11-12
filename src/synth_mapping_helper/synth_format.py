@@ -27,6 +27,8 @@ Y_OFFSET = 0.0012
 # also maybe useful: bpm = (z_coord / index) * BPM_DIVISOR
 BPM_DIVISOR = 1200
 
+MS_PER_MIN = 60 * 1000
+
 NOTE_TYPES = ("right", "left", "single", "both")
 # Note: wall offsets are eyeballed
 WALL_TYPES = {
@@ -208,6 +210,7 @@ class DataContainer:
 @dataclasses.dataclass
 class ClipboardDataContainer(DataContainer):
     original_json: str
+    selection_length: float
 
 @dataclasses.dataclass
 class SynthFile:
@@ -438,6 +441,8 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
 # full json
 def import_clipboard_json(original_json: str, use_original: bool = False) -> ClipboardDataContainer:
     clipboard = json.loads(original_json)
+    if not isinstance(clipboard, dict):
+        raise ValueError("clipboard did not contain json dict")
     if "original_json" in clipboard:
         original_json = clipboard["original_json"]
     if use_original:
@@ -476,7 +481,7 @@ def import_clipboard_json(original_json: str, use_original: bool = False) -> Cli
         for b in [round_time_to_fractions((t-startMeasure)/64)]
     }
 
-    return ClipboardDataContainer(bpm, *notes, walls, lights, effects, original_json)
+    return ClipboardDataContainer(bpm, *notes, walls, lights, effects, original_json, clipboard["lenght"] / MS_PER_MIN * bpm)
 
 def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
     return import_clipboard_json(pyperclip.paste(), use_original)
@@ -529,17 +534,16 @@ def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> st
             last = t
         clipboard["effects"].append(round_tick_for_json(t * 64))
 
-    ms_per_min = 60 * 1000
     if realign_start:
         # position of selection start in beats*64 
         clipboard["startMeasure"] = round_tick_for_json(first * 64)
         # position of selection start in ms
-        clipboard["startTime"] = first * ms_per_min / data.bpm
+        clipboard["startTime"] = first * MS_PER_MIN / data.bpm
         # length of the selection in milliseconds
         # and yes, the editor has a typo, so we need to missspell it too
-        clipboard["lenght"] = last * ms_per_min / data.bpm
+        clipboard["lenght"] = last * MS_PER_MIN / data.bpm
     # always update length
-    clipboard["lenght"] = (last - first) * ms_per_min / data.bpm
+    clipboard["lenght"] = (last - first) * MS_PER_MIN / data.bpm
     return json.dumps(clipboard)
 
 def export_clipboard(data: DataContainer, realign_start: bool = True):

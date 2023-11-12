@@ -45,11 +45,6 @@ def _space_walls(data: synth_format.DataContainer, interval: float) -> None:
         out[i*interval] = (w*[1,1,0,1,1]) + [0,0,i*interval,0,0]
     data.walls = out
 
-class ParseInputError(ValueError):
-    def __init__(self, input_id: str, value: Any) -> None:
-        self.input_id = input_id
-        self.value = value
-
 def dashboard_tab():
     class SMHInput(ui.input):
         def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, **kwargs):

@@ -37,7 +37,7 @@ def version_tab():
                 ui.spinner()
                 ui.label("Requesting...")
         else:
-            ui.label("To protect your privacy, this does not automatically contact github.com. Press the button above or enable auto-check.")
+            ui.label("To protect your privacy, this does not automatically contact github.com. Press the button or enable auto-check below.")
 
     def check():
         global releases

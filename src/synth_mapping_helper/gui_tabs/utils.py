@@ -13,6 +13,7 @@ __all__ = [
     "logger", "download_content", "wiki_base",
     "error", "warning", "info",
     "wiki_reference", "try_load_synth_file", "add_suffix",
+    "ParseInputError"
 ]
 
 logger = logging.getLogger("SMH-GUI")
@@ -100,3 +101,8 @@ def add_suffix(filename: str, suffix: str) -> str:
     if not suffix:
         return filename
     return f"{filename.removesuffix('.synth')}_{suffix}.synth"
+
+class ParseInputError(ValueError):
+    def __init__(self, input_id: str, value: Any) -> None:
+        self.input_id = input_id
+        self.value = value
