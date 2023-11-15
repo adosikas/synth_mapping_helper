@@ -114,9 +114,10 @@ class SMHInput(ui.input):
                 ui.tooltip(tooltip)
         if icons is not None:
             with self.add_slot("prepend"):
-                self.icon = ui.icon("", color="primary").classes("border-2 rounded").on(
+                self.icon = ui.icon("", color="primary").classes("border-2 rounded cursor-pointer").on(
                     "click", lambda e: self.set_value(_negate(self.value))
                 ).bind_name_from(self, "value", lambda v: _icon(v, icons))
+                ui.tooltip("Click to negate")
         with self.add_slot("error"):
             ui.element().style("visiblity: hidden")
 

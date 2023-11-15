@@ -44,7 +44,8 @@ def file_utils_tab():
     class FileInfo:
         data: Optional[synth_format.SynthFile] = None
         output_filename: str = "No file selected"
-        output_bpm: float = 0
+        output_bpm: float = 0.0
+        output_offset: float = 0.0
         merged_filenames: Optional[list[str]] = None
 
         @property
@@ -59,6 +60,7 @@ def file_utils_tab():
                 return
             self.output_filename = add_suffix(e.name, "out")
             self.output_bpm = self.data.bpm
+            self.output_offset = self.data.offset_ms
             self.merged_filenames = []
 
             e.sender.reset()
@@ -77,7 +79,8 @@ def file_utils_tab():
         def clear(self) -> None:
             self.data = None
             self.output_filename = "No base file selected"
-            self.output_bpm = 0
+            self.output_bpm = 0.0
+            self.output_offset = 0.0
             self.merged_filenames = None
             self.info_card.refresh()
 
@@ -85,6 +88,8 @@ def file_utils_tab():
             download_content.truncate()
             if self.output_bpm != self.data.bpm:
                 self.data.change_bpm(self.output_bpm)
+            if self.output_offset != self.data.offset_ms:
+                self.data.change_offset(self.output_offset)
             self.data.save_as(download_content)
             ui.download("download", filename=self.output_filename)
 
@@ -93,6 +98,7 @@ def file_utils_tab():
                 "SMH-GUI fixed error report:",
                 f"  SMH Version: {__version__}",
                 f"  Base BPM: {self.data.bpm}",
+                f"  Base Offset: {self.data.output_offset}",
                 f"  Merged {len(self.merged_filenames)} other files",
             ]
             for diff, errors in self.data.errors.items():
@@ -229,8 +235,9 @@ def file_utils_tab():
             ui.label("Base / Repair / BPM change")
             ui.upload(label="Base file", auto_upload=True, on_upload=fi.upload).classes("h-14 w-full")
             with ui.row().classes("w-full"):
-                ui.input("Filename").classes("w-64").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
+                ui.input("Filename").classes("w-48").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
                 ui.number("BPM").classes("w-16").bind_value(fi, "output_bpm").bind_enabled_from(fi, "is_valid")
+                ui.number("Offset", suffix="ms").classes("w-24").bind_value(fi, "output_offset").bind_enabled_from(fi, "is_valid")
                 ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
             with ui.row().classes("w-full"):
                 ui.button("clear", icon="clear", color="negative", on_click=fi.clear).bind_enabled_from(fi, "is_valid")
@@ -239,7 +246,7 @@ def file_utils_tab():
         with ui.card():
             ui.label("Merge files into base")
             ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).classes("h-14 w-full").bind_enabled_from(fi, "is_valid")
-            ui.label("Note: BPM will be matched automatically.")
+            ui.label("Note: BPM & Offset will be matched automatically.")
             ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
     with ui.card().classes("w-full"):
         fi.info_card()

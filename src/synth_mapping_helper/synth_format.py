@@ -98,15 +98,15 @@ def round_tick_for_json(time: float) -> float:
 
 @dataclasses.dataclass
 class DataContainer:
-    bpm: float
-    right: SINGLE_COLOR_NOTES
-    left: SINGLE_COLOR_NOTES
-    single: SINGLE_COLOR_NOTES
-    both: SINGLE_COLOR_NOTES
-    walls: WALLS
+    bpm: float = 60.0
+    right: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
+    left: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
+    single: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
+    both: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
+    walls: WALLS = dataclasses.field(default_factory=dict)
     # reuse same structure as notes for common code
-    lights: SINGLE_COLOR_NOTES
-    effects: SINGLE_COLOR_NOTES
+    lights: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
+    effects: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
 
     def get_counts(self) -> dict[str, dict[str, int]]:
         out = {
@@ -209,8 +209,8 @@ class DataContainer:
 
 @dataclasses.dataclass
 class ClipboardDataContainer(DataContainer):
-    original_json: str
-    selection_length: float
+    original_json: str = ""
+    selection_length: float = 0.0
 
 @dataclasses.dataclass
 class SynthFile:
@@ -220,6 +220,7 @@ class SynthFile:
     difficulties: dict[str, DataContainer]
 
     errors: dict[str, list[tuple[str, JSONParseError]]] = dataclasses.field(default_factory=dict)
+    offset_ms: float = 0.0
 
     @property
     def bpm(self) -> float:
@@ -233,6 +234,7 @@ class SynthFile:
             # load beatmap json
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
             bpm: float = beatmap["BPM"]
+            self.offset_ms = beatmap["Offset"]
             self.meta = {k: beatmap[k] for k in META_KEYS}
             self.bookmarks = {
                 # bookmarks are stored in steps of 64 per beat (regardless of BPM)
@@ -314,6 +316,7 @@ class SynthFile:
 
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
             beatmap["BPM"] = self.bpm
+            beatmap["Offset"] = self.offset_ms
 
             beatmap["Bookmarks"]["BookmarksList"] = [
                 {"time": round_tick_for_json(t * 64), "name": n}
@@ -358,10 +361,22 @@ class SynthFile:
             for c in self.difficulties.values():
                 c.apply_for_all(movement.scale, [1,1,ratio])
                 c.bpm = bpm
+    def change_offset(self, offset_ms: float) -> None:
+        if self.offset_ms != offset_ms:
+            delta = (offset_ms - self.offset_ms) / MS_PER_MIN * self.bpm
+            self.bookmarks = {
+                time + delta: name
+                for time, name in self.bookmarks.items()
+            }
+            for c in self.difficulties.values():
+                c.apply_for_all(movement.offset, [0,0,delta])
+            self.offset_ms = offset_ms
 
     def merge(self, other: "SynthFile", adjust_bpm:bool = True) -> None:
         if adjust_bpm and self.bpm != other.bpm:
             other.change_bpm(self.bpm)
+        if adjust_bpm and self.offset_ms != other.offset_ms:
+            other.change_offset(self.offset_ms)
         self.bookmarks |= other.bookmarks
         for d, c in other.difficulties.items():
             if d in self.difficulties:
