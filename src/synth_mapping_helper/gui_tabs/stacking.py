@@ -1,22 +1,13 @@
 from typing import Any, Optional
 
-from nicegui import app, ui
+from nicegui import app, ui, elements
 import numpy as np
 import pyperclip
 
 from .utils import *
-from ..utils import parse_number
+from .map_render import SettingsPanel, MapScene
+from ..utils import parse_number, pretty_fraction
 from .. import synth_format, movement
-
-def _pretty_number(val: float) -> str:
-    val = round(val, 4)
-    if val.is_integer():
-        return str(int(val))
-    if (val*192).is_integer():
-        v = int(val*192)
-        gcd = np.gcd(v,192)
-        return f"{v//gcd}/{192//gcd}"
-    return str(val)
 
 def _negate(val: str|None) -> str|None:
     if not val:
@@ -100,7 +91,7 @@ def _stack(d: synth_format.DataContainer, count: int, pivot: tuple[float, float,
         d.merge(stacking)
 
 class SMHInput(ui.input):
-    def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, icons: dict[int, str] = {},**kwargs):
+    def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, icons: dict[int, str]|None = None,**kwargs):
         super().__init__(label=label, value=str(value), **kwargs)
         self.bind_value(app.storage.user, f"stacking_{storage_id}")
         self.classes("w-24 h-10")
@@ -137,6 +128,7 @@ class SMHInput(ui.input):
             raise ParseInputError(self.storage_id, self.value) from ve
 
 def stacking_tab():
+    preview_scene: MapScene|None = None
     with ui.row():
         with ui.card():
             ui.label("Pivot")
@@ -159,8 +151,8 @@ def stacking_tab():
                         first = n[0][1][0]
                 if first_t is None:
                     error("No note found!")
-                pivot_x.set_value(_pretty_number(first[0]))
-                pivot_y.set_value(_pretty_number(first[1]))
+                pivot_x.set_value(pretty_fraction(first[0]))
+                pivot_y.set_value(pretty_fraction(first[1]))
                 info(f"Set pivot to first note ({first_t} hand{'s' if first_t == 'both' else ''})")
             with _register_marking(ui.button("Pivot", icon="colorize", on_click=_pick_pivot).props("outline size=sm align=left").classes("w-full"), pivot_x, pivot_y):
                 ui.tooltip("Place pivot at first note")
@@ -174,9 +166,9 @@ def stacking_tab():
                 if tfs is not None:
                     t, first, second = tfs
                     delta = second - first
-                    offset_x.set_value(_pretty_number(delta[0]))
-                    offset_y.set_value(_pretty_number(delta[1]))
-                    offset_t.set_value(_pretty_number(delta[2]))
+                    offset_x.set_value(pretty_fraction(delta[0]))
+                    offset_y.set_value(pretty_fraction(delta[1]))
+                    offset_t.set_value(pretty_fraction(delta[2]))
                     if len(delta) >= 5:
                         walls_angle.set_value(str(round((delta[4]+180)%360-180, 4)))
                     info(f"Set offset from {t} object pair")
@@ -207,9 +199,9 @@ def stacking_tab():
                     error(f"{t} object pair too close to pivot", settings={"pivot": p}, data={"type": t, "first": first.tolist(), "second": second.tolist()})
                     return
                 s_xy = (second[:2] - p) / (first[:2] - p)
-                scale_x.set_value(_pretty_number(s_xy[0]))
-                scale_y.set_value(_pretty_number(s_xy[1]))
-                offset_t.set_value(_pretty_number(delta[2]))
+                scale_x.set_value(pretty_fraction(s_xy[0]))
+                scale_y.set_value(pretty_fraction(s_xy[1]))
+                offset_t.set_value(pretty_fraction(delta[2]))
                 if len(delta) >= 5:
                     walls_angle.set_value(str(round((delta[4]+180)%360-180, 4)))
                 info(f"Set offset from {t} object pair")
@@ -238,9 +230,9 @@ def stacking_tab():
                 first = first[:2] - p
                 second = second[:2] - p
                 ang = np.degrees(np.arctan2(first[0], first[1])) - np.degrees(np.arctan2(second[0], second[1]))
-                pattern_angle.set_value(_pretty_number(ang))
-                outset_amount.set_value(_pretty_number(np.sqrt(second.dot(second)) - np.sqrt(first.dot(first))))
-                offset_t.set_value(_pretty_number(delta[2]))
+                pattern_angle.set_value(pretty_fraction(ang))
+                outset_amount.set_value(pretty_fraction(np.sqrt(second.dot(second)) - np.sqrt(first.dot(first))))
+                offset_t.set_value(pretty_fraction(delta[2]))
                 if len(delta) >= 5:
                     walls_angle.set_value(str(round((delta[4]+360-ang+180)%360-180, 4)))
                 info(f"Set offset from {t} object pair")
@@ -260,8 +252,8 @@ def stacking_tab():
                 ang = (second[4] - first[4])
                 p = first[:3] + movement.rotate((second - first)[:3]/2, 90 - ang/2) / np.sin(np.radians(ang/2))
 
-                pivot_x.set_value(_pretty_number(p[0]))
-                pivot_y.set_value(_pretty_number(p[1]))
+                pivot_x.set_value(pretty_fraction(p[0]))
+                pivot_y.set_value(pretty_fraction(p[1]))
 
                 offset_x.set_value(offset_x.default_value)
                 offset_y.set_value(offset_y.default_value)
@@ -273,7 +265,7 @@ def stacking_tab():
                 outset_amount.set_value(outset_amount.default_value)
 
                 walls_angle.set_value("0")
-                offset_t.set_value(_pretty_number(second[2] - first[2]))
+                offset_t.set_value(pretty_fraction(second[2] - first[2]))
 
                 info(f"Set offset from {t} object pair")
             all_values = (
@@ -294,7 +286,7 @@ def stacking_tab():
         def _do_stack(count_mode: str):
             clipboard = pyperclip.paste()
             try:
-                d = synth_format.import_clipboard_json(clipboard, use_original=False)
+                d = synth_format.import_clipboard_json(clipboard, use_original=True)
             except ValueError as ve:
                 error(f"Error reading data from clipboard", ve, data=clipboard)
                 return None
@@ -329,6 +321,13 @@ def stacking_tab():
                 caption=", ".join(f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")),
             )
             synth_format.export_clipboard(d, realign_start=False)
+            if preview_scene is not None:
+                try:
+                    preview_settings = sp.parse_settings()
+                except ParseInputError as pie:
+                    error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
+                    return
+                preview_scene.render(d, preview_settings)
 
         with ui.card():
             ui.label("Execute stack")
@@ -336,9 +335,54 @@ def stacking_tab():
                 ui.tooltip("Stack until end of selection")
             ui.separator()
             with ui.row():
-                count = SMHInput("Count", 15, "count", suffix="x", icons=None).classes("w-12", remove="w-24")
+                count = SMHInput("Count", 15, "count", suffix="x").classes("w-12", remove="w-24")
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("count")).props("rounded").classes("w-10 mt-auto")
             ui.separator()
             with ui.row():
-                duration = SMHInput("Duration", 1, "duration", suffix="b", icons=None).classes("w-12", remove="w-24")
+                duration = SMHInput("Duration", 1, "duration", suffix="b").classes("w-12", remove="w-24")
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("duration")).props("rounded").classes("w-10 mt-auto")
+
+    with ui.card():
+        with ui.row():
+            ui.label("Clipboard Preview").classes("my-auto")
+            with ui.expansion("Settings", icon="settings").props("dense"):
+                with ui.row():
+                    scene_width = SMHInput("Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
+                    scene_height = SMHInput("Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
+                with ui.row():
+                    time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
+                    frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
+                apply_button = ui.button("Apply")
+            with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
+                sp = SettingsPanel()
+            def _soft_refresh():
+                try:
+                    data = synth_format.import_clipboard()
+                except:
+                    data = synth_format.DataContainer()
+                try:
+                    preview_settings = sp.parse_settings()
+                except ParseInputError as pie:
+                    error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
+                    return
+                if preview_scene is None:
+                    draw_preview_scene.refresh()
+                if preview_scene is not None:
+                    preview_scene.render(data, preview_settings)
+            with ui.button(icon="sync", on_click=_soft_refresh):
+                ui.tooltip("Preview current clipboard")
+        @ui.refreshable
+        def draw_preview_scene():
+            nonlocal preview_scene
+            try:
+                w = int(scene_width.parsed_value)
+                h = int(scene_height.parsed_value)
+                l = int(frame_length.parsed_value)
+                t = time_scale.parsed_value
+            except ParseInputError as pie:
+                error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
+                return
+            preview_scene = MapScene(width=w, height=h, frame_length=l, time_scale=t)
+            _soft_refresh()
+        draw_preview_scene()
+        apply_button.on("click", draw_preview_scene.refresh)

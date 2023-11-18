@@ -13,10 +13,12 @@ from .gui_tabs.dashboard import dashboard_tab
 from .gui_tabs.autobackup import autobackup_tab
 from .gui_tabs.version import version_tab
 from .gui_tabs.stacking import stacking_tab
+from .gui_tabs.text_gen import text_gen_tab
 
 tab_list = [
     ["Dashboard", "dashboard", dashboard_tab, None],
     ["Stacking", "layers", stacking_tab, None],
+    ["Text", "rtt", text_gen_tab, None],
     ["Commands", "play_arrow", command_tab, None],
     ["File utils", "construction", file_utils_tab, None],
     ["Autobackup", "manage_history", autobackup_tab, None],

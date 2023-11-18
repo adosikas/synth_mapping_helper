@@ -49,6 +49,33 @@ WALL_LOOKUP = {id: name for name, (id, _) in WALL_TYPES.items()}
 WALL_OFFSETS = {id: np.array(offset + [0]) for _, (id, offset) in WALL_TYPES.items()}
 SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
 LEFT_WALLS = [id for name, (id, _) in WALL_TYPES.items() if "left" in name]
+WALL_VERTS = {
+    "angle_right": (
+        (7.4, -8.75), (-4.6, 8.75), (-5.85, 8.75), (-5.85, 0.2), (5.25, -8.75)
+    ),
+    "square": (  # drawn as single, concave polygon (similar to a "c", but with the ends touching)
+        (8.4, 8.4), (8.4, -8.4), (-8.4, -8.4), (-8.4, 8.4),
+        (8.4, 8.4),  # complete the outer ring
+        (7.5, 7.5), (-7.5, 7.5), (-7.5, -7.5), (7.5, -7.5),  # inner ring in reverse order (going "back")
+        (7.5, 7.5)  # complete inner ring
+    ),
+    "triangle": (
+        (0, -11.2), (-9.7, 5.6), (9.7, 5.6),
+        (0, -11.2),
+        (0, -10), (8.6, 5), (-8.6, 5),
+        (0, -10),
+    )
+}
+# mirror x/y:
+for w, (x1, y1), (x2, y2) in (
+    ("wall_right", (2.8, 8.4), (4, 6)),
+    ("center", (0.15, 11), (2.1, 7.5)),
+    ("crouch", (5.6, 5.6), (8, 4)),
+):
+    WALL_VERTS[w] = ((x1, y1), (x2, y2), (x2, -y2), (x1, -y1), (-x1, -y1), (-x2, -y2), (-x2, y2), (-x1, y1))
+# mirror _right to _left:
+for w in ("wall_", "angle_"):
+    WALL_VERTS[w + "left"] = tuple((-x, y) for x, y in WALL_VERTS[w + "right"][::-1])
 
 ALL_TYPES = NOTE_TYPES + tuple(WALL_TYPES) + ("lights", "effects")
 
@@ -516,7 +543,7 @@ def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> st
         "slides": [],
         "lights": [],
     }
-    if isinstance(data, ClipboardDataContainer):
+    if isinstance(data, ClipboardDataContainer) and data.original_json:
         clipboard["original_json"] = data.original_json
 
     first = 99999

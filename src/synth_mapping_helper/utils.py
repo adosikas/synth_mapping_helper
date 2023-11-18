@@ -109,3 +109,12 @@ def parse_position(val: str) -> tuple[float, float, Union[float, SecondFloat]]:
     except ValueError:
         raise ValueError("Error parsing t")
     return (x, y, t)
+
+def pretty_fraction(val: float) -> str:
+    if round(val, 4).is_integer():
+        return str(int(round(val, 4)))
+    if round(val*192, 4).is_integer():
+        v = int(round(val*192, 4))
+        gcd = np.gcd(v,192)
+        return f"{v//gcd}/{192//gcd}"
+    return str(val)
