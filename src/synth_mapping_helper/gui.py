@@ -29,7 +29,7 @@ async def stop():
     logger.info("Stopping...")
     await ui.run_javascript("setTimeout(window.close, 100);")
     app.shutdown()
-if __name__ in {"__main__", "__mp_main__"}:
+def entrypoint():
     parser = ArgumentParser()
     parser.add_argument("-l", "--log-level", type=str, default="INFO", help="Set log level")
     parser.add_argument("--host", type=str, default="127.0.0.1",
@@ -101,3 +101,6 @@ if __name__ in {"__main__", "__mp_main__"}:
         storage_secret="smh_gui",
         show=not args.background,
     )
+
+if __name__ == "__main__":
+    entrypoint()

@@ -605,6 +605,9 @@ def main(options):
     redraw()
     plt.show()
 
-if __name__ == "__main__":
+def entrypoint():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
     main(get_parser().parse_args())
+
+if __name__ == "__main__":
+    entrypoint()

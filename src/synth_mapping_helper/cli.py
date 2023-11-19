@@ -418,5 +418,8 @@ def main(options):
         data.apply_for_note_types(rails.snap_singles_to_rail, types=filter_types)
     synth_format.export_clipboard(data, not options.keep_alignment)
 
-if __name__ == "__main__":
+def entrypoint():
     main(get_parser().parse_args())
+
+if __name__ == "__main__":
+    entrypoint()
