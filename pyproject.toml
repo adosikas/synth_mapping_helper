@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synth_mapping_helper"
-version = "1.3.16"
 dependencies = [
     "numpy>=1.26.2",
     "scipy>=1.11.4",
@@ -35,6 +34,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "synth_mapping_helper.__version__"}
 
 
 [project.urls]
@@ -45,6 +48,6 @@ Repository = "https://github.com/adosikas/synth_mapping_helper"
 Changelog = "https://github.com/adosikas/synth_mapping_helper/releases"
 
 [project.scripts]
-smh-cli = "cli:entrypoint"
-smh-gui = "gui:entrypoint"
-smh-companion = "companion:entrypoint"
+smh-cli = "synth_mapping_helper.cli:entrypoint"
+smh-gui = "synth_mapping_helper.gui:entrypoint"
+smh-companion = "synth_mapping_helper.companion:entrypoint"
