@@ -48,6 +48,7 @@ def _space_walls(data: synth_format.DataContainer, interval: float) -> None:
 def dashboard_tab():
     class SMHInput(ui.input):
         def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, **kwargs):
+            self.on_parsed_value_change: Callable|None = None
             super().__init__(label=label, value=str(value), **kwargs)
             self.bind_value(app.storage.user, f"dashboard_{storage_id}")
             self.classes("w-12 h-10")
@@ -61,10 +62,12 @@ def dashboard_tab():
             with self.add_slot("error"):
                 ui.element().style("visiblity: hidden")
 
-        def on_value_change(self, value: Any) -> None:
-            super().on_value_change(value)
+        def _handle_value_change(self, value: Any) -> None:
+            super()._handle_value_change(value)
             try:
-                parse_number(value)
+                v = parse_number(value)
+                if self.on_parsed_value_change:
+                    self.on_parsed_value_change(v)
                 self.props(remove="error")
             except ValueError:
                 self.props(add="error")
@@ -114,7 +117,7 @@ def dashboard_tab():
                 ui.tooltip(tooltip)
                 if icon_angle:
                     # create dedicated object, which can rotate independently from button
-                    ui.icon(icon).classes(f"rotate-{icon_angle}")
+                    ui.icon(icon).style(f"rotate: {icon_angle}deg")
                 if wiki_ref is not None:
                     wiki_reference(wiki_ref, True).props("floating")
 
@@ -290,8 +293,33 @@ def dashboard_tab():
                 )
 
             ui.separator()
-            with ui.label("Mirror and Flatten"):
+            with ui.label("Flatten and Mirror"):
                 ui.tooltip("Just scaling, but with -1 or 0")
+            with ui.row():
+                SMHActionButton(
+                    tooltip="Flatten to Y axis (X=0)",
+                    icon="vertical_align_center", icon_angle=90,
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                        scale_3d=np.array([0,1,1]),
+                    ),
+                )
+                SMHActionButton(
+                    tooltip="Flatten to X axis (Y=0)",
+                    icon="vertical_align_center",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                        scale_3d=np.array([1,0,1]),
+                    ),
+                )
+                SMHActionButton(
+                    tooltip="Move to pivot (X=Y=0)",
+                    icon="adjust",
+                    func=lambda **kwargs: _movement_helper(**kwargs,
+                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                        scale_3d=np.array([0,0,1]),
+                    ),
+                )
             with ui.row():
                 SMHActionButton(
                     tooltip="Mirror X (left<->right)",
@@ -318,30 +346,28 @@ def dashboard_tab():
                     ),
                 )
             with ui.row():
-                SMHActionButton(
-                    tooltip="Flatten to Y axis (X=0)",
-                    icon="vertical_align_center", icon_angle=90,
-                    func=lambda **kwargs: _movement_helper(**kwargs,
-                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([0,1,1]),
-                    ),
-                )
-                SMHActionButton(
-                    tooltip="Flatten to X axis (Y=0)",
-                    icon="vertical_align_center",
-                    func=lambda **kwargs: _movement_helper(**kwargs,
-                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,0,1]),
-                    ),
-                )
-                SMHActionButton(
-                    tooltip="Move to pivot (X=Y=0)",
-                    icon="adjust",
-                    func=lambda **kwargs: _movement_helper(**kwargs,
-                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([0,0,1]),
-                    ),
-                )
+                mirror_angle = SMHInput("Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0=horizontal, ±90=vertical, +45=/, -45=\\")
+                with SMHActionButton(
+                    tooltip="Mirror with custom angle (passed through pivot)",
+                    icon="",
+                    func=lambda **kwargs: [
+                        # subtract rotation, mirror, add back rotation
+                        _movement_helper(**kwargs,
+                            base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
+                            angle=-mirror_angle.parsed_value,
+                        ),
+                        _movement_helper(**kwargs,
+                            base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
+                            scale_3d=np.array([1,-1,1]),
+                        ),
+                        _movement_helper(**kwargs,
+                            base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
+                            angle=mirror_angle.parsed_value,
+                        ),
+                    ],
+                ):
+                    mirror_icon = ui.icon("flip").style(f"rotate: {90-mirror_angle.parsed_value}deg")
+                mirror_angle.on_parsed_value_change = lambda v: mirror_icon.style(f"rotate: {90-v}deg")
 
         with ui.card():
             with ui.label("Rotation"):

@@ -1,5 +1,7 @@
 import numpy as np
 
+from .synth_format import WALL_MIRROR_ID
+
 # Note: None of these functions are allowed to *modify* the input array instance. Returning the same array (if nothing needed to be changed) is allowed.
 
 MIRROR_VEC_2D = np.array([-1, 1])
@@ -91,6 +93,13 @@ def scale(
     output = data * scale_nd
     if scale_nd[2] < 0:  # reverse order of elements
         output = output[::-1]
+    if data.shape[-1] == 5: # walls
+        if (scale_nd[0] < 0) != (scale_nd[1] < 0):  # mirror X *or* Y: swap type and invert angle (both: do nothing)
+            output[:,3] = [WALL_MIRROR_ID[i] for i in output[:,3]]
+            output[:,4] = -output[:,4]
+        if (scale_nd[1] < 0):  # mirror Y: add 180
+            output[:,4] += 180
+
     return output
 
 
@@ -101,7 +110,7 @@ def scale_from(
     direction: int = 1,
 ) -> "numpy array (n, 3+)":
     """scale positions relative to pivot"""
-    pivot_nd = np.ones((data.shape[-1]))
+    pivot_nd = np.zeros((data.shape[-1]))
     pivot_nd[..., :3] = pivot_3d
     return scale(data - pivot_nd, scale_3d, direction=direction) + pivot_nd
 

@@ -47,6 +47,13 @@ WALL_TYPES = {
 }
 WALL_LOOKUP = {id: name for name, (id, _) in WALL_TYPES.items()}
 WALL_OFFSETS = {id: np.array(offset + [0]) for _, (id, offset) in WALL_TYPES.items()}
+WALL_MIRROR_ID = {id: WALL_TYPES[
+        name.replace("left", "right") if "left" in name
+        else name.replace("right", "left") if "right" in name
+        else name
+    ][0]
+    for name, (id, _) in WALL_TYPES.items()
+}
 SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
 LEFT_WALLS = [id for name, (id, _) in WALL_TYPES.items() if "left" in name]
 WALL_VERTS = {

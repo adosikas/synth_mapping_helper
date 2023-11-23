@@ -75,8 +75,8 @@ class SMHInput(ui.input):
         with self.add_slot("error"):
             ui.element().style("visiblity: hidden")
 
-    def on_value_change(self, value: str) -> None:
-        super().on_value_change(value)
+    def _handle_value_change(self, value: str) -> None:
+        super()._handle_value_change(value)
         try:
             parse_number(value)
             self.props(remove="error")
