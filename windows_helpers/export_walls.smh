@@ -1,0 +1,2 @@
+# move walls down so they appear ingame as they do in the editor
+--filter slides --offset=0,-2.1,0 --keep-alignment
