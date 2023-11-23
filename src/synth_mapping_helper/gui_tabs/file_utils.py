@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from nicegui import app, events, ui
 
 from .utils import *
-from .. import synth_format
+from .. import synth_format, movement
 from .. import __version__
 
 def density(times: list[float], window: float) -> tuple[list[float], list[int]]:
@@ -46,6 +46,7 @@ def file_utils_tab():
         output_filename: str = "No file selected"
         output_bpm: float = 0.0
         output_offset: float = 0.0
+        output_finalize: bool = False
         merged_filenames: Optional[list[str]] = None
 
         @property
@@ -61,6 +62,7 @@ def file_utils_tab():
             self.output_filename = add_suffix(e.name, "out")
             self.output_bpm = self.data.bpm
             self.output_offset = self.data.offset_ms
+            self.output_finalize = (self.data.bookmarks.get(0) == "#smh_finalized")
             self.merged_filenames = []
 
             e.sender.reset()
@@ -90,6 +92,17 @@ def file_utils_tab():
                 self.data.change_bpm(self.output_bpm)
             if self.output_offset != self.data.offset_ms:
                 self.data.change_offset(self.output_offset)
+            finalized = (self.data.bookmarks.get(0.0) == "#smh_finalized")
+            if finalized != self.output_finalize:
+                if not finalized:
+                    self.data.bookmarks[0.0] = "#smh_finalized"
+                    for _, diff_data in self.data.difficulties.items():
+                        diff_data.apply_for_walls(movement.offset, offset_3d=(0,-2.1,0), types=synth_format.SLIDE_TYPES)
+                else:
+                    del self.data.bookmarks[0.0]
+                    for _, diff_data in self.data.difficulties.items():
+                        diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
+
             self.data.save_as(download_content)
             ui.download("download", filename=self.output_filename)
 
@@ -234,10 +247,12 @@ def file_utils_tab():
         with ui.card():
             ui.label("Base / Repair / BPM change")
             ui.upload(label="Base file", auto_upload=True, on_upload=fi.upload).classes("h-14 w-full")
+            ui.input("Filename").classes("w-full").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
             with ui.row().classes("w-full"):
-                ui.input("Filename").classes("w-48").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
                 ui.number("BPM").classes("w-16").bind_value(fi, "output_bpm").bind_enabled_from(fi, "is_valid")
                 ui.number("Offset", suffix="ms").classes("w-24").bind_value(fi, "output_offset").bind_enabled_from(fi, "is_valid")
+                with ui.switch("Finalize Walls").props("dense").classes("my-auto").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid"):
+                    ui.tooltip("Shifts some walls down, such that they look ingame as they do in the editor")
                 ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
             with ui.row().classes("w-full"):
                 ui.button("clear", icon="clear", color="negative", on_click=fi.clear).bind_enabled_from(fi, "is_valid")

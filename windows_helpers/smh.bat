@@ -1,4 +1,4 @@
-:: Drag a .txt file containing command line arguments onto this file
+:: Drag a .smh file containing command line arguments onto this file
 @echo off
 for /F "tokens=* usebackq" %%i in (%1) do (call :execute_line %%i || exit /b)
 goto :eof

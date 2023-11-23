@@ -1,2 +1,4 @@
 # move walls down so they appear ingame as they do in the editor
+# instead using this, try out the "finalize" button in the companion or gui, which fixes whole maps
+#   that allows you to have a "mapping" copy with "correct" looking walls and "export" it for playtesting/release
 --filter slides --offset=0,-2.1,0 --keep-alignment
