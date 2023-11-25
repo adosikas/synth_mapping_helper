@@ -345,26 +345,34 @@ def dashboard_tab():
                         scale_3d=np.array([1,1,-1]),
                     ),
                 )
+            ui.separator()
             with ui.row():
                 mirror_angle = SMHInput("Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0=horizontal, ±90=vertical, +45=/, -45=\\")
-                with SMHActionButton(
-                    tooltip="Mirror with custom angle (passed through pivot)",
-                    icon="",
-                    func=lambda **kwargs: [
+                mirror_stack = SMHInput("Stack", 0, "mirror_stack", suffix="b", tooltip="Instead of just mirroring, stack a mirrored copy onto the input. 0=disabled.")
+                def _do_mirror(data: synth_format.DataContainer, **kwargs):
+                        # work on copy when stacking, else directly on data
+                        tmp = data.filtered() if mirror_stack.parsed_value else data
                         # subtract rotation, mirror, add back rotation
-                        _movement_helper(**kwargs,
+                        _movement_helper(tmp, **kwargs,
                             base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
                             angle=-mirror_angle.parsed_value,
-                        ),
-                        _movement_helper(**kwargs,
+                        )
+                        _movement_helper(tmp, **kwargs,
                             base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
                             scale_3d=np.array([1,-1,1]),
-                        ),
-                        _movement_helper(**kwargs,
+                        )
+                        _movement_helper(tmp, **kwargs,
                             base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
                             angle=mirror_angle.parsed_value,
-                        ),
-                    ],
+                        )
+                        if mirror_stack.parsed_value:
+                            tmp.apply_for_all(movement.offset, [0,0,mirror_stack.parsed_value])
+                            data.merge(tmp)
+                            
+                with SMHActionButton(
+                    tooltip="Mirror with custom angle (passing through origin/pivot/object depending on coordinate mode)",
+                    icon="",
+                    func=_do_mirror
                 ):
                     mirror_icon = ui.icon("flip").style(f"rotate: {90-mirror_angle.parsed_value}deg")
                 mirror_angle.on_parsed_value_change = lambda v: mirror_icon.style(f"rotate: {90-v}deg")
