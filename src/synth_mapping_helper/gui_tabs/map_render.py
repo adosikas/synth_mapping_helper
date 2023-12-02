@@ -30,6 +30,11 @@ class RenderSettings:
 
 DEFAULT_SETTINGS = RenderSettings()
 
+WALL_VERTS = {
+    i: np.array(synth_format.WALL_VERTS[synth_format.WALL_LOOKUP[i]])
+    for i in synth_format.WALL_LOOKUP
+}
+
 class SMHInput(ui.input):
     def __init__(self, label: str, value: str|float, storage_id: str, tooltip: str|None=None, suffix: str|None = None, **kwargs):
         super().__init__(label=label, value=str(value), **kwargs)
@@ -111,6 +116,8 @@ class MapScene(ui.scene):
     def __init__(self, *args, frame_length: int, time_scale: float, zoomout: float=10, **kwargs) -> None:
         super().__init__(*args, grid=False, **kwargs)
         self.time_scale = time_scale
+        self.walls: dict[float, Tuple[elements.scene_objects.Extrusion, elements.scene_objects.Extrusion]] = {}
+        self.wall_lookup: dict[str, float] = {}
         with self:
             self._obj_group = self.group()
             self.move_camera(zoomout,-self.time_scale*zoomout/20,zoomout, 0,self.time_scale/2,0)
@@ -119,35 +126,38 @@ class MapScene(ui.scene):
                     self.box(16, self.time_scale, 12, wireframe=True).material("#008", 0.2)
                     self.box(0.1, self.time_scale, 12, wireframe=True).material("#080", 0.1)
                     self.box(16, self.time_scale, 0.1, wireframe=True).material("#800", 0.1)
-    def _to_scene(self, xyz: "numpy array (3+)") -> tuple[float, float, float]:
-        return (xyz[0], xyz[2]*self.time_scale, xyz[1])
+    def to_scene(self, xyt: "numpy array (3+)") -> tuple[float, float, float]:
+        return (xyt[0], xyt[2]*self.time_scale, xyt[1])
     def _sphere(self, xyt: "numpy array (3+)", obj_settings: ObjectSettings, color: str) -> elements.scene_objects.Sphere:
-        return self.sphere(obj_settings.size).move(*self._to_scene(xyt)).material(color, obj_settings.opacity)
+        return self.sphere(obj_settings.size).move(*self.to_scene(xyt)).material(color, obj_settings.opacity)
+
+    def wall_extrusion(self, xytwa: "numpy array (5)", thickness: float) -> elements.scene_objects.Extrusion:
+        return self.extrusion(
+            WALL_VERTS[int(xytwa[0,3])], -thickness,
+        ).rotate(
+            np.deg2rad(90), np.deg2rad(180 - xytwa[0,4]), 0
+        ).move(
+            *self.to_scene(xytwa[0])
+        )
 
     def render(self, data: synth_format.DataContainer, settings: RenderSettings = RenderSettings()) -> None:
         self._obj_group.delete()
         with self.group() as self._obj_group:
-            wall_verts = {
-                i: np.array(synth_format.WALL_VERTS[synth_format.WALL_LOOKUP[i]])
-                for i in synth_format.WALL_LOOKUP
-            }
-            for _, w in data.walls.items():
-                parent = self.extrusion(
-                    wall_verts[int(w[0,3])], -settings.wall.size * self.time_scale
-                ).rotate(
-                    np.deg2rad(90), np.deg2rad(180 - w[0,4]), 0
-                ).move(
-                    *self._to_scene(w[0])
+            for t, w in data.walls.items():
+                body = self.wall_extrusion(
+                    w, settings.wall.size * self.time_scale
                 ).material(
                     settings.wall.color, settings.wall.opacity
                 )
 
-                with parent:
-                    self.extrusion(
-                        wall_verts[int(w[0,3])], -settings.wall.size * self.time_scale, wireframe=True
+                with body:
+                    outline = self.extrusion(
+                        WALL_VERTS[int(w[0,3])], -settings.wall.size * self.time_scale, wireframe=True
                     ).material(
                         settings.wall_outline.color, settings.wall_outline.opacity
                     )
+                self.walls[t] = (body, outline)
+                self.wall_lookup[body.id] = t
             for t in synth_format.NOTE_TYPES:
                 color: str = getattr(settings, "color_" + t)
                 for _, n in getattr(data, t).items():
@@ -158,9 +168,9 @@ class MapScene(ui.scene):
                             self._sphere(diff[i], settings.rail_node, color)
 
                             self.quadratic_bezier_tube(
-                                self._to_scene(diff[i-1]),
-                                self._to_scene((diff[i-1]+diff[i])/2),
-                                self._to_scene(diff[i]),
+                                self.to_scene(diff[i-1]),
+                                self.to_scene((diff[i-1]+diff[i])/2),
+                                self.to_scene(diff[i]),
                                 radius=settings.rail.size,
                             ).material(
                                 color, settings.rail.opacity

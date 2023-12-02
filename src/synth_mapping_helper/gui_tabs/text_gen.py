@@ -95,7 +95,7 @@ def text_gen_tab() -> None:
     with ui.card():
         with ui.row():
             text_input = ui.input("Text", value="SAMPLE TEXT").props("dense").bind_value(app.storage.user, "text_gen_text")
-            generate_button = ui.button("Generate", icon="play_arrow")
+            generate_button = ui.button("Generate & Copy", icon="play_arrow")
             with ui.input("Font", value=DEFAULT_FONT).props("dense").bind_value(app.storage.user, "text_gen_font") as font_input:
                 ui.tooltip("Expects clipboard 26 beats long (letters A-Z), with walls for each letter starting at each full beat, and then at 1/64 spacing after")
             with ui.button(icon="delete", on_click=lambda _: font_input.set_value(DEFAULT_FONT), color="negative").props("outline"):
@@ -166,7 +166,7 @@ def text_gen_tab() -> None:
                 if copy:
                     info(
                         "Generated text",
-                        caption=f"{len(data.walls)} walls",
+                        caption=f"Copied {len(data.walls)} walls to clipboard",
                     )
                     synth_format.export_clipboard(data, realign_start=False)
                 try:

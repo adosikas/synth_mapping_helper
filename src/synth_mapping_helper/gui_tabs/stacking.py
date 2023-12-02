@@ -343,8 +343,25 @@ def stacking_tab():
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("duration")).props("rounded").classes("w-10 mt-auto")
 
     with ui.card():
+        def _soft_refresh():
+            try:
+                data = synth_format.import_clipboard()
+            except:
+                data = synth_format.DataContainer()
+            try:
+                preview_settings = sp.parse_settings()
+            except ParseInputError as pie:
+                error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
+                return
+            if preview_scene is None:
+                draw_preview_scene.refresh()
+            if preview_scene is not None:
+                preview_scene.render(data, preview_settings)
         with ui.row():
-            ui.label("Clipboard Preview").classes("my-auto")
+            with ui.row():
+                ui.label("Clipboard Preview").classes("my-auto")
+                with ui.button(icon="sync", on_click=_soft_refresh):
+                    ui.tooltip("Preview current clipboard")
             with ui.expansion("Settings", icon="settings").props("dense"):
                 with ui.row():
                     scene_width = SMHInput("Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
@@ -355,22 +372,6 @@ def stacking_tab():
                 apply_button = ui.button("Apply")
             with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
                 sp = SettingsPanel()
-            def _soft_refresh():
-                try:
-                    data = synth_format.import_clipboard()
-                except:
-                    data = synth_format.DataContainer()
-                try:
-                    preview_settings = sp.parse_settings()
-                except ParseInputError as pie:
-                    error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
-                    return
-                if preview_scene is None:
-                    draw_preview_scene.refresh()
-                if preview_scene is not None:
-                    preview_scene.render(data, preview_settings)
-            with ui.button(icon="sync", on_click=_soft_refresh):
-                ui.tooltip("Preview current clipboard")
         @ui.refreshable
         def draw_preview_scene():
             nonlocal preview_scene
