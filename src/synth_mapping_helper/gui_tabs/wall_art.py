@@ -118,8 +118,9 @@ def wall_art_tab():
                         self.cursors[t] = e
 
         def _update_cursors(self):
+            pivot = walls[self.drag_time if self.drag_time is not None else min(self.sources)]
             for t, c in ([(self.drag_time, self.cursors[self.drag_time])] if self.drag_time is not None else self.cursors.items()):
-                xyt = walls[t][0,:3]+self.offset
+                xyt = pivot[0,:3]+movement.rotate((walls[t]-pivot)[0,:3], self.rotation)*[1, -1 if self.mirrored else 1,1]+self.offset
                 c.move(xyt[0], xyt[2]*time_scale.parsed_value, xyt[1])
                 if self.mirrored:
                     # couldn't figure out how to change the verts, so just mirror by scaling
@@ -185,7 +186,7 @@ def wall_art_tab():
                         w = walls[t]
                         relative = np.array([[0.0,0.0,0.0, w[0,3], 0.0]])
                         e = preview_scene.wall_extrusion(relative, preview_settings.wall.size * time_scale.parsed_value)
-                        offset = movement.rotate(w-pivot, pivot[0,4])
+                        offset = movement.rotate(w-pivot, 180-pivot[0,4])
                         e.move(offset[0,0], offset[0,1], -(w[0,2]-pivot[0,2])*time_scale.parsed_value).rotate(0,0,np.deg2rad(w[0,4]-pivot[0,4]))
                         if copy.value:
                             e.material(copy_color.value, copy_opacity.parsed_value/2)
