@@ -96,10 +96,31 @@ def text_gen_tab() -> None:
         with ui.row():
             text_input = ui.input("Text", value="SAMPLE TEXT").props("dense").bind_value(app.storage.user, "text_gen_text")
             generate_button = ui.button("Generate & Copy", icon="play_arrow")
-            with ui.input("Font", value=DEFAULT_FONT).props("dense").bind_value(app.storage.user, "text_gen_font") as font_input:
-                ui.tooltip("Expects clipboard 26 beats long (letters A-Z), with walls for each letter starting at each full beat, and then at 1/64 spacing after")
-            with ui.button(icon="delete", on_click=lambda _: font_input.set_value(DEFAULT_FONT), color="negative").props("outline"):
-                ui.tooltip("Restore default font")
+            with ui.dialog() as font_dialog, ui.card():
+                with ui.button(icon="restore", on_click=lambda _: font_input.set_value(DEFAULT_FONT), color="negative").props("outline"):
+                    ui.tooltip("Restore default font")
+                ui.markdown("""
+                    Expects clipboard 26 beats long (letters A-Z).  
+                    Walls for each letter must start at each full beat, and then follow at 1/64 spacing after.
+
+                    To edit:
+
+                    * Triple-Click the text field below to select everything (or use CTRL-A)
+                    * Copy to clipboard (CTRL-C) 
+                    * Paste in Editor
+                    * Edit walls
+                    * Copy from the editor and paste the contents below (replace everything)
+                """)
+                def _is_valid_clipboard(s: str) -> bool:
+                    try:
+                        synth_format.import_clipboard_json(s)
+                        return True
+                    except Exception as e:
+                        return False
+                font_input = ui.input("Font (clipboard JSON)", value=DEFAULT_FONT, validation={"Invalid clipboard content": _is_valid_clipboard}).props("dense").classes("w-full h-full").bind_value(app.storage.user, "text_gen_font")
+            
+            with ui.button(icon="format_size", on_click=lambda: (font_dialog.open(),font_input.update()), color="info").classes("cursor-text").style("width: 36px"):
+                ui.tooltip("Edit font")
         ui.separator()
         with ui.row():
             center_sw = ui.switch("Center", value=True).bind_value(app.storage.user, "text_gen_centered")
@@ -136,15 +157,15 @@ def text_gen_tab() -> None:
                 with ui.row():
                     time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
                     frame_length = SMHInput("Frame Length", "2", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
-                apply_button = ui.button("Apply")
             with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
                 sp = SettingsPanel()
+            apply_button = ui.button("Apply").props("outline")
             def _soft_refresh(copy:bool = True):
                 data = synth_format.ClipboardDataContainer()
                 try:
                     font_data = synth_format.import_clipboard_json(font_input.value)
-                except ValueError as ve:
-                    error(f"Error parsing font data", ve, data=font_input.value)
+                except Exception as exc:
+                    error(f"Error parsing font data", exc, data=font_input.value)
                     return
                 try:
                     generate_text(

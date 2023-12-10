@@ -459,7 +459,7 @@ def stacking_tab():
                 with ui.row():
                     time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
                     frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
-                apply_button = ui.button("Apply")
+                apply_button = ui.button("Apply").props("outline")
             with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
                 sp = SettingsPanel()
         @ui.refreshable

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 from nicegui import ui, app, events
-from nicegui.elements.scene_objects import Extrusion
+from nicegui.elements.scene_objects import Extrusion, Texture
 import numpy as np
 import pyperclip
 
@@ -42,6 +42,7 @@ class SMHInput(ui.input):
 
 def wall_art_tab():
     preview_scene: MapScene|None = None
+    refimg_obj: Texture|None = None
     walls: synth_format.WALLS = {}
     is_dragging: bool = False
 
@@ -244,7 +245,7 @@ def wall_art_tab():
                 new_t = _find_free_slot(max(selection.sources, default=0.0))
                 _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
                 _soft_refresh()
-                selection.select({new_t}, mode="toggle")
+                selection.select({new_t}, mode="set" if not e.modifiers.shift else "toggle")
             elif e.key.code == "KeyE":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
@@ -301,16 +302,29 @@ def wall_art_tab():
                     scene_height = SMHInput("Render Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
                     time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
                     frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
+                ui.separator()
                 with ui.row():
                     move_color = ui.color_input("Move", value="#888888", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_move_color")
                     move_color.button.style("color: black")
-                    move_opacity = SMHInput("Opacity", 0.5, "move_opacity")
+                    move_opacity = SMHInput("Opacity", "0.5", "move_opacity")
                     copy_color = ui.color_input("Copy", value="#00ff00", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_copy_color")
                     copy_color.button.style("color: black")
-                    copy_opacity = SMHInput("Opacity", 0.5, "copy_opacity")
-                apply_button = ui.button("Apply")
+                    copy_opacity = SMHInput("Opacity", "0.5", "copy_opacity")
+                ui.separator()
+                with ui.element():
+                    ui.tooltip("Display a reference image to align wall art. A low time scale (e.g. 1) is recommended to avoid distortion due to perspective, but may cause display issues.")
+                    refimg_url = ui.input("Reference Image URL").props("dense").classes("w-full").bind_value(app.storage.user, "wall_art_ref_url")
+                    with ui.row():
+                        refimg_width = SMHInput("Width", "16", "wall_art_ref_width", suffix="sq", tooltip="Width of the reference image in sq")
+                        refimg_height = SMHInput("Height", "12", "wall_art_ref_height", suffix="sq", tooltip="Height of the reference image in sq")
+                        refimg_opacity = SMHInput("Opacity", "0.1", "ref_opacity")
+                    with ui.row():
+                        refimg_x = SMHInput("X", "0", "wall_art_ref_x", suffix="sq", tooltip="Center X of the reference image in sq")
+                        refimg_y = SMHInput("Y", "0", "wall_art_ref_y", suffix="sq", tooltip="Center Y of the reference image in sq")
+                        refimg_t = SMHInput("Time", "1/4", "wall_art_ref_time", suffix="b", tooltip="Time of the reference image in beats")
             with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
                 sp = SettingsPanel()
+            apply_button = ui.button("Apply").props("outline")
         def _find_free_slot(t: float) -> float:
             while t in walls:
                 t = np.round(t/time_step.parsed_value + 1)*time_step.parsed_value
@@ -323,6 +337,7 @@ def wall_art_tab():
             walls[pending[0,2]] = pending
 
         def _soft_refresh():
+            nonlocal refimg_obj
             try:
                 preview_settings = sp.parse_settings()
             except ParseInputError as pie:
@@ -330,7 +345,19 @@ def wall_art_tab():
                 return
             if preview_scene is None:
                 draw_preview_scene.refresh()
+            if refimg_obj is not None:
+                refimg_obj.delete()
+                refimg_obj = None
             if preview_scene is not None:
+                if refimg_url.value:
+                    try:
+                        with preview_scene:
+                            coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
+                            pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
+                            opacity = refimg_opacity.parsed_value
+                            refimg_obj = preview_scene.texture(refimg_url.value,coords).move(*pos).material(opacity=opacity)
+                    except ParseInputError as pie:
+                        error(f"Error parsing reference image setting: {pie.input_id}", pie, data=pie.value)
                 wall_data = synth_format.DataContainer(walls=walls)
                 preview_scene.render(wall_data, preview_settings)
 
@@ -407,7 +434,7 @@ def wall_art_tab():
 
                         |Key|Function|
                         |-|-|
-                        |1️⃣-8️⃣|Spawn wall|
+                        |1️⃣-8️⃣|Spawn & select wall (SHIFT: Add to selection)|
                         |`Del`/Backspace|Delete selection|
                         |🇦/🇩|Rotate by step (SHIFT: 90 degree)|
                         |🇼|Mirror on Y axis (up-down)|
@@ -463,7 +490,7 @@ def wall_art_tab():
                         new_t = _find_free_slot(max(selection.sources, default=0.0))
                         _insert_wall(np.array([[0.0,0.0,new_t, wall_type,0.0]]))
                         _soft_refresh()
-                        selection.select({new_t}, "toggle")
+                        selection.select({new_t}, "set")
                     with ui.button(color="positive", on_click=_add_wall).classes("p-2"):
                         ui.tooltip(f"Spawn '{t}' wall after selection ({k})")
                         content = f'''
