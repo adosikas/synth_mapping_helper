@@ -6,8 +6,8 @@ import pyperclip
 
 from .utils import *
 from .map_render import SettingsPanel, MapScene
-from ..utils import parse_number, pretty_fraction
-from .. import synth_format, movement
+from ..utils import parse_number, parse_range, parse_xy_range, pretty_fraction
+from .. import synth_format, movement, pattern_generation
 
 def _negate(val: str|None) -> str|None:
     if not val:
@@ -76,8 +76,13 @@ def _find_first_pair(types: list[str] = synth_format.ALL_TYPES) -> Optional[tupl
         return None
     return first_t, first, second
 
-def _stack(d: synth_format.DataContainer, count: int, pivot: tuple[float, float, float], offset: tuple[float, float, float], scale: tuple[float, float, float], rotation: float, wall_rotation: float, outset: float):
+def _stack(
+    d: synth_format.DataContainer, count: int, pivot: tuple[float, float, float],
+    offset: tuple[float, float, float], scale: tuple[float, float, float], rotation: float, wall_rotation: float, outset: float,
+    random_ranges_offset: list[tuple[tuple[float, float], tuple[float, float]]]|None, random_step_offset: tuple[float, float]|None, random_ranges_angle: list[tuple[float, float]]|None, random_step_angle: float|None
+):
     stacking = d.filtered()  # deep copy
+    rng = np.random.default_rng()
     for _ in range(count):
         if scale != [1,1,1]:
             stacking.apply_for_all(movement.scale_from, scale_3d=scale, pivot_3d=pivot)
@@ -88,7 +93,40 @@ def _stack(d: synth_format.DataContainer, count: int, pivot: tuple[float, float,
         stacking.apply_for_all(movement.offset, offset_3d=offset)
         if outset:
             stacking.apply_for_all(movement.outset_from, outset_scalar=outset, pivot_3d=pivot)
-        d.merge(stacking)
+        if random_ranges_offset is not None or random_ranges_angle is not None:
+            tmp = stacking.filtered()  # deep copy
+            if random_ranges_offset is not None:
+                if len(random_ranges_offset) == 1:
+                    area = random_ranges_offset[0]
+                else:
+                    areas = np.array([
+                        max(a[1,0]-a[0,0], 0.01)*max(a[1,1]-a[0,1], 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
+                        for a in random_ranges_offset
+                    ])
+                    area = random_ranges_offset[rng.choice(len(areas), p=areas/sum(areas))]
+                if random_step_offset is not None:
+                    random_offset = [random_step_offset[axis] * rng.integers(area[0,axis]/random_step_offset[axis], area[1,axis]/random_step_offset[axis], endpoint=True) for axis in (0,1)]
+                else:
+                    random_offset = pattern_generation.random_xy(1, area[0], area[1])[0]
+                print(random_offset)
+                tmp.apply_for_all(movement.offset, offset_3d=[random_offset[0], random_offset[1], 0])
+            if random_ranges_angle is not None:
+                if len(random_ranges_angle) == 1:
+                    area = random_ranges_angle[0]
+                else:
+                    areas = np.array([
+                        max(a[1]-a[0], 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
+                        for a in random_ranges_angle
+                    ])
+                    area = random_ranges_angle[rng.choice(len(areas), p=areas/sum(areas))]
+                if random_step_angle is not None:
+                    random_rotation = random_step_angle * rng.integers(area[0]/random_step_angle, area[1]/random_step_angle, endpoint=True)
+                else:
+                    random_rotation = rng.uniform(area[0], area[1])
+                tmp.apply_for_all(movement.rotate_around, angle=random_rotation, pivot_3d=pivot)
+            d.merge(tmp)
+        else:
+            d.merge(stacking)
 
 class SMHInput(ui.input):
     def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, icons: dict[int, str]|None = None,**kwargs):
@@ -311,7 +349,35 @@ def stacking_tab():
                 error(f"Error parsing value: {pie.input_id}", pie, data=pie.value)
                 return
             try:
-                _stack(d, c, p, o, s, r, wr, outset)
+                if not random_offset.value:  # empty string or None
+                    random_ranges_offset = random_step_offset = None
+                elif "@" in random_offset.value:
+                    ranges, step = random_offset.value.rsplit("@", 1)
+                    random_ranges_offset = [parse_xy_range(r) for r in ranges.split(";")]
+                    random_step_offset = [parse_number(xy) for xy in step.split(",",1)]
+                    if len(random_step_offset) == 1:
+                        random_step_offset = [random_step_offset[0], random_step_offset[0]]
+                else:
+                    random_ranges_offset = [parse_xy_range(r) for r in random_offset.value.split(";")]
+                    random_step_offset = None
+            except ValueError as ve:
+                error("Error parsing random XY ranges", exc=ve, data=random_offset.value)
+                return
+            try:
+                if not random_angle.value:  # empty string or None
+                    random_ranges_angle = random_step_angle = None
+                elif "@" in random_angle.value:
+                    ranges, step = random_angle.value.rsplit("@", 1)
+                    random_ranges_angle = [parse_range(r) for r in ranges.split(";")]
+                    random_step_angle = parse_number(step)
+                else:
+                    random_ranges_angle = [parse_range(r) for r in random_angle.value.split(";")]
+                    random_step_angle = None
+            except ValueError as ve:
+                error("Error parsing random angle ranges", exc=ve, data=random_angle.value)
+                return
+            try:
+                _stack(d, c, p, o, s, r, wr, outset, random_ranges_offset, random_step_offset, random_ranges_angle, random_step_angle)
             except Exception as exc:
                 error(f"Error executing stack", exc, settings={"count": c, "pivot": p, "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset}, data=clipboard)
                 return
@@ -341,6 +407,30 @@ def stacking_tab():
             with ui.row():
                 duration = SMHInput("Duration", 1, "duration", suffix="b").classes("w-12", remove="w-24")
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("duration")).props("rounded").classes("w-10 mt-auto")
+        with ui.card():
+            with ui.dialog() as random_dialog, ui.card():
+                ui.markdown("""
+                    This is applied on each copy individually, so the random range will stay centered on the unrandomized stack and not "drift".
+
+                    Ranges are always uniformly distributed. To get non-uniform distributions, you can overlap ranges.
+
+                    |Input|Example|Description|
+                    |-|-|-|
+                    |`<x>,<y>` |`5,3` |X is chosen randomly between -5 to +5 and Y between -3 and +3, equivalent to "-5:5,-3:3"|
+                    |`<min_x>:<max_x>, <min_y>:<max_y>` |`-3:5, -1:1` |X is chosen randomly between -3 to +5 and Y between -1 and +1|
+                    |`<range A>; <range B>` |`-10:-5, 1;5:10,1` |Multiple ranges (weighted based on size): Any offset in the two rectangles from -10,-1 to -5,+1 and +5,-1 to +10,+1|
+                    |`... @<step_x>,<step_y>` |`-5,0:-3,0; 1,0:2,0 @1,1` |Must be at the end: Random values are always a multiple of the step (1sq here), so ie X will be chosen randomly from -5,-4,-3,+1,+2, while Y is always 0. When just step_x is given, that step is also used for Y|
+
+                    Rotation works the same, except there is only a single value, not X and Y (ie `5;-2:1@0.5`)
+                """)
+            with ui.label("Random"):
+                with ui.button(icon="help", on_click=random_dialog.open).props('flat text-color=info').classes("w-4 h-4 text-xs cursor-help"):
+                    ui.tooltip("Show range input format help")
+            random_offset = ui.input("XY Offset Range", value="").props('dense suffix="sq"').classes("w-24").bind_value(app.storage.user, "stacking_random_offset")
+            random_offset.default_value = ""
+            random_angle = ui.input("Rotation Range", value="").props('dense suffix="°"').classes("w-24").bind_value(app.storage.user, "stacking_random_angle")
+            random_angle.default_value = ""
+            _clear_button(random_offset, random_angle)
 
     with ui.card():
         def _soft_refresh():
