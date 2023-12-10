@@ -163,10 +163,10 @@ def command_tab():
             with ui.button(icon="add", color="green", on_click=add_dialog.open).classes("my-auto") as add_button:
                 ui.tooltip("Add current command as preset")
             ui.separator().props("vertical")
-            with ui.button(icon="save", on_click=save_presets).classes("my-auto"):
+            with ui.button(icon="save", on_click=save_presets).props("outline").classes("my-auto"):
                 ui.tooltip("Store presets")
-            ui.upload(label="Load from files", auto_upload=True, multiple=True, on_upload=load_commands).classes("h-14 w-40")
-            with ui.button(icon="post_add", on_click=restore_presets, color="red").classes("my-auto"):
+            ui.upload(label="Load from files", auto_upload=True, multiple=True, on_upload=load_commands).props('color="positive" flat').classes("h-10 w-40")
+            with ui.button(icon="post_add", on_click=restore_presets, color="red").props("outline").classes("my-auto"):
                 ui.tooltip("Restore default presets")
         command_input = ui.textarea("Commands", placeholder="--offset=1,0,0", on_change=lambda e: presets.get(preset_selector.value) == e.value or preset_selector.set_value(None)).props("outlined").classes("w-full")
         command_input.bind_value(app.storage.user, "command_input")

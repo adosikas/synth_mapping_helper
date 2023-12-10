@@ -416,7 +416,7 @@ def wall_art_tab():
                         |Page Up/Down|Offset Time|
                         |Enter/Space|Apply|
                     """)
-                with ui.button(icon="keyboard", on_click=key_dialog.open).style("width: 36px"):
+                with ui.button(icon="keyboard", on_click=key_dialog.open, color="info").classes("cursor-help").style("width: 36px"):
                     ui.tooltip("Show controls")
                 ui.separator()
                 def _paste():
@@ -431,9 +431,9 @@ def wall_art_tab():
                     info(f"Added {len(data.walls)} walls from clipboard")
                 with ui.button(icon="content_paste", color="positive", on_click=_paste).style("width: 36px"):
                     ui.tooltip("Add walls from clipboard (CTRL+V)")
-                with ui.button(icon="deselect", on_click=lambda: selection.select(set(), "set")).style("width: 36px").bind_enabled_from(selection, "sources", backward=bool):
+                with ui.button(icon="deselect", on_click=lambda: selection.select(set(), "set")).props("outline").style("width: 36px").bind_enabled_from(selection, "sources", backward=bool):
                     ui.tooltip("Deselect (ESC)")
-                with ui.button(icon="select_all", on_click=lambda: selection.select(set(walls), "set")).style("width: 36px"):
+                with ui.button(icon="select_all", on_click=lambda: selection.select(set(walls), "set")).props("outline").style("width: 36px"):
                     ui.tooltip("Select all (CTRL+A)")
                 with ui.button(icon="content_copy", on_click=selection.copy_to_clipboard).style("width: 36px"):
                     ui.tooltip("Copy (CTRL+C)")
@@ -451,7 +451,7 @@ def wall_art_tab():
                     selection.select(new_sources, mode="set")
                     _soft_refresh()
 
-                with ui.button(icon="compress", on_click=_compress).style("width: 36px"):
+                with ui.button(icon="compress", on_click=_compress).props("outline").style("width: 36px"):
                     ui.tooltip("Compress wall spacing to time step")
             draw_preview_scene()
             with ui.column():

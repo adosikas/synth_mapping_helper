@@ -260,7 +260,7 @@ def file_utils_tab():
                 ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
         with ui.card():
             ui.label("Merge files into base")
-            ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).classes("h-14 w-full").bind_enabled_from(fi, "is_valid")
+            ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive"').classes("h-14 w-full").bind_enabled_from(fi, "is_valid")
             ui.label("Note: BPM & Offset will be matched automatically.")
             ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
     with ui.card().classes("w-full"):

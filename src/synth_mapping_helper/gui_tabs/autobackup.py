@@ -68,10 +68,10 @@ def autobackup_tab():
         with ui.number("Minimum age", value=300, suffix="s").props('input-style="text-align: right"').classes("w-20").bind_value(app.storage.user, "autobackup_minage"):
             ui.tooltip("If > 0, backups are not created if the last backup was less than X seconds ago")
         with ui.input("Editor working directory", validation={"Not a directory": _isdir}, on_change=dir_changed).classes("w-96").bind_value(app.storage.user, "autobackup_workdir"):
-            workdir_picker = ui.button(on_click=pick_dir, icon="pageview").classes("my-auto")
+            workdir_picker = ui.button(on_click=pick_dir, icon="pageview").props("outline").classes("my-auto")
             ui.tooltip("Directory with the .synth files you want to monitor")
         with ui.input("Backup directory", validation={"Not a directory": _isdir}, on_change=dir_changed).classes("w-96").bind_value(app.storage.user, "autobackup_backupdir"):
-            backupdir_picker = ui.button(on_click=pick_dir, icon="archive").classes("my-auto")
+            backupdir_picker = ui.button(on_click=pick_dir, icon="archive").props("outline").classes("my-auto")
             ui.tooltip("Directory to save the backups to")
 
     @ui.refreshable

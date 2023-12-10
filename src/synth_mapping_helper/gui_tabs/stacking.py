@@ -360,7 +360,7 @@ def stacking_tab():
         with ui.row():
             with ui.row():
                 ui.label("Clipboard Preview").classes("my-auto")
-                with ui.button(icon="sync", on_click=_soft_refresh):
+                with ui.button(icon="sync", on_click=_soft_refresh, color="positive").props("outline"):
                     ui.tooltip("Preview current clipboard")
             with ui.expansion("Settings", icon="settings").props("dense"):
                 with ui.row():

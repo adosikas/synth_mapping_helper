@@ -69,7 +69,7 @@ def version_tab():
         release_list()
 
     with ui.row():
-        ui.button("Check now", icon="sync", on_click=check)
+        ui.button("Check now", icon="sync", on_click=check, color="positive")
         auto_check = ui.switch("Check on start", value=False).bind_value(app.storage.user, "version_history_autocheck")
 
     if auto_check.value:
