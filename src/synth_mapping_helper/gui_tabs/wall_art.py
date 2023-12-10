@@ -1,9 +1,12 @@
 from dataclasses import dataclass, field
+from io import BytesIO
 
+from fastapi.responses import Response
 from nicegui import ui, app, events
 from nicegui.elements.scene_objects import Extrusion, Texture
 import numpy as np
 import pyperclip
+import requests
 
 from .map_render import MapScene, SettingsPanel
 from .utils import ParseInputError, info, error
@@ -39,6 +42,11 @@ class SMHInput(ui.input):
             return parse_number(self.value)
         except ValueError as ve:
             raise ParseInputError(self.storage_id, self.value) from ve
+
+@app.get("/image_proxy")
+def image_proxy(url:str):
+    r = requests.get(url)
+    return Response(content=r.content)
 
 def wall_art_tab():
     preview_scene: MapScene|None = None
@@ -355,7 +363,7 @@ def wall_art_tab():
                             coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
                             pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
                             opacity = refimg_opacity.parsed_value
-                            refimg_obj = preview_scene.texture(refimg_url.value,coords).move(*pos).material(opacity=opacity)
+                            refimg_obj = preview_scene.texture(f"/image_proxy?url={refimg_url.value}",coords).move(*pos).material(opacity=opacity)
                     except ParseInputError as pie:
                         error(f"Error parsing reference image setting: {pie.input_id}", pie, data=pie.value)
                 wall_data = synth_format.DataContainer(walls=walls)
