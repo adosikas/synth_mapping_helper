@@ -1,6 +1,8 @@
 #! /usr/bin/env python3
 
-# Moves walls and notes by configured amount
+# Author: adosikas
+#
+# Offset everything in a map by configured amount
 
 from pathlib import Path
 import synth_mapping_helper
