@@ -16,7 +16,7 @@ phase_offset = 0  # 0 or 180: start in center, go in right or left first, +/-90:
 data = synth_format.import_clipboard()
 
 def _shift_sine(nodes: "numpy array (n, 3+)", direction: int = 1) -> "numpy array (n, 3+)":
-    amplitide_array = np.sin(np.radians(nodes[:,2]*360/cycle)) * amplitude
+    amplitide_array = np.sin(np.radians(nodes[:,2]*360/cycle) + phase_offset) * amplitude
     out = nodes.copy()
     out[:,0] += amplitide_array  # add to X axis
     return out
