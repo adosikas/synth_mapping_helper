@@ -21,7 +21,7 @@ print(f"Loading {in_file}")
 f = synth_mapping_helper.synth_format.import_file(in_file)
 
 # loop over all difficulty levels
-for diff_name, data in f.difficulties:
+for diff_name, data in f.difficulties.items():
     # apply offset to every wall, note and rail
     data.apply_for_all(synth_mapping_helper.movement.offset, offset)
 

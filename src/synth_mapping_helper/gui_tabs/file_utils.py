@@ -72,7 +72,7 @@ def file_utils_tab():
             merge = try_load_synth_file(e)
             if merge is None:
                 return
-            self.data.merge(merge)
+            self.data.merge(merge, merge_bookmarks=merge_bookmarks.value)
             self.merged_filenames.append(e.name)
         
             e.sender.reset()
@@ -87,7 +87,6 @@ def file_utils_tab():
             self.info_card.refresh()
 
         def save(self) -> None:
-            download_content.truncate()
             if self.output_bpm != self.data.bpm:
                 self.data.change_bpm(self.output_bpm)
             if self.output_offset != self.data.offset_ms:
@@ -103,6 +102,8 @@ def file_utils_tab():
                     for _, diff_data in self.data.difficulties.items():
                         diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
 
+            download_content.truncate(0)
+            download_content.seek(0)
             self.data.save_as(download_content)
             ui.download("download", filename=self.output_filename)
 
@@ -117,7 +118,8 @@ def file_utils_tab():
             for diff, errors in self.data.errors.items():
                 for jpe, time in errors:
                     out.append(f"{diff}@{time}: {jpe!r}")
-            download_content.truncate()
+            download_content.truncate(0)
+            download_content.seek(0)
             download_content.write('\n'.join(out).encode())
             ui.download("download", filename="smh_error_report.txt")
             info("Saved error log")
@@ -133,7 +135,7 @@ def file_utils_tab():
                 for m in self.merged_filenames:
                     ui.label(m)
             if self.data.errors:
-                with ui.button("Save error report", icon="summarize", color="warning", on_click=self.save_errors).classes("ml-auto"):
+                with ui.button("Save error report", icon="summarize", color="warning", on_click=self.save_errors):
                     ui.tooltip("Use this if you want to re-add notes that were corrupted.")
 
             ui.label("Object counts (click to see more)")
@@ -260,6 +262,7 @@ def file_utils_tab():
                 ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
         with ui.card():
             ui.label("Merge files into base")
+            merge_bookmarks = ui.switch("Merge Bookmarks", value=True).classes("w-full").bind_value(app.storage.user, "merge_bookmarks").bind_enabled_from(fi, "is_valid").tooltip("Disable this if you merge maps that contain the same bookmarks")
             ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive"').classes("h-14 w-full").bind_enabled_from(fi, "is_valid")
             ui.label("Note: BPM & Offset will be matched automatically.")
             ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")

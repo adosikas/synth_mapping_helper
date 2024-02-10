@@ -1,5 +1,6 @@
 #/usr/bin/env python3
 from io import BytesIO
+import codecs
 import dataclasses
 import json
 from pathlib import Path
@@ -118,17 +119,17 @@ def beta_warning() -> None:
         time.sleep(0.5)
 
 def round_time_to_fractions(time: float) -> float:
-    # 192 is the lowest common multiple of 64 and 48, so this covers all steps the editor supports and more
-    # effectively this is 3 intermediate steps for each 1/64 step, or 4 for each 1/48 step
-    # those intermediate steps are also possible in the editor by abusing snap or copy-paste and switching
-    # between 1/64 and 1/48 step.
-    # But the editor does no rounding at all, leading to float erros creeping up. 
-    return round(time * 192) / 192
+    # Round to 1/64 or 1/48, whichever is closer
+    r64 = round(time * 64) / 64
+    r48 = round(time * 48) / 48
+    return r64 if abs(time-r64) < abs(time-r48) else r48
 
 def round_tick_for_json(time: float) -> float:
     # same as above, but in 1/64 ticks the json needs for some things
     # this is a seperate function to only do one float operation after rounding before output, to minimize errors
-    return round(time * 3) / 3
+    r64 = round(time)
+    r48 = round(time * 0.75) / 0.75  # 0.75 = 48/64
+    return r64 if abs(time-r64) < abs(time-r48) else r48
 
 @dataclasses.dataclass
 class DataContainer:
@@ -281,9 +282,13 @@ class SynthFile:
                 # r, l, s, b
                 notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
                 for time, time_notes in beatmap["Track"][diff].items():
+                    time_types = set()
                     for note in time_notes:
                         try:
                             note_type, nodes = note_from_synth(bpm, 0, note)
+                            if note_type in time_types:
+                                raise JSONParseError(note, "duplicate note type")
+                            time_types.add(note_type)
                             notes[note_type][nodes[0,2]] = nodes
                         except JSONParseError as jpe:
                             try:
@@ -360,8 +365,11 @@ class SynthFile:
             for diff, data in self.difficulties.items():
                 new_notes = {}
                 for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
+                    type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
                     for time_index, nodes in sorted(notes.items()):
-                        new_notes.setdefault(round_tick_for_json(time_index * 64), []).append(note_to_synth(data.bpm, note_type, nodes))
+                        type_notes[round_tick_for_json(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
+                    for time_tick, synth_dict in sorted(type_notes.items()):
+                        new_notes.setdefault(time_tick, []).append(synth_dict)
                 beatmap["Track"][diff] = new_notes
                 walls = {
                     "crouchs": [],
@@ -377,8 +385,8 @@ class SynthFile:
                 beatmap["Lights"][diff] = [round_tick_for_json(t * 64) for t in data.lights]
                 beatmap["Effects"][diff] = [round_tick_for_json(t * 64) for t in data.effects]
 
-            # write modified beatmap json
-            outzip.writestr(inzip.getinfo(BEATMAP_JSON_FILE), json.dumps(beatmap))
+            # write modified beatmap json, in a way that closely mirrors the editor
+            outzip.writestr(inzip.getinfo(BEATMAP_JSON_FILE), codecs.BOM_UTF8 + json.dumps(beatmap, indent=2).encode("utf-8").replace(b"\n", b"\r\n"))
         # write output zip
         if isinstance(output_file, BytesIO):
             output_file.seek(0)
@@ -406,12 +414,13 @@ class SynthFile:
                 c.apply_for_all(movement.offset, [0,0,delta])
             self.offset_ms = offset_ms
 
-    def merge(self, other: "SynthFile", adjust_bpm:bool = True) -> None:
+    def merge(self, other: "SynthFile", adjust_bpm: bool = True, merge_bookmarks: bool = True) -> None:
         if adjust_bpm and self.bpm != other.bpm:
             other.change_bpm(self.bpm)
         if adjust_bpm and self.offset_ms != other.offset_ms:
             other.change_offset(self.offset_ms)
-        self.bookmarks |= other.bookmarks
+        if merge_bookmarks:
+            self.bookmarks |= other.bookmarks
         for d, c in other.difficulties.items():
             if d in self.difficulties:
                 self.difficulties[d].merge(c)
@@ -556,12 +565,15 @@ def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> st
     first = 99999
     last = -99999
     for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
-        for time_index, nodes in notes.items():
-            clipboard["notes"].setdefault(round_tick_for_json(time_index * 64), []).append(note_to_synth(data.bpm, note_type, nodes))
+        type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
+        for time_index, nodes in notes.items(): 
+            type_notes[round_tick_for_json(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
             if nodes[0, 2] < first:
                 first = nodes[0, 2]
             if nodes[-1, 2] > last:
                 last = nodes[-1, 2]
+        for time_tick, synth_dict in sorted(type_notes.items()):
+            clipboard["notes"].setdefault(time_tick, []).append(synth_dict)
     for _, wall in data.walls.items():
         if wall[0, 2] < first:
             first = wall[0, 2]
