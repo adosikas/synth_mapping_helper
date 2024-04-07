@@ -31,6 +31,7 @@ BPM_DIVISOR = 1200
 MS_PER_MIN = 60 * 1000
 
 NOTE_TYPES = ("right", "left", "single", "both")
+NOTE_TYPE_STRINGS = ("RightHanded", "LeftHanded", "OneHandSpecial", "BothHandsSpecial")
 # Note: wall offsets are eyeballed
 WALL_TYPES = {
     # name: (index, center_offset)
@@ -122,14 +123,21 @@ def round_time_to_fractions(time: float) -> float:
     # Round to 1/64 or 1/48, whichever is closer
     r64 = round(time * 64) / 64
     r48 = round(time * 48) / 48
-    return r64 if abs(time-r64) < abs(time-r48) else r48
+    return r64 if abs(time-r64) <= abs(time-r48) else round(r48, 11)
 
 def round_tick_for_json(time: float) -> float:
     # same as above, but in 1/64 ticks the json needs for some things
     # this is a seperate function to only do one float operation after rounding before output, to minimize errors
-    r64 = round(time)
+    r64 = float(round(time))
     r48 = round(time * 0.75) / 0.75  # 0.75 = 48/64
-    return r64 if abs(time-r64) < abs(time-r48) else r48
+    return r64 if abs(time-r64) <= abs(time-r48) else round(r48, 11)
+
+def round_tick_for_json_index(time: float) -> float | int:
+    # same as above, but for notes dict, which uses int when possible
+    if time.is_integer():
+        return int(time)
+    return round_tick_for_json(time)
+    
 
 @dataclasses.dataclass
 class DataContainer:
@@ -350,7 +358,9 @@ class SynthFile:
             # copy all content except beatmap json
             outzip.comment = inzip.comment
             for info in inzip.infolist():
-                if info.filename != BEATMAP_JSON_FILE:
+                if info.filename == BEATMAP_JSON_FILE:
+                    beatmap_info = info
+                else:
                     outzip.writestr(info, inzip.read(info.filename))
 
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
@@ -368,10 +378,17 @@ class SynthFile:
                 for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
                     type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
                     for time_index, nodes in sorted(notes.items()):
-                        type_notes[round_tick_for_json(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
+                        type_notes[round_tick_for_json_index(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
                     for time_tick, synth_dict in sorted(type_notes.items()):
-                        new_notes.setdefault(time_tick, []).append(synth_dict)
-                beatmap["Track"][diff] = new_notes
+                        existing = new_notes.setdefault(time_tick, [])
+                        # edit by reference
+                        existing.append(
+                            # keep same order as editor
+                            {"Id": f"Note_{time_tick}{NOTE_TYPE_STRINGS[note_type]}{len(existing)}", "ComboId": -1}
+                            | synth_dict
+                            | {"Direction": 0}
+                        )
+                beatmap["Track"][diff] = {k: v for k,v in sorted(new_notes.items())}
                 walls = {
                     "crouchs": [],
                     "squares": [],
@@ -387,7 +404,8 @@ class SynthFile:
                 beatmap["Effects"][diff] = [round_tick_for_json(t * 64) for t in data.effects]
 
             # write modified beatmap json, in a way that closely mirrors the editor
-            outzip.writestr(inzip.getinfo(BEATMAP_JSON_FILE), codecs.BOM_UTF8 + json.dumps(beatmap, indent=2).encode("utf-8").replace(b"\n", b"\r\n"))
+            beatmap_json = json.dumps(beatmap, indent=2, allow_nan=False)
+            outzip.writestr(beatmap_info, codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
         # write output zip
         if isinstance(output_file, BytesIO):
             output_file.seek(0)
@@ -447,9 +465,9 @@ def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type
 
 def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
-        (coord[0] * GRID_SCALE) + X_OFFSET,
-        (coord[1] * GRID_SCALE) + Y_OFFSET,
-        (round_time_to_fractions(coord[2]) / bpm) * BPM_DIVISOR,  # ([beat] / [beat / minute]) * 1200 = ([sec] * 60) * 1200
+        round((coord[0] * GRID_SCALE) + X_OFFSET, 11),
+        round((coord[1] * GRID_SCALE) + Y_OFFSET, 11),
+        round((round_time_to_fractions(coord[2]) / bpm) * BPM_DIVISOR, 11),  # ([beat] / [beat / minute]) * 1200 = ([sec] * 60) * 1200
     ]
 
 # full note dict
@@ -465,9 +483,9 @@ def note_from_synth(bpm: float, startMeasure: float, note_dict: dict) -> tuple[i
 
 def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> dict:
     return {
-        "Type": note_type,
         "Position": coord_to_synth(bpm, nodes[0]),
         "Segments": [coord_to_synth(bpm, node) for node in nodes[1:]] if nodes.shape[0] > 1 else None,
+        "Type": note_type,
     }
 
 # full wall dict
@@ -495,6 +513,9 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
     else:
         dest_list = WALL_LOOKUP[wall_type] + "s"
         del wall_dict["slideType"]
+        if wall_type == WALL_TYPES["crouch"][0]:
+            # cannot rotate crouch walls
+            del wall_dict["zRotation"]
     return dest_list, wall_dict
 
 # full json
