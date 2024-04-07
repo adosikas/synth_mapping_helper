@@ -111,7 +111,7 @@ def snap_singles_to_rail(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> S
     out: SINGLE_COLOR_NOTES = {}
 
     for time in sorted(notes):
-        if current_rail_start is not None and time >= current_rail_end:  # current time is past end of stored rail -> forget stored rail
+        if current_rail_start is not None and time > current_rail_end:  # current time is past end of stored rail -> forget stored rail
             current_rail_start = None
             current_rail_end = None
         nodes = notes[time]

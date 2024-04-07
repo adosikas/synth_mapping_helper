@@ -1,3 +1,4 @@
+from io import BytesIO
 import dataclasses
 from typing import Optional
 import sys
@@ -102,10 +103,9 @@ def file_utils_tab():
                     for _, diff_data in self.data.difficulties.items():
                         diff_data.apply_for_walls(movement.offset, offset_3d=(0,2.1,0), types=synth_format.SLIDE_TYPES)
 
-            download_content.truncate(0)
-            download_content.seek(0)
-            self.data.save_as(download_content)
-            ui.download("download", filename=self.output_filename)
+            data = BytesIO()
+            self.data.save_as(data)
+            ui.download(data.getvalue(), filename=self.output_filename)
 
         def save_errors(self):
             out = [
@@ -118,10 +118,8 @@ def file_utils_tab():
             for diff, errors in self.data.errors.items():
                 for jpe, time in errors:
                     out.append(f"{diff}@{time}: {jpe!r}")
-            download_content.truncate(0)
-            download_content.seek(0)
-            download_content.write('\n'.join(out).encode())
-            ui.download("download", filename="smh_error_report.txt")
+
+            ui.download('\n'.join(out).encode(), filename="smh_error_report.txt")
             info("Saved error log")
 
         @ui.refreshable

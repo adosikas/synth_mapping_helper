@@ -108,7 +108,6 @@ def _stack(
                     random_offset = [random_step_offset[axis] * rng.integers(area[0,axis]/random_step_offset[axis], area[1,axis]/random_step_offset[axis], endpoint=True) for axis in (0,1)]
                 else:
                     random_offset = pattern_generation.random_xy(1, area[0], area[1])[0]
-                print(random_offset)
                 tmp.apply_for_all(movement.offset, offset_3d=[random_offset[0], random_offset[1], 0])
             if random_ranges_angle is not None:
                 if len(random_ranges_angle) == 1:
@@ -279,8 +278,8 @@ def stacking_tab():
             _clear_button(pattern_angle, outset_amount)
         with ui.card():
             ui.label("All")
+            walls_angle = SMHInput("Wall rotation", "0", "walls_angle", suffix="°", icons={1: "rotate_left", -1: "rotate_right"})
             offset_t = SMHInput("Time", "1/16", "offset_t", suffix="b", icons={1: "fast_forward", -1: "fast_rewind"})
-            walls_angle = SMHInput("Walls", "0", "walls_angle", suffix="°", icons={1: "rotate_left", -1: "rotate_right"})
             def _pick_spiral():
                 tfs = _find_first_pair(list(synth_format.WALL_TYPES))
                 if tfs is None:
@@ -316,7 +315,6 @@ def stacking_tab():
             with _register_marking(ui.button("Spiral", icon="colorize", on_click=_pick_spiral).props("outline size=sm align=left").classes("w-full"), *all_values) as pick_spiral:
                 ui.tooltip('Calculates "intuitive" spiral using two walls of the same type')
             _clear_button(*all_values)
-            
         _register_marking(pick_offset, offset_x, offset_y, offset_t, walls_angle)
         _register_marking(pick_scale, scale_x, scale_y, offset_t, walls_angle)
         _register_marking(pick_rot, pattern_angle, outset_amount, offset_t, walls_angle)

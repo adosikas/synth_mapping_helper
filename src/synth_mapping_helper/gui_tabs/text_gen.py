@@ -25,7 +25,7 @@ def load_font(font_data: synth_format.DataContainer) -> dict[str, list["numpy ar
 def generate_text(
     data: synth_format.DataContainer, text: str,
     font: dict[str, list["numpy array (1, 5)"]],
-    pos: "numpy array (3)", offset: "numpy array (3)", wall_spacing=1/192, center: bool=True,
+    pos: "numpy array (3)", offset: "numpy array (3)", wall_spacing=1/64, center: bool=True,
     rotation: float=0, pivot: "numpy array (3)"=np.zeros((3,)),
     letter_rotation_start: float=0, letter_rotation: float=0, 
 ) -> None:

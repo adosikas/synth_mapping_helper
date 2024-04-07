@@ -114,7 +114,15 @@ def pretty_fraction(val: float) -> str:
     if round(val, 4).is_integer():
         return str(int(round(val, 4)))
     if round(val*192, 4).is_integer():
-        v = int(round(val*192, 4))
-        gcd = np.gcd(v,192)
-        return f"{v//gcd}/{192//gcd}"
+        if val < 1:
+            # regular fraction: a/b
+            v = int(round(val*192, 4))
+            gcd = np.gcd(v,192)
+            return f"{v//gcd}/{192//gcd}"
+        else:
+            # mixed fraction: i a/b
+            i = int(val)
+            v = int(round((val-i)*192, 4))
+            gcd = np.gcd(v,192)
+            return f"{i} {v//gcd}/{192//gcd}"
     return str(val)

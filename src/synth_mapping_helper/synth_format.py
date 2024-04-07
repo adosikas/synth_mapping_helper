@@ -356,6 +356,7 @@ class SynthFile:
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
             beatmap["BPM"] = self.bpm
             beatmap["Offset"] = self.offset_ms
+            beatmap["ModifiedTime"] = int(time.time())
 
             beatmap["Bookmarks"]["BookmarksList"] = [
                 {"time": round_tick_for_json(t * 64), "name": n}

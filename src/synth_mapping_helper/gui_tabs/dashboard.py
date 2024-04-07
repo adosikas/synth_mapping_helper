@@ -348,7 +348,7 @@ def dashboard_tab():
             ui.separator()
             with ui.row():
                 mirror_angle = SMHInput("Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0=horizontal, ±90=vertical, +45=/, -45=\\")
-                mirror_stack = SMHInput("Stack", 0, "mirror_stack", suffix="b", tooltip="Instead of just mirroring, stack a mirrored copy onto the input. 0=disabled.")
+                mirror_stack = SMHInput("Stack time", 0, "mirror_stack", suffix="b", tooltip="Instead of just mirroring, stack a mirrored copy onto the input using this as interval. 0=disabled.")
                 def _do_mirror(data: synth_format.DataContainer, **kwargs):
                         # work on copy when stacking, else directly on data
                         tmp = data.filtered() if mirror_stack.parsed_value else data
@@ -370,7 +370,7 @@ def dashboard_tab():
                             data.merge(tmp)
                             
                 with SMHActionButton(
-                    tooltip="Mirror with custom angle (passing through origin/pivot/object depending on coordinate mode)",
+                    tooltip="Mirror with custom angle. Depending on coordinate mode, the mirror line passes through grid center, object center or pivot",
                     icon="",
                     func=_do_mirror
                 ):

@@ -10,14 +10,13 @@ from nicegui import app, events, ui
 from .. import synth_format, __version__
 
 __all__ = [
-    "logger", "download_content", "wiki_base",
+    "logger", "wiki_base",
     "error", "warning", "info",
     "wiki_reference", "try_load_synth_file", "add_suffix",
     "ParseInputError"
 ]
 
 logger = logging.getLogger("SMH-GUI")
-download_content: BytesIO = BytesIO()
 wiki_base = "https://github.com/adosikas/synth_mapping_helper/wiki"
 
 last_error: Optional[tuple[str, Exception, Any, Any]] = None
@@ -52,11 +51,6 @@ def error_report():
         if data is not None:
             out["data"] = data
     return out
-
-@app.get("/download")
-def download():
-    download_content.seek(0)
-    return Response(download_content.read())
 
 def error(msg: str, exc: Optional[Exception]=None, settings: Any = None, data: Any=None) -> None:
     global last_error
