@@ -406,6 +406,25 @@ def stacking_tab():
                 duration = SMHInput("Duration", 1, "duration", suffix="b").classes("w-12", remove="w-24")
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("duration")).props("rounded").classes("w-10 mt-auto")
         with ui.card():
+            ui.label("Substeps")
+            subdiv_values = (
+                offset_x, offset_y,
+                scale_x, scale_y,
+                pattern_angle, walls_angle,
+                offset_t, outset_amount,
+            )
+            def _subdivide(substeps: float) -> None:
+                for v in (offset_x, offset_y, pattern_angle, walls_angle,offset_t, outset_amount):
+                    v.set_value(pretty_fraction(v.parsed_value/substeps))
+                for v in (scale_x, scale_y):
+                    v.set_value(f"{v.parsed_value**(1/substeps):.1%}")
+            subdiv = SMHInput("Substeps", "2", "subdiv", tooltip="Number of substeps (should be >1)", suffix="x")
+            with subdiv.add_slot("prepend"):
+                ui.icon("density_medium")
+            _register_marking(ui.button("Subdivide", on_click=lambda _: _subdivide(subdiv.parsed_value if subdiv.parsed_value else 1)).props("outline size=sm").classes("w-full"), *subdiv_values).tooltip("Divide current step into substeps")
+            _register_marking(ui.button("Combine", on_click=lambda _: _subdivide((1/subdiv.parsed_value) if subdiv.parsed_value else 1)).props("outline size=sm").classes("w-full"), *subdiv_values).tooltip("Combine multiple steps into one")
+
+        with ui.card():
             with ui.dialog() as random_dialog, ui.card():
                 ui.markdown("""
                     This is applied on each copy individually, so the random range will stay centered on the unrandomized stack and not "drift".
