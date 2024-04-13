@@ -103,7 +103,7 @@ def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)",
     with_symmetry can be set to false to disregard that symetrical walls (like squares) look the same in multiple orientations
     """
     delta_t = second[0,2] - first[0,2]
-    if first[:,3] != second[:,3]:
+    if not np.allclose(first[:,3], second[:,3]):
         raise ValueError("Patterns have mismatched wall types")
     if not np.allclose(first[:,2], second[:,2] - delta_t):
         raise ValueError("Patterns have mismatched timing")

@@ -211,18 +211,20 @@ def wall_art_tab():
             self._update_cursors()
 
         def apply(self):
+            nonlocal walls
             undo.push_undo("apply transform")
             pivot_3d = walls[self.drag_time if self.drag_time is not None else min(self.sources)][0,:3]
             scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
             new_sources = set()
-            wall_copy = walls.copy()
+            new_walls = {}
             for t in sorted(self.sources):
-                w = wall_copy[t] if copy.value else walls.pop(t)
+                w = walls[t] if copy.value else walls.pop(t)
                 w = movement.rotate_around(w, self.rotation, pivot_3d)
                 w = movement.scale_from(w, scale_3d, pivot_3d)
                 w = movement.offset(w, self.offset)
-                walls[w[0,2]] = w
+                new_walls[w[0,2]] = w
                 new_sources |= {w[0,2]}
+            walls |= new_walls
             _soft_refresh()
             self.select(new_sources, "set")
 
@@ -263,8 +265,10 @@ def wall_art_tab():
         if not e.action.keydown:
             return
         try:
+            # note: don't use key.code, as that doesn't account for keyboard layout
+            key_name = e.key.name.upper()  # key.name is upper/lowercase depending on shift
             if e.modifiers.ctrl:
-                if e.key.name == "a":
+                if key_name == "A":
                     # select all
                     selection.select(set(walls), mode="set")
                     # clear text selection
@@ -278,9 +282,9 @@ def wall_art_tab():
                             }
                         }
                     """)
-                elif e.key.name == "c":
+                elif key_name == "C":
                     selection.copy_to_clipboard()
-                elif e.key.name == "x":
+                elif key_name == "X":
                     selection.copy_to_clipboard()
                     if selection.sources:
                         selection.delete()
@@ -288,18 +292,18 @@ def wall_art_tab():
                         undo.push_undo("cut to clipboard")
                         walls.clear()
                         _soft_refresh()
-                elif e.key.name == "v":
+                elif key_name == "V":
                     _paste()
-                elif e.key.name == "z":
+                elif key_name == "Z":
                     undo.undo()
-                elif e.key.name == "y":
+                elif key_name == "Y":
                     undo.redo()
             elif e.key.escape:
                 selection.select(set(), "set")
-            elif e.key.name == "t":
+            elif key_name == "T":
                 axis_z.value = not axis_z.value
                 selection.select(set(), "toggle")
-            elif e.key.name == "c":
+            elif key_name == "C":
                 copy.value = not copy.value
                 for c in selection.cursors.values():
                     if copy.value:
@@ -307,9 +311,9 @@ def wall_art_tab():
                     else:
                         c.material(move_color.value, move_opacity.parsed_value)
                 selection.select(set(), "toggle")
-            elif e.key.name == "r":
+            elif key_name == "R":
                 _compress()
-            elif e.key.name == "b":
+            elif key_name == "B":
                 _open_blend_dialog()
             elif e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
                 wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number]
@@ -317,7 +321,7 @@ def wall_art_tab():
                 _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
                 _soft_refresh()
                 selection.select({new_t}, mode="set" if not e.modifiers.shift else "toggle")
-            elif e.key.name == "e":
+            elif key_name == "E":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
                     return
@@ -325,7 +329,7 @@ def wall_art_tab():
                     selection.select({ordered_keys[0]}, mode="set")
                 elif max(selection.sources) in ordered_keys[:-1]:
                     selection.select({ordered_keys[ordered_keys.index(max(selection.sources))+1]}, mode="set" if not e.modifiers.shift else "expand")
-            elif e.key.name == "q":
+            elif key_name == "E":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
                     return
@@ -343,12 +347,12 @@ def wall_art_tab():
                 selection.move(np.array([(e.key.arrow_right-e.key.arrow_left),(e.key.arrow_up-e.key.arrow_down),0.0])*offset_step.parsed_value)
             elif e.key.page_up or e.key.page_down:
                 selection.move(np.array([0.0,0.0,(e.key.page_up-e.key.page_down)*time_step.parsed_value])*offset_step.parsed_value)
-            elif e.key.name == "d":
+            elif key_name == "D":
                 selection.rotate(-(angle_step.parsed_value if not e.modifiers.shift else 90.0))
-            elif e.key.name == "a":
+            elif key_name == "A":
                 selection.rotate(angle_step.parsed_value if not e.modifiers.shift else 90.0)
-            elif e.key.name in "ws":
-                selection.mirror(horizontal=(e.key.name=="s"))
+            elif key_name in "WS":
+                selection.mirror(horizontal=(key_name=="S"))
         except ParseInputError as pie:
             error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
             return
