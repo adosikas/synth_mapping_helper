@@ -56,6 +56,17 @@ WALL_MIRROR_ID = {id: WALL_TYPES[
     ][0]
     for name, (id, _) in WALL_TYPES.items()
 }
+# symmetry angles in degrees, 360=no symmetry
+WALL_SYMMETRY = {
+    "wall_right": 180,
+    "wall_left": 180,
+    "angle_right": 360,
+    "center": 180,
+    "angle_left": 360,
+    "crouch": 360,
+    "square": 90,
+    "triangle": 120,
+}
 SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
 LEFT_WALLS = [id for name, (id, _) in WALL_TYPES.items() if "left" in name]
 WALL_VERTS = {

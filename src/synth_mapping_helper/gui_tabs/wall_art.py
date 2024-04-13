@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 from io import BytesIO
+from time import time
+from typing import Literal
 
 from fastapi.responses import Response
 from nicegui import ui, app, events
@@ -10,8 +12,8 @@ import requests
 
 from .map_render import MapScene, SettingsPanel
 from .utils import ParseInputError, info, error
-from ..utils import parse_number
-from .. import synth_format, movement
+from ..utils import parse_number, pretty_time_delta
+from .. import synth_format, movement, pattern_generation
 
 class SMHInput(ui.input):
     def __init__(self, label: str, value: str|float, storage_id: str, tooltip: str|None=None, suffix: str|None = None, **kwargs):
@@ -55,6 +57,52 @@ def wall_art_tab():
     is_dragging: bool = False
 
     @dataclass
+    class Undo:
+        undo_stack: list[str, float, tuple[synth_format.WALLS], set[float]] = field(default_factory=list)
+        redo_stack: list[str, float, tuple[synth_format.WALLS], set[float]] = field(default_factory=list)
+        max_steps: int = 50
+
+        def reset(self):
+            self.undo_stack.clear()
+            self.redo_stack.clear()
+
+        def push_undo(self, label: str):
+            self.undo_stack.append((label, time(), walls.copy(), selection.sources.copy()))
+            if len(self.undo_stack) > self.max_steps:
+                del self.undo_stack[0]
+            self.redo_stack.clear()
+        
+        def undo(self):
+            nonlocal walls
+            if not self.undo_stack:
+                ui.notify("Nothing to undo", type="info")
+                return
+            label, timestamp, undo_walls, undo_selection = self.undo_stack.pop()
+            self.redo_stack.append((label, timestamp, walls.copy(), selection.sources.copy()))
+            selection.clear()
+            walls.clear()
+            walls |= undo_walls
+            selection.select(undo_selection, mode="set")
+            _soft_refresh()
+            ui.notify(f"Undo: {label} ({pretty_time_delta(time() - timestamp)} ago)", type="info")
+
+        def redo(self):
+            nonlocal walls
+            if not self.redo_stack:
+                ui.notify("Nothing to redo", type="info")
+                return
+            label, timestamp, redo_walls, redo_selection = self.redo_stack.pop()
+            self.undo_stack.append((label, timestamp, walls.copy(), selection.sources.copy()))
+            selection.clear()
+            walls.clear()
+            walls |= redo_walls
+            selection.select(redo_selection, mode="set")
+            _soft_refresh()
+            ui.notify(f"Redo: {label} ({pretty_time_delta(time() - timestamp)} ago)", type="info")
+
+    undo = Undo()
+
+    @dataclass
     class Selection:
         sources: set[float] = field(default_factory=set)
         cursors: dict[float, Extrusion] = field(default_factory=dict)
@@ -86,6 +134,7 @@ def wall_art_tab():
         def delete(self):
             if not self.sources:
                 return
+            undo.push_undo("delete selection")
             ts = self.sources
             self.clear()
             for t in ts:
@@ -93,8 +142,7 @@ def wall_art_tab():
             _soft_refresh()
             ui.notify(f"Deleted {len(ts)} walls", type="info")
 
-        def select(self, new_sources: set[float], mode: str):
-            # mode can be "set", "toggle", or "expand"
+        def select(self, new_sources: set[float], mode: Literal["toggle", "expand", "set"]):
             if mode == "toggle":
                 new_sources ^= self.sources
             elif mode == "expand" and self.sources:  # "expand" and nothing selected: "set"
@@ -163,6 +211,7 @@ def wall_art_tab():
             self._update_cursors()
 
         def apply(self):
+            undo.push_undo("apply transform")
             pivot_3d = walls[self.drag_time if self.drag_time is not None else min(self.sources)][0,:3]
             scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
             new_sources = set()
@@ -215,7 +264,7 @@ def wall_art_tab():
             return
         try:
             if e.modifiers.ctrl:
-                if e.key.code == "KeyA":
+                if e.key.name == "a":
                     # select all
                     selection.select(set(walls), mode="set")
                     # clear text selection
@@ -229,16 +278,28 @@ def wall_art_tab():
                             }
                         }
                     """)
-                elif e.key.code == "KeyC":
+                elif e.key.name == "c":
                     selection.copy_to_clipboard()
-                elif e.key.code == "KeyV":
+                elif e.key.name == "x":
+                    selection.copy_to_clipboard()
+                    if selection.sources:
+                        selection.delete()
+                    else:
+                        undo.push_undo("cut to clipboard")
+                        walls.clear()
+                        _soft_refresh()
+                elif e.key.name == "v":
                     _paste()
+                elif e.key.name == "z":
+                    undo.undo()
+                elif e.key.name == "y":
+                    undo.redo()
             elif e.key.escape:
                 selection.select(set(), "set")
-            elif e.key.code == "KeyX":
+            elif e.key.name == "t":
                 axis_z.value = not axis_z.value
                 selection.select(set(), "toggle")
-            elif e.key.code == "KeyC":
+            elif e.key.name == "c":
                 copy.value = not copy.value
                 for c in selection.cursors.values():
                     if copy.value:
@@ -246,15 +307,17 @@ def wall_art_tab():
                     else:
                         c.material(move_color.value, move_opacity.parsed_value)
                 selection.select(set(), "toggle")
-            elif e.key.code == "KeyR":
+            elif e.key.name == "r":
                 _compress()
+            elif e.key.name == "b":
+                _open_blend_dialog()
             elif e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
                 wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number]
                 new_t = _find_free_slot(max(selection.sources, default=0.0))
                 _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
                 _soft_refresh()
                 selection.select({new_t}, mode="set" if not e.modifiers.shift else "toggle")
-            elif e.key.code == "KeyE":
+            elif e.key.name == "e":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
                     return
@@ -262,7 +325,7 @@ def wall_art_tab():
                     selection.select({ordered_keys[0]}, mode="set")
                 elif max(selection.sources) in ordered_keys[:-1]:
                     selection.select({ordered_keys[ordered_keys.index(max(selection.sources))+1]}, mode="set" if not e.modifiers.shift else "expand")
-            elif e.key.code == "KeyQ":
+            elif e.key.name == "q":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
                     return
@@ -274,18 +337,18 @@ def wall_art_tab():
                 return
             elif e.key.delete or e.key.backspace:
                 selection.delete()
-            elif e.key.code in ("Enter", "NumpadEnter", "Space"):
+            elif e.key.enter or e.key.space:
                 selection.apply()
             elif e.key.is_cursorkey:
                 selection.move(np.array([(e.key.arrow_right-e.key.arrow_left),(e.key.arrow_up-e.key.arrow_down),0.0])*offset_step.parsed_value)
             elif e.key.page_up or e.key.page_down:
                 selection.move(np.array([0.0,0.0,(e.key.page_up-e.key.page_down)*time_step.parsed_value])*offset_step.parsed_value)
-            elif e.key.code == "KeyD":
+            elif e.key.name == "d":
                 selection.rotate(-(angle_step.parsed_value if not e.modifiers.shift else 90.0))
-            elif e.key.code == "KeyA":
+            elif e.key.name == "a":
                 selection.rotate(angle_step.parsed_value if not e.modifiers.shift else 90.0)
-            elif e.key.code in ("KeyW", "KeyS"):
-                selection.mirror(horizontal=(e.key.code=="KeyS"))
+            elif e.key.name in "ws":
+                selection.mirror(horizontal=(e.key.name=="s"))
         except ParseInputError as pie:
             error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
             return
@@ -297,19 +360,15 @@ def wall_art_tab():
             with ui.row():
                 ui.label("Axis:").classes("my-auto")
                 with ui.toggle({False: "X&Y", True: "Time"}, value=False).props('color="grey-7" rounded dense').classes("my-auto") as axis_z:
-                    ui.tooltip("Change movement axis")
+                    ui.tooltip("Change movement axis (T)")
                 ui.label("Copy:").classes("my-auto")
                 with ui.switch().props("dense").classes("my-auto") as copy:
-                    ui.tooltip("Copy to next free slot instead of moving. Makes selection look weird.")
-                time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding and moving walls via page-up/down")
-                offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for offsetting when pressing arrow keys")
-                angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Rotation when pressing A/D")
-            with ui.expansion("Settings", icon="settings").props("dense"):
-                with ui.row():
-                    scene_width = SMHInput("Render Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
-                    scene_height = SMHInput("Render Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
-                    time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
-                    frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
+                    ui.tooltip("Copy to next free slot instead of moving (C). Makes selection look weird.")
+                time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding and moving walls via (page-up)/(page-down)")
+                offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for offsetting when pressing (arrow keys)")
+                angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Rotation when pressing (A)/(D)")
+            with ui.expansion("Preview setttings", icon="palette").props("dense"):
+                sp = SettingsPanel()
                 ui.separator()
                 with ui.row():
                     move_color = ui.color_input("Move", value="#888888", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_move_color")
@@ -318,6 +377,12 @@ def wall_art_tab():
                     copy_color = ui.color_input("Copy", value="#00ff00", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_copy_color")
                     copy_color.button.style("color: black")
                     copy_opacity = SMHInput("Opacity", "0.5", "copy_opacity")
+                ui.separator()
+                with ui.row():
+                    scene_width = SMHInput("Render Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
+                    scene_height = SMHInput("Render Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
+                    time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
+                    frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
                 ui.separator()
                 with ui.element():
                     ui.tooltip("Display a reference image to align wall art. A low time scale (e.g. 1) is recommended to avoid distortion due to perspective, but may cause display issues.")
@@ -330,14 +395,13 @@ def wall_art_tab():
                         refimg_x = SMHInput("X", "0", "wall_art_ref_x", suffix="sq", tooltip="Center X of the reference image in sq")
                         refimg_y = SMHInput("Y", "0", "wall_art_ref_y", suffix="sq", tooltip="Center Y of the reference image in sq")
                         refimg_t = SMHInput("Time", "1/4", "wall_art_ref_time", suffix="b", tooltip="Time of the reference image in beats")
-            with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
-                sp = SettingsPanel()
-            apply_button = ui.button("Apply").props("outline")
+                apply_button = ui.button("Apply").props("outline")
         def _find_free_slot(t: float) -> float:
             while t in walls:
                 t = np.round(t/time_step.parsed_value + 1)*time_step.parsed_value
             return t
         def _insert_wall(w: "np.array (1,5)"):
+            undo.push_undo(f"add {synth_format.WALL_LOOKUP[w[0,3]]}")
             pending = w
             while pending[0,2] in walls:
                 walls[pending[0,2]], pending = pending, walls[pending[0,2]]
@@ -431,11 +495,15 @@ def wall_art_tab():
                         |ESC|Deselect all|
                         |CTRL+🇦|Select all|
                         |CTRL+🇨|Copy to clipboard (selection or everything)|
+                        |CTRL+🇽|Cut to clipboard (selection or everything)|
                         |CTRL+🇻|Add walls from clipboard (overrides existing)|
+                        |CTRL+🇿|Undo last operation|
+                        |CTRL+🇾|Redo last operation|
                         |🇪/🇶|Next or previous Wall (SHIFT: Expand selection)|
-                        |🇽|Change Axis|
+                        |🇹|Change Axis between X/Y and Time|
                         |🇨|Toggle Copy (Makes selection look weird)|
-                        |🇷|Compress|
+                        |🇷|Compress all walls to timestep|
+                        |🇧|Open Blender|
 
                         ## Edit
                         If you use keyboard shortcuts instead of dragging, press enter, space or click the shadow to apply.
@@ -454,6 +522,11 @@ def wall_art_tab():
                 with ui.button(icon="keyboard", on_click=key_dialog.open, color="info").classes("cursor-help").style("width: 36px"):
                     ui.tooltip("Show controls")
                 ui.separator()
+                with ui.button(icon="undo", color="negative", on_click=undo.undo).props("outline").style("width: 36px").bind_enabled_from(undo, "undo_stack", backward=bool):
+                    ui.tooltip("Undo (CTRL+Z)")
+                with ui.button(icon="redo", color="positive", on_click=undo.redo).props("outline").style("width: 36px").bind_enabled_from(undo, "redo_stack", backward=bool):
+                    ui.tooltip("Redo (CTRL+Y)")
+                ui.separator()
                 def _paste():
                     clipboard = pyperclip.paste()
                     try:
@@ -461,6 +534,7 @@ def wall_art_tab():
                     except ValueError as ve:
                         error(f"Error reading data from clipboard", ve, data=clipboard)
                         return
+                    undo.push_undo("paste from clipboad")
                     walls.update(data.walls)
                     _soft_refresh()
                     info(f"Added {len(data.walls)} walls from clipboard")
@@ -472,10 +546,11 @@ def wall_art_tab():
                     ui.tooltip("Select all (CTRL+A)")
                 with ui.button(icon="content_copy", on_click=selection.copy_to_clipboard).style("width: 36px"):
                     ui.tooltip("Copy (CTRL+C)")
-                with ui.button(icon="clear", color="negative", on_click=lambda _: (walls.clear(), _soft_refresh())).props("outline").style("width: 36px"):
-                    ui.tooltip("Clear all")
+                with ui.button(icon="clear", color="negative", on_click=lambda _: (undo.reset(), walls.clear(), _soft_refresh())).props("outline").style("width: 36px"):
+                    ui.tooltip("Clear everything (includes undo steps)")
                 ui.separator()
                 def _compress():
+                    undo.push_undo("compress")
                     new_sources = set()
                     for i, (t, w) in enumerate(sorted(walls.items())):
                         del walls[t]
@@ -487,13 +562,54 @@ def wall_art_tab():
                     _soft_refresh()
 
                 with ui.button(icon="compress", on_click=_compress).props("outline").style("width: 36px"):
-                    ui.tooltip("Compress wall spacing to time step")
+                    ui.tooltip("Compress wall spacing to time step (effects all walls)")
+                with ui.dialog() as blend_dialog, ui.card():
+                    ui.label("Blend between patterns")
+                    with ui.row():
+                        blend_wallcount = SMHInput("Walls", 0, "blend_wallcount", "Walls per pattern. Can be -1 if pattern count is set")
+                        blend_patterncount = SMHInput("Patterns", 0, "blend_patterncount", "Number of patterns to blend between. Can be -1 if wall count is set")
+                    with ui.row():
+                        blend_spacing = SMHInput("Spacing", "1/2", "blend_spacing", "Interval between blending stemps")
+                        def _do_blend():
+                            nonlocal walls
+                            try:
+                                patterns = np.array([w[0] for _, w in sorted(walls.items())]).reshape((int(blend_patterncount.parsed_value), int(blend_wallcount.parsed_value), 5))
+                                interval = blend_spacing.parsed_value
+                            except ParseInputError as pie:
+                                error(f"Error parsing blend inputs: {pie.input_id}", pie, data=pie.value)
+                                return
+                            except ValueError as ve:
+                                error(f"Could not split up walls into {blend_patterncount.parsed_value} x {blend_wallcount.parsed_value}", ve, data=walls)
+                                return
+                            undo.push_undo("blend")
+                            try:
+                                walls |= pattern_generation.blend_walls_multiple(patterns, interval=interval)
+                            except ValueError as ve:
+                                error("Error blending walls", ve, data=walls)
+                                return
+                            _soft_refresh()
+                            blend_dialog.close()
+                        ui.button(icon="blender", on_click=_do_blend).props("outline").classes("w-16 h-10")
+
+                def _open_blend_dialog():
+                    # autodetect patterns
+                    try:
+                        wallcount, patterncount = pattern_generation.find_wall_patterns(walls)
+                    except ValueError as ve:
+                        error("Could not detect patterns in walls", ve, data=walls)
+                        return
+                    blend_dialog.open()
+                    blend_wallcount.set_value(str(wallcount))
+                    blend_patterncount.set_value(str(patterncount))
+                    blend_spacing.update()  # workaround for nicegui#2149
+
+                with ui.button(icon="blender", on_click=_open_blend_dialog, color="info").style("width: 36px"):
+                    ui.tooltip("Blend wall patterns (effects all walls)")
             draw_preview_scene()
             with ui.column():
                 with ui.button(icon="delete", color="negative", on_click=selection.delete).style("width: 36px").bind_enabled_from(selection, "sources", backward=bool):
                     ui.tooltip("Delete selection (Delete/Backspace)")
                 for k, (i, t) in enumerate(sorted(synth_format.WALL_LOOKUP.items())):
-                    v = synth_format.WALL_VERTS[t]
                     def _add_wall(*_, wall_type=i):  # python closure doesn't work as needed here, so enclose i as default param instead
                         new_t = _find_free_slot(max(selection.sources, default=0.0))
                         _insert_wall(np.array([[0.0,0.0,new_t, wall_type,0.0]]))
@@ -501,6 +617,8 @@ def wall_art_tab():
                         selection.select({new_t}, "set")
                     with ui.button(color="positive", on_click=_add_wall).classes("p-2"):
                         ui.tooltip(f"Spawn '{t}' wall after selection ({k})")
+                        v = synth_format.WALL_VERTS[t]
+                        # draw wall vertices as svg
                         content = f'''
                             <svg viewBox="-10 -10 20 20" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
                                 <polygon points="{' '.join(f"{-x},{y}" for x,y in v)}" stroke="white"/>

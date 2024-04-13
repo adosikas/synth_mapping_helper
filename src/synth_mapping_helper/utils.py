@@ -126,3 +126,22 @@ def pretty_fraction(val: float) -> str:
             gcd = np.gcd(v,192)
             return f"{i} {v//gcd}/{192//gcd}"
     return str(val)
+
+def pretty_time_delta(seconds: float) -> str:
+    seconds = abs(seconds)
+    if seconds < 1:
+        return f"{seconds*1000:.0f} ms"
+    if seconds < 60:
+        return f"{seconds:.0f} seconds"
+    if seconds < 3600:
+        return f"{seconds//60} minutes"
+    if seconds < 24*3600:
+        return f"{seconds//3600} hours"
+    days = seconds // (24*3600)
+    if days < 7:
+        return f"{days} days"
+    if days < 30:
+        return f"{days//7} weeks"
+    if days < 365:
+        return f"{days//30} months"
+    return f"{days//365} years"
