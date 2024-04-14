@@ -12,7 +12,7 @@ import requests
 
 from .map_render import MapScene, SettingsPanel
 from .utils import ParseInputError, info, error
-from ..utils import parse_number, pretty_time_delta
+from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
 class SMHInput(ui.input):
@@ -75,7 +75,7 @@ def wall_art_tab():
         def undo(self):
             nonlocal walls
             if not self.undo_stack:
-                ui.notify("Nothing to undo", type="info")
+                ui.notify("Nothing to undo", type="info", timeout=1000)
                 return
             label, timestamp, undo_walls, undo_selection = self.undo_stack.pop()
             self.redo_stack.append((label, timestamp, walls.copy(), selection.sources.copy()))
@@ -84,12 +84,12 @@ def wall_art_tab():
             walls |= undo_walls
             selection.select(undo_selection, mode="set")
             _soft_refresh()
-            ui.notify(f"Undo: {label} ({pretty_time_delta(time() - timestamp)} ago)", type="info")
+            ui.notify(f"Undo: {label} ({pretty_time_delta(time() - timestamp)} ago)", type="info", timeout=1000)
 
         def redo(self):
             nonlocal walls
             if not self.redo_stack:
-                ui.notify("Nothing to redo", type="info")
+                ui.notify("Nothing to redo", type="info", timeout=1000)
                 return
             label, timestamp, redo_walls, redo_selection = self.redo_stack.pop()
             self.undo_stack.append((label, timestamp, walls.copy(), selection.sources.copy()))
@@ -98,7 +98,7 @@ def wall_art_tab():
             walls |= redo_walls
             selection.select(redo_selection, mode="set")
             _soft_refresh()
-            ui.notify(f"Redo: {label} ({pretty_time_delta(time() - timestamp)} ago)", type="info")
+            ui.notify(f"Redo: {label} ({pretty_time_delta(time() - timestamp)} ago)", type="info", timeout=1000)
 
     undo = Undo()
 
@@ -212,7 +212,8 @@ def wall_art_tab():
 
         def apply(self):
             nonlocal walls
-            undo.push_undo("apply transform")
+            ops = [l for v, l in [(copy.value, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
+            undo.push_undo(f"{pretty_list(ops)} {len(self.sources)} walls")
             pivot_3d = walls[self.drag_time if self.drag_time is not None else min(self.sources)][0,:3]
             scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
             new_sources = set()
@@ -527,9 +528,9 @@ def wall_art_tab():
                     ui.tooltip("Show controls")
                 ui.separator()
                 with ui.button(icon="undo", color="negative", on_click=undo.undo).props("outline").style("width: 36px").bind_enabled_from(undo, "undo_stack", backward=bool):
-                    ui.tooltip("Undo (CTRL+Z)")
+                    ui.tooltip().bind_text_from(undo, "undo_stack", backward=lambda us: f"Undo '{us[-1][0]}' (CTRL+Z) [{len(us)} steps]" if us else "Undo (CTRL+Z)")
                 with ui.button(icon="redo", color="positive", on_click=undo.redo).props("outline").style("width: 36px").bind_enabled_from(undo, "redo_stack", backward=bool):
-                    ui.tooltip("Redo (CTRL+Y)")
+                    ui.tooltip().bind_text_from(undo, "redo_stack", backward=lambda rs: f"Redo '{rs[-1][0]}' (CTRL+Y) [{len(rs)} steps]" if rs else "Redo (CTRL+Y)")
                 ui.separator()
                 def _paste():
                     clipboard = pyperclip.paste()
@@ -573,39 +574,50 @@ def wall_art_tab():
                         blend_wallcount = SMHInput("Walls", 0, "blend_wallcount", "Walls per pattern. Can be -1 if pattern count is set")
                         blend_patterncount = SMHInput("Patterns", 0, "blend_patterncount", "Number of patterns to blend between. Can be -1 if wall count is set")
                     with ui.row():
-                        blend_spacing = SMHInput("Spacing", "1/2", "blend_spacing", "Interval between blending stemps")
+                        blend_interval = SMHInput("Interval", "1/2", "blend_interval", "Interval between blending steps", suffix="b")
                         def _do_blend():
                             nonlocal walls
                             try:
                                 patterns = np.array([w[0] for _, w in sorted(walls.items())]).reshape((int(blend_patterncount.parsed_value), int(blend_wallcount.parsed_value), 5))
-                                interval = blend_spacing.parsed_value
+                                interval = blend_interval.parsed_value
                             except ParseInputError as pie:
                                 error(f"Error parsing blend inputs: {pie.input_id}", pie, data=pie.value)
                                 return
                             except ValueError as ve:
-                                error(f"Could not split up walls into {blend_patterncount.parsed_value} x {blend_wallcount.parsed_value}", ve, data=walls)
+                                error(f"Could not split up {len(walls)} walls into {blend_patterncount.parsed_value} patterns with {blend_wallcount.parsed_value} walls each", ve, data=walls)
                                 return
+                            max_pattern_delta = np.max(np.diff(patterns[:,0,2]))
+                            if max_pattern_delta <= interval:
+                                error(f"Blend interval ({pretty_fraction(interval)}b) must be greater than largest pattern distance ({pretty_fraction(max_pattern_delta)}b), else blending will do nothing.", data=walls)
+                                return
+                            small_deltas = np.sum(np.diff(patterns[:,0,2]) < interval)  # equal is a "regular" usecase, ie when re-blending some parts
+                            if small_deltas: 
+                                ui.notify(f"Blend interval ({pretty_fraction(interval)}b) is smaller than {small_deltas} of {patterns.shape[0]-1} pattern distances. Blending will do nothing between these.", type="warning")
                             undo.push_undo("blend")
                             try:
                                 walls |= pattern_generation.blend_walls_multiple(patterns, interval=interval)
                             except ValueError as ve:
                                 error("Error blending walls", ve, data=walls)
                                 return
+                            ui.notify(f"Created {len(walls)//patterns.shape[1] - patterns.shape[0]} additional patterns between the existing {patterns.shape[0]}", type="info")
                             _soft_refresh()
                             blend_dialog.close()
                         ui.button(icon="blender", on_click=_do_blend).props("outline").classes("w-16 h-10")
 
                 def _open_blend_dialog():
+                    if len(walls) < 2:
+                        error("Need at least two walls to do blending", data=walls)
+                        return
                     # autodetect patterns
                     try:
                         wallcount, patterncount = pattern_generation.find_wall_patterns(walls)
                     except ValueError as ve:
-                        error("Could not detect patterns in walls", ve, data=walls)
+                        error(f"Could not detect patterns in walls: {ve}", data=walls)
                         return
                     blend_dialog.open()
                     blend_wallcount.set_value(str(wallcount))
                     blend_patterncount.set_value(str(patterncount))
-                    blend_spacing.update()  # workaround for nicegui#2149
+                    blend_interval.update()  # workaround for nicegui#2149
 
                 with ui.button(icon="blender", on_click=_open_blend_dialog, color="info").style("width: 36px"):
                     ui.tooltip("Blend wall patterns (effects all walls)")

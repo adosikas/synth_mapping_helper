@@ -72,7 +72,7 @@ def find_wall_patterns(walls: WALLS) -> tuple[int, int]:
     """try to find repeating "patterns" with identical wall type and timing"""
     wall_count = len(walls)
     if wall_count < 2:
-        raise ValueError("At least two walls must be selected")
+        raise ValueError("Need at least two walls to find repeating patterns")
     wall_types = [w[0,3] for _, w in sorted(walls.items())]
 
     # find candidates for patterns, by looking where the first wall type is repeated

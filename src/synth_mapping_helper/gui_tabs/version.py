@@ -19,7 +19,7 @@ def version_tab():
             for r in releases[:10]:
                 try:
                     time_delta = now - datetime.datetime.fromisoformat(r["created_at"]).replace(tzinfo=datetime.timezone.utc)
-                    time_delta_str = f"{time_delta.days} day{'' if time_delta.days==1 else 's'}" if time_delta.days else f"{time_delta.seconds//3600} day{'' if time_delta.seconds//3600==1 else 's'}"
+                    time_delta_str = f"{time_delta.days} day{'' if time_delta.days==1 else 's'}" if time_delta.days else f"{time_delta.seconds//3600} hour{'' if time_delta.seconds//3600==1 else 's'}"
                     v = r["tag_name"][1:]
                     color = "positive" if new else "dark"
                     icon = "stars" if new else "check_circle"

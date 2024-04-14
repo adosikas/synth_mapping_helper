@@ -1,9 +1,11 @@
 from argparse import ArgumentParser, ArgumentError
 from io import BytesIO
 import logging
+import sys
 from typing import Optional
 
 from nicegui import app, ui, events
+import requests
 
 from . import synth_format, cli, __version__
 from .gui_tabs.utils import *
@@ -27,22 +29,44 @@ tab_list = [
     ["Version History", "update", version_tab, None],
 ]
 
+version = f"SMH-GUI v{__version__}"
+
+@app.get("/version")
+def get_version():
+    return version
+
 async def stop():
     logger.info("Stopping...")
     await ui.run_javascript("setTimeout(window.close, 100);")
     app.shutdown()
+
 def entrypoint():
-    parser = ArgumentParser()
+    parser = ArgumentParser(description=version)
     parser.add_argument("-l", "--log-level", type=str, default="INFO", help="Set log level")
     parser.add_argument("--host", type=str, default="127.0.0.1",
-        help="""Host for the webserver. Defaults to localhost.
+        help="""Host for the webserver. Defaults to 127.0.0.1 (localhost).
             Can be set to a local IP if you want to access the GUI from another device, eg. tablet.\n
-            Note that there is NO PASSWORD CHECK, so only use if you trust ALL devices on that network.""")
+            Note that there is NO PASSWORD CHECK, so only use if you trust ALL devices on that network to have access to your clipboard and files.""")
     parser.add_argument("--port", type=int, default=8080, help="Port for the webserver")
     parser.add_argument("--background", action="store_true", help="Open in background (does not open browser)")
     parser.add_argument("--dev-mode", action="store_true", help="Open in dev mode (reloads when editing python files)")
 
     args = parser.parse_args()
+
+    try:
+        resp = requests.get(f"http://{args.host}:{args.port}/version")
+        resp.raise_for_status()
+        print(f"ERROR: {resp.json()} is already running on http://{args.host}:{args.port}")
+        sys.exit(-1)
+    except requests.ConnectionError:
+        # we want an connection error to occur, else there is another instance (or something else) running
+        pass
+    except Exception as e:
+        # unexpected error getting or parsing version
+        print(f"ERROR: Could not check if there is another instance already running on http://{args.host}:{args.port}")
+        print(f"           {e!r}")
+        print("       If this persists after a restart, something else may be using that port and you could add e.g. --port=8181 to change the SMH-GUI port")
+        sys.exit(-1)
 
     @ui.page("/")
     def index():
@@ -93,11 +117,11 @@ def entrypoint():
     if args.dev_mode:
         logging.getLogger("watchfiles.main").level = logging.WARN  # hide change detection
 
-    logger.info(f"Starting v{__version__}{' in background' if args.background else ''}...")
+    logger.info(f"Starting {version}{' in background' if args.background else ''}...")
     ui.run(
         host=args.host,
         port=args.port,
-        title=f"SMH-GUI v{__version__} [beta]",
+        title=f"{version} [beta]",
         favicon="🚧" if args.dev_mode else "🤦",
         reload=args.dev_mode,
         storage_secret="smh_gui",

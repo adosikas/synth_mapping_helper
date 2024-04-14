@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Any, Union
 
 import numpy as np
 
@@ -145,3 +145,10 @@ def pretty_time_delta(seconds: float) -> str:
     if days < 365:
         return f"{days//30} months"
     return f"{days//365} years"
+
+def pretty_list(data: list[Any]) -> str:
+    if not data:
+        return ""
+    if len(data) == 1:
+        return str(data[0])
+    return ", ".join(map(str, data[:-1])) + f" and {data[-1]}"

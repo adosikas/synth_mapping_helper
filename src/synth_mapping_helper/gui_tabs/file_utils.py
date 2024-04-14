@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from nicegui import app, events, ui
 
 from .utils import *
+from ..utils import pretty_list
 from .. import synth_format, movement
 from .. import __version__
 
@@ -155,7 +156,7 @@ def file_utils_tab():
                     col = ev.args["colId"].rsplit(".",1)[0]
                     col_data = ev.args["data"][col]
                     ui.notify(
-                        f"{col_data['total']} {col}: " + ", ".join(f"{k}: {v}" for k,v in col_data.items() if k != "total"),
+                        f"{col_data['total']} {col}: " + pretty_list([f"{v} {k}" for k,v in col_data.items() if k != "total"]),
                         position="center",
                         type="info"
                     )

@@ -6,7 +6,7 @@ import pyperclip
 
 from .utils import *
 from .map_render import SettingsPanel, MapScene
-from ..utils import parse_number, parse_range, parse_xy_range, pretty_fraction
+from ..utils import parse_number, parse_range, parse_xy_range, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
 def _negate(val: str|None) -> str|None:
@@ -382,7 +382,7 @@ def stacking_tab():
             counts = d.get_counts()
             info(
                 f"Completed stack",
-                caption=", ".join(f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")),
+                caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
             )
             synth_format.export_clipboard(d, realign_start=False)
             if preview_scene is not None:

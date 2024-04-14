@@ -6,7 +6,7 @@ import pyperclip
 
 from .utils import *
 from .. import movement, pattern_generation, rails, synth_format
-from ..utils import parse_number
+from ..utils import parse_number, pretty_list
 
 def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_func, relative_func, pivot_func, relative: bool, pivot: Optional[list[int]], *args, **kwargs) -> None:
     """pick the right function depending on relative or pivot being set"""
@@ -149,7 +149,7 @@ def dashboard_tab():
             counts = d.get_counts()
             info(
                 f"Completed: '{self._tooltip}'",
-                caption=", ".join(f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")),
+                caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
             )
             synth_format.export_clipboard(d, realign_start=sw_realign.value)
 
