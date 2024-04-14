@@ -175,5 +175,3 @@ class MapScene(ui.scene):
                             ).material(
                                 color, settings.rail.opacity
                             )
-
-
