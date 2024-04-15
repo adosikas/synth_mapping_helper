@@ -225,7 +225,8 @@ def wall_art_tab():
                 w = movement.offset(w, self.offset)
                 new_walls[w[0,2]] = w
                 new_sources |= {w[0,2]}
-            walls |= new_walls
+            for _, w in sorted(new_walls.items()):
+                _insert_wall(w, displace_forward=self.offset[2]>0)
             _soft_refresh()
             self.select(new_sources, "set")
 
@@ -299,6 +300,9 @@ def wall_art_tab():
                     undo.undo()
                 elif key_name == "Y":
                     undo.redo()
+                elif e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
+                    wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number]
+                    _spawn_wall(wall_type=wall_type, change_selection=True, extend_selection=e.modifiers.shift)
             elif e.key.escape:
                 selection.select(set(), "set")
             elif key_name == "T":
@@ -318,10 +322,7 @@ def wall_art_tab():
                 _open_blend_dialog()
             elif e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
                 wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number]
-                new_t = _find_free_slot(max(selection.sources, default=0.0))
-                _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
-                _soft_refresh()
-                selection.select({new_t}, mode="set" if not e.modifiers.shift else "toggle")
+                _spawn_wall(wall_type=wall_type, change_selection=False, extend_selection=e.modifiers.shift)
             elif key_name == "E":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
@@ -330,7 +331,7 @@ def wall_art_tab():
                     selection.select({ordered_keys[0]}, mode="set")
                 elif max(selection.sources) in ordered_keys[:-1]:
                     selection.select({ordered_keys[ordered_keys.index(max(selection.sources))+1]}, mode="set" if not e.modifiers.shift else "expand")
-            elif key_name == "E":
+            elif key_name == "Q":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
                     return
@@ -355,7 +356,7 @@ def wall_art_tab():
             elif key_name in "WS":
                 selection.mirror(horizontal=(key_name=="S"))
         except ParseInputError as pie:
-            error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
+            error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
             return
     keyboard = ui.keyboard(on_key=_on_key)
     # dummy checkbox to bind keyboard enable state
@@ -365,10 +366,13 @@ def wall_art_tab():
             with ui.row():
                 ui.label("Axis:").classes("my-auto")
                 with ui.toggle({False: "X&Y", True: "Time"}, value=False).props('color="grey-7" rounded dense').classes("my-auto") as axis_z:
-                    ui.tooltip("Change movement axis (T)")
+                    ui.tooltip("(T) Change movement axis")
                 ui.label("Copy:").classes("my-auto")
                 with ui.switch().props("dense").classes("my-auto") as copy:
-                    ui.tooltip("Copy to next free slot instead of moving (C). Makes selection look weird.")
+                    ui.tooltip("(C) Copy to next free slot instead of moving. Makes selection look weird.")
+                ui.label("Displace:").classes("my-auto")
+                with ui.switch().props("dense").classes("my-auto") as displace:
+                    ui.tooltip("Displace existing walls when moving in time instead of replacing them.")
                 time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding and moving walls via (page-up)/(page-down)")
                 offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for offsetting when pressing (arrow keys)")
                 angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Rotation when pressing (A)/(D)")
@@ -405,13 +409,39 @@ def wall_art_tab():
             while t in walls:
                 t = np.round(t/time_step.parsed_value + 1)*time_step.parsed_value
             return t
-        def _insert_wall(w: "np.array (1,5)"):
-            undo.push_undo(f"add {synth_format.WALL_LOOKUP[w[0,3]]}")
+
+        def _insert_wall(w: "np.array (1,5)", displace_forward: bool = False):
+            if not displace.value:
+                walls[w[0,2]] = w
+                return
             pending = w
+            displace_dir = -1 if displace_forward else 1
             while pending[0,2] in walls:
                 walls[pending[0,2]], pending = pending, walls[pending[0,2]]
-                pending[0,2] = np.round(pending[0,2]/time_step.parsed_value + 1)*time_step.parsed_value
+                pending[0,2] = np.round(pending[0,2]/time_step.parsed_value + displace_dir)*time_step.parsed_value
             walls[pending[0,2]] = pending
+
+        def _spawn_wall(wall_type: int, change_selection: bool = False, extend_selection: bool = False):
+            if change_selection:
+                if not selection.sources:
+                    return
+                undo.push_undo(f"change {len(selection.sources)} walls to {synth_format.WALL_LOOKUP[wall_type]}")
+                for s in selection.sources:
+                    walls[s] = np.array([[0.0,0.0,s, wall_type,0.0]])
+                _soft_refresh()
+                selection.select(set(), "toggle")
+            else:
+                undo.push_undo(f"add {synth_format.WALL_LOOKUP[wall_type]}")
+                try:
+                    new_t = 0.0 if not selection.sources else max(selection.sources) + time_step.parsed_value
+                    if not displace.value:
+                        new_t = _find_free_slot(max(selection.sources, default=0.0))
+                    _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
+                    _soft_refresh()
+                    selection.select({new_t}, mode="set" if not extend_selection else "toggle")
+                except ParseInputError as pie:
+                    error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
+                    return
 
         def _soft_refresh():
             nonlocal refimg_obj
@@ -504,7 +534,7 @@ def wall_art_tab():
                         |CTRL+🇻|Add walls from clipboard (overrides existing)|
                         |CTRL+🇿|Undo last operation|
                         |CTRL+🇾|Redo last operation|
-                        |🇪/🇶|Next or previous Wall (SHIFT: Expand selection)|
+                        |🇶/🇪|Select previous/next Wall (SHIFT: Expand selection)|
                         |🇹|Change Axis between X/Y and Time|
                         |🇨|Toggle Copy (Makes selection look weird)|
                         |🇷|Compress all walls to timestep|
@@ -515,7 +545,8 @@ def wall_art_tab():
 
                         |Key|Function|
                         |-|-|
-                        |1️⃣-8️⃣|Spawn & select wall (SHIFT: Add to selection)|
+                        |1️⃣-8️⃣|Spawn & select wall (SHIFT: Add to current selection)|
+                        |CTRL+1️⃣-8️⃣|Change wall type|
                         |`Del`/Backspace|Delete selection|
                         |🇦/🇩|Rotate by step (SHIFT: 90 degree)|
                         |🇼|Mirror on Y axis (up-down)|
@@ -626,13 +657,11 @@ def wall_art_tab():
                 with ui.button(icon="delete", color="negative", on_click=selection.delete).style("width: 36px").bind_enabled_from(selection, "sources", backward=bool):
                     ui.tooltip("Delete selection (Delete/Backspace)")
                 for k, (i, t) in enumerate(sorted(synth_format.WALL_LOOKUP.items())):
-                    def _add_wall(*_, wall_type=i):  # python closure doesn't work as needed here, so enclose i as default param instead
-                        new_t = _find_free_slot(max(selection.sources, default=0.0))
-                        _insert_wall(np.array([[0.0,0.0,new_t, wall_type,0.0]]))
-                        _soft_refresh()
-                        selection.select({new_t}, "set")
-                    with ui.button(color="positive", on_click=_add_wall).classes("p-2"):
-                        ui.tooltip(f"Spawn '{t}' wall after selection ({k})")
+                    def _add_wall(e: events.GenericEventArguments, wall_type=i):
+                        # python closure doesn't work as needed here, so enclose i as default param instead
+                        _spawn_wall(wall_type=wall_type, change_selection=e.args["ctrlKey"], extend_selection=e.args["shiftKey"])
+                    with ui.button(color="positive").on("click", _add_wall).classes("p-2"):
+                        ui.tooltip(f"({k}) Spawn '{t}' wall (after selection), hold CTRL to change wall type instead")
                         v = synth_format.WALL_VERTS[t]
                         # draw wall vertices as svg
                         content = f'''
