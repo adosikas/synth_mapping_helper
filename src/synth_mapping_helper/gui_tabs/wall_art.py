@@ -257,6 +257,25 @@ def wall_art_tab():
                 w = movement.offset(w, self.offset)
                 new_walls[w[0,2]] = w
                 new_sources |= {w[0,2]}
+
+            try:
+                sym_ops: list[str|int] = []
+                if mirror_x.value:
+                    sym_ops.append("mirror_x")
+                if mirror_y.value:
+                    sym_ops.append("mirror_y")
+                if rotsym_direction.value is not None:
+                    rsym = rotsym.value * (-1 if rotsym_direction.value else 1)
+                    if rotate_first.value:
+                        sym_ops.insert(0, int(rsym))
+                    else:
+                        sym_ops.append(int(rsym))
+                sym_interval = symmetry_step.parsed_value
+                new_walls |= pattern_generation.generate_symmetry(new_walls, sym_ops, sym_interval)
+            except ParseInputError as pie:
+                error(f"Error parsing symmetry setting: {pie.input_id}", pie, data=pie.value)
+                # continue anyway
+                
             for _, w in sorted(new_walls.items()):
                 _insert_wall(w, displace_forward=self.offset[2]>0)
             _soft_refresh()
@@ -282,7 +301,7 @@ def wall_art_tab():
                         e = preview_scene.wall_extrusion(relative, preview_settings.wall.size * time_scale.parsed_value)
                         offset = movement.rotate(w-pivot, 180-pivot[0,4])
                         e.move(offset[0,0], offset[0,1], -(w[0,2]-pivot[0,2])*time_scale.parsed_value).rotate(0,0,np.deg2rad(w[0,4]-pivot[0,4]))
-                        if copy.value:
+                        if self.copy:
                             e.material(copy_color.value, copy_opacity.parsed_value/2)
                         else:
                             e.material(move_color.value, move_opacity.parsed_value/2)
@@ -395,6 +414,20 @@ def wall_art_tab():
                 time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
                 offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
                 angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
+            with ui.expansion("Symmetry", icon="flip").props("dense"):
+                with ui.row():
+                    symmetry_step = SMHInput("Interval", "1/4", "symmetry_step", suffix="b", tooltip="Time step for symmetry copies")
+                    rotate_first = LargeSwitch("rotate_first", "Mirror or rotate first", color="secondary", icon_unchecked="flip", icon_checked="rotate_left")
+                    ui.separator().props("vertical")
+                    mirror_x = LargeSwitch("mirror_x", "Mirror across X axis, ie left-right", color="negative", icon_unchecked="align_horizontal_left", icon_checked="align_horizontal_center")
+                    mirror_y = LargeSwitch("mirror_y", "Mirror across Y axis, ie up-down", color="positive", icon_unchecked="align_vertical_bottom", icon_checked="align_vertical_center")
+                with ui.row():
+                    ui.label("Rotation: ").classes("my-auto")
+                    rotsym_direction = LargeSwitch("rotsym_direction", "Rotation direction", color="secondary", icon_unchecked="rotate_left", icon_checked="rotate_right").props('toggle-indeterminate indeterminate-icon="cancel"')
+                    with ui.row():
+                        ui.tooltip("Number of rotational symmetry. Note that mirror in both X and Y overlaps with even symmetries, ie 2x/4x/etc")
+                        rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-28").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
+                        ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}")
             with ui.expansion("Preview setttings", icon="palette").props("dense"):
                 sp = SettingsPanel()
                 ui.separator()

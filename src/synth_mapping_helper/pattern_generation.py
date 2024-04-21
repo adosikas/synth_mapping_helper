@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 
 from .synth_format import DataContainer, WALLS, WALL_LOOKUP, WALL_SYMMETRY
@@ -143,3 +145,27 @@ def blend_walls_multiple(patterns: list["numpy array (n, 5)"], interval: float, 
     for first, second in zip(patterns[:-1], patterns[1:]):
         out_walls |= blend_wall_single(first, second, interval=interval, with_symmetry=with_symmetry)
     return out_walls
+
+def generate_symmetry(source: dict[str, "numpy array (n, 5)"], operations: list[Literal["mirror_x", "mirror_y"]|int], interval: float, pivot_3d: "numpy_array (3)" = np.zeros((3,))) -> dict[str, "numpy array (n, 5)"]:
+    out = source.copy()
+    offset = np.array([0.0,0.0,interval,0.0,0.0])
+    counter = 1
+    for o in operations:
+        new_out = out.copy()
+        if o in ("mirror_x", "mirror_y"):
+            scale = np.array([-1.0,1.0,1.0]) if o=="mirror_x" else np.array([1.0,-1.0,1.0])
+            for _, v in sorted(out.items()):
+                v = movement.scale_from(v, scale, pivot_3d=pivot_3d) + offset*counter
+                new_out[v[0,2]] = v
+            counter += 1
+        elif isinstance(o, int):
+            for _, v in sorted(out.items()):
+                ang = 360 / o
+                for r in range(1,abs(o)):
+                    vrot = movement.rotate_around(v, ang*r, pivot_3d=pivot_3d) + offset*counter*r
+                    new_out[vrot[0,2]] = vrot
+            counter += (abs(o)-1)
+        else:
+            raise ValueError(f"Unknown symmetry operation {o!r}")
+        out = new_out
+    return out
