@@ -131,20 +131,23 @@ def pretty_time_delta(seconds: float) -> str:
     seconds = abs(seconds)
     if seconds < 1:
         return f"{seconds*1000:.0f} ms"
-    if seconds < 60:
-        return f"{seconds:.0f} seconds"
-    if seconds < 3600:
-        return f"{seconds//60} minutes"
-    if seconds < 24*3600:
-        return f"{seconds//3600} hours"
-    days = seconds // (24*3600)
-    if days < 7:
-        return f"{days} days"
-    if days < 30:
-        return f"{days//7} weeks"
-    if days < 365:
-        return f"{days//30} months"
-    return f"{days//365} years"
+    units = {
+        "second": 60,
+        "minute": 60,
+        "hour": 24,
+        "day": 7,
+        "week": 30/7,
+        "month": 365/30,
+        "year": 1000,
+    }
+    value = seconds
+    for unit, next_unit in units.items():
+        if value < next_unit:
+            # add 's' if value rounds to 2 or more
+            return f"{value:.0f} {unit}{'s' if value >= 1.5 else ''}"
+        value = value / next_unit
+    return "a really long time"
+
 
 def pretty_list(data: list[Any]) -> str:
     if not data:

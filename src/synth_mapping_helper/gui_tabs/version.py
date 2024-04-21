@@ -2,9 +2,11 @@ import datetime
 
 from nicegui import app, ui
 import requests
+import logging
 
 from .utils import error
 from .. import __version__
+from ..utils import pretty_time_delta
 
 releases = None
 
@@ -19,19 +21,25 @@ def version_tab():
             for r in releases[:10]:
                 try:
                     time_delta = now - datetime.datetime.fromisoformat(r["created_at"]).replace(tzinfo=datetime.timezone.utc)
-                    time_delta_str = f"{time_delta.days} day{'' if time_delta.days==1 else 's'}" if time_delta.days else f"{time_delta.seconds//3600} hour{'' if time_delta.seconds//3600==1 else 's'}"
+                    name = r["name"]
                     v = r["tag_name"][1:]
-                    color = "positive" if new else "dark"
+                    url = r["html_url"]
+                    body = r["body"]
+                except:
+                    ui.label("Error parsing version information")
+                else:
+                    color = "positive" if new else "auto"
                     icon = "stars" if new else "check_circle"
                     if v == __version__:
                         color = "primary"
                         icon = "play_circle"
                         new = False
-                    with ui.expansion(f'{r["name"]} ({time_delta_str} ago)', icon=icon).props(f'group="ver_hist" header-class="bg-{color}"').classes("textcolor-red"):
-                        ui.link(r["html_url"], target=r["html_url"], new_tab=True) 
-                        ui.markdown(r["body"])
-                except:
-                    ui.label("Error parsing version information")
+                    with ui.expansion(f'{name} ({pretty_time_delta(time_delta.total_seconds())} ago)', icon=icon).props(f'group="ver_hist" header-class="bg-{color} w-auto"'):
+                        with ui.row():
+                            ui.label("Github link:")
+                            ui.link(url, target=url, new_tab=True) 
+                        with ui.card().props("bordered"):
+                            ui.markdown()
         elif releases is not None:
             with ui.row():
                 ui.spinner()
@@ -65,7 +73,7 @@ def version_tab():
             release_list.refresh()
             error("Requesting version information from github.com failed", exc)
 
-    with ui.card():
+    with ui.card().classes("w-full"):
         release_list()
 
     with ui.row():

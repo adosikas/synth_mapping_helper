@@ -68,8 +68,8 @@ def create_parallel(data: DataContainer, distance: float) -> None:
     data.single = {}
     data.both = {}
 
-def find_wall_patterns(walls: WALLS) -> tuple[int, int]:
-    """try to find repeating "patterns" with identical wall type and timing"""
+def find_wall_patterns(walls: WALLS) -> list[tuple[int, int, float]]:
+    """try to find repeating "patterns" with identical wall type and timing, returns wall count per pattern, pattern count and pattern length for all possible candidates"""
     wall_count = len(walls)
     if wall_count < 2:
         raise ValueError("Need at least two walls to find repeating patterns")
@@ -89,11 +89,14 @@ def find_wall_patterns(walls: WALLS) -> tuple[int, int]:
         raise ValueError(f"Could not find any wall type pattern that repeats consistently")
     # finally check times
     wall_times = np.array([w[0,2] for _, w in sorted(walls.items())])
+    out = []
     for walls_per_pattern in reversed(matching_types):  # start with the largest candidate
         reshaped = wall_times.reshape((-1, walls_per_pattern)).copy()
         reshaped -= reshaped[:,0,np.newaxis]
         if np.allclose(reshaped[0], reshaped):
-            return walls_per_pattern, wall_count // walls_per_pattern
+            out.append((walls_per_pattern, wall_count//walls_per_pattern, reshaped[0,-1]-reshaped[0,0]))
+    if out:
+        return out
     raise ValueError(f"Could not find any pattern of type AND timing that repeats consistently")
 
 def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)", interval: float, with_symmetry: bool=True) -> dict[str, "numpy array (1, 5)"]:

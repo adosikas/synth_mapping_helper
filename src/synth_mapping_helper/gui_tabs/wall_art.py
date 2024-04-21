@@ -45,6 +45,14 @@ class SMHInput(ui.input):
         except ValueError as ve:
             raise ParseInputError(self.storage_id, self.value) from ve
 
+class LargeSwitch(ui.switch):
+    def __init__(self, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None):
+        super().__init__()
+        self.bind_value(app.storage.user, f"wall_art_{storage_id}")
+        self.classes("my-auto")
+        self.props(f'dense size="xl" color="{color}" keep-color' + (f' unchecked-icon="{icon_unchecked}"' if icon_unchecked is not None else '') + (f' checked-icon="{icon_checked}"' if icon_checked is not None else ''))
+        self.tooltip(tooltip)
+
 @app.get("/image_proxy")
 def image_proxy(url:str):
     r = requests.get(url)
@@ -110,6 +118,7 @@ def wall_art_tab():
         offset: "np.array (3)" = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
         mirrored: bool = False
         rotation: float = 0.0
+        copy: bool = False
 
         def clear(self):
             self.sources = set()
@@ -160,43 +169,60 @@ def wall_art_tab():
             # else: leave new_sources as is
             self.clear()
             self.sources = new_sources
-            if self.sources:
-                if copy.value:
-                    first = min(self.sources)
-                    self.offset += [0,0,_find_free_slot(first)-first]
+            self._update_cursors()
+
+        def _update_cursors(self):
+            if not self.sources:
+                return
+            first = min(self.sources)
+            copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if self.copy else 0.0
+            if self.drag_time is None:
+                # re-create cursors
+                for c in self.cursors.values():
+                    c.delete()
                 preview_settings = sp.parse_settings()
                 with preview_scene:
+                    pivot_3d = walls[first][0,:3]
+                    scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
                     for t in self.sources:
-                        e = preview_scene.wall_extrusion(walls[t] + [*self.offset, 0.0, 0.0], preview_settings.wall.size * time_scale.parsed_value).draggable()
-                        if copy.value:
+                        w = walls[t] + copy_offset
+                        w = movement.rotate_around(w, self.rotation, pivot_3d)
+                        w = movement.scale_from(w, scale_3d, pivot_3d)
+                        w = movement.offset(w, self.offset)
+                        e = preview_scene.wall_extrusion(w, preview_settings.wall.size * time_scale.parsed_value).draggable()
+                        if self.copy:
                             e.material(copy_color.value, copy_opacity.parsed_value)
                         else:
                             e.material(move_color.value, move_opacity.parsed_value)
                         self.cursors[t] = e
-
-        def _update_cursors(self):
-            pivot = walls[self.drag_time if self.drag_time is not None else min(self.sources)]
-            for t, c in ([(self.drag_time, self.cursors[self.drag_time])] if self.drag_time is not None else self.cursors.items()):
-                xyt = pivot[0,:3]+movement.rotate((walls[t]-pivot)[0,:3], self.rotation)*[1, -1 if self.mirrored else 1,1]+self.offset
-                c.move(xyt[0], xyt[2]*time_scale.parsed_value, xyt[1])
+                preview_scene.props('drag_constraints=""')
+            else:
+                w = walls[self.drag_time][0] + copy_offset
+                scene_pos = preview_scene.to_scene(w[:3] + self.offset)
+                # move cursor
+                cur = self.cursors[self.drag_time]
+                cur.move(*scene_pos)
+                rot = w[4]+self.rotation
                 if self.mirrored:
-                    # couldn't figure out how to change the verts, so just mirror by scaling
-                    c.scale(1, -1, 1)
-                    c.rotate(np.deg2rad(90), np.deg2rad(180 + (walls[t][0,4]+self.rotation)), 0)
-
+                    cur.scale(1,-1,1)
+                    cur.rotate(np.deg2rad(90), np.deg2rad(180 + rot), 0)
                 else:
-                    c.scale(1, 1, 1)
-                    c.rotate(np.deg2rad(90), np.deg2rad(180 - (walls[t][0,4]+self.rotation)), 0)
-
-            if selection.drag_time is not None:
+                    cur.scale(1,1,1)
+                    cur.rotate(np.deg2rad(90), np.deg2rad(180 - rot), 0)
+                # update drag constraints
                 if axis_z.value:
-                    x, y = walls[selection.drag_time][0,:2]+selection.offset[:2]
-                    preview_scene.props(f'drag_constraints="x={x},z={y},y=Math.round(y/({time_step.parsed_value*time_scale.parsed_value}))*({time_step.parsed_value*time_scale.parsed_value})"')
+                    scene_time_step = time_step.parsed_value*time_scale.parsed_value
+                    preview_scene.props(f'drag_constraints="x={scene_pos[0]},z={scene_pos[2]},y=Math.round(y/({scene_time_step}))*({scene_time_step})"')
                 else:
-                    t = (_find_free_slot(selection.drag_time + selection.offset[2]) if copy.value else selection.drag_time + selection.offset[2])
-                    preview_scene.props(f'drag_constraints="y={t*time_scale.parsed_value}"')
+                    preview_scene.props(f'drag_constraints="y={scene_pos[1]}"')
+            
+            for c in self.cursors.values():
+                if self.copy:
+                    c.material(copy_color.value, copy_opacity.parsed_value)
+                else:
+                    c.material(move_color.value, move_opacity.parsed_value)
 
-        def move(self, offset: "numpy array (4)"):
+        def move(self, offset: "numpy array (3)"):
             self.offset += offset
             self._update_cursors()
 
@@ -210,16 +236,22 @@ def wall_art_tab():
                 self.rotation += 180
             self._update_cursors()
 
+        def set_copy(self, copy: bool):
+            self.copy = copy
+            self._update_cursors()
+
         def apply(self):
             nonlocal walls
-            ops = [l for v, l in [(copy.value, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
+            ops = [l for v, l in [(self.copy, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
             undo.push_undo(f"{pretty_list(ops)} {len(self.sources)} walls")
-            pivot_3d = walls[self.drag_time if self.drag_time is not None else min(self.sources)][0,:3]
+            first = min(self.sources)
+            copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if self.copy else 0.0
+            pivot_3d = walls[self.drag_time if self.drag_time is not None else first][0,:3]
             scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
             new_sources = set()
             new_walls = {}
             for t in sorted(self.sources):
-                w = walls[t] if copy.value else walls.pop(t)
+                w = walls[t]+copy_offset if self.copy else walls.pop(t)
                 w = movement.rotate_around(w, self.rotation, pivot_3d)
                 w = movement.scale_from(w, scale_3d, pivot_3d)
                 w = movement.offset(w, self.offset)
@@ -264,12 +296,25 @@ def wall_art_tab():
     selection = Selection()
 
     def _on_key(e: events.KeyEventArguments) -> None:
+        if e.key.control:
+            selection.set_copy(e.action.keydown)
         if not e.action.keydown:
             return
         try:
             # note: don't use key.code, as that doesn't account for keyboard layout
             key_name = e.key.name.upper()  # key.name is upper/lowercase depending on shift
-            if e.modifiers.ctrl:
+            # CTRL-independent
+            if e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
+                wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number-1]
+                _spawn_wall(wall_type=wall_type, change_selection=e.modifiers.ctrl, extend_selection=e.modifiers.shift)
+            elif e.key.is_cursorkey:
+                selection.move(np.array([(e.key.arrow_right-e.key.arrow_left),(e.key.arrow_up-e.key.arrow_down),0.0])*offset_step.parsed_value)
+            elif e.key.page_up or e.key.page_down:
+                selection.move(np.array([0.0,0.0,(e.key.page_up-e.key.page_down)*time_step.parsed_value])*offset_step.parsed_value)
+            elif e.key.enter or e.key.space:
+                selection.apply()
+            # CTRL: Yes
+            elif e.modifiers.ctrl:
                 if key_name == "A":
                     # select all
                     selection.select(set(walls), mode="set")
@@ -300,29 +345,16 @@ def wall_art_tab():
                     undo.undo()
                 elif key_name == "Y":
                     undo.redo()
-                elif e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
-                    wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number]
-                    _spawn_wall(wall_type=wall_type, change_selection=True, extend_selection=e.modifiers.shift)
+            # CTRL: No
             elif e.key.escape:
                 selection.select(set(), "set")
             elif key_name == "T":
                 axis_z.value = not axis_z.value
                 selection.select(set(), "toggle")
-            elif key_name == "C":
-                copy.value = not copy.value
-                for c in selection.cursors.values():
-                    if copy.value:
-                        c.material(copy_color.value, copy_opacity.parsed_value)
-                    else:
-                        c.material(move_color.value, move_opacity.parsed_value)
-                selection.select(set(), "toggle")
             elif key_name == "R":
                 _compress()
             elif key_name == "B":
                 _open_blend_dialog()
-            elif e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
-                wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number]
-                _spawn_wall(wall_type=wall_type, change_selection=False, extend_selection=e.modifiers.shift)
             elif key_name == "E":
                 ordered_keys = sorted(walls)
                 if not ordered_keys:
@@ -343,12 +375,6 @@ def wall_art_tab():
                 return
             elif e.key.delete or e.key.backspace:
                 selection.delete()
-            elif e.key.enter or e.key.space:
-                selection.apply()
-            elif e.key.is_cursorkey:
-                selection.move(np.array([(e.key.arrow_right-e.key.arrow_left),(e.key.arrow_up-e.key.arrow_down),0.0])*offset_step.parsed_value)
-            elif e.key.page_up or e.key.page_down:
-                selection.move(np.array([0.0,0.0,(e.key.page_up-e.key.page_down)*time_step.parsed_value])*offset_step.parsed_value)
             elif key_name == "D":
                 selection.rotate(-(angle_step.parsed_value if not e.modifiers.shift else 90.0))
             elif key_name == "A":
@@ -358,24 +384,17 @@ def wall_art_tab():
         except ParseInputError as pie:
             error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
             return
-    keyboard = ui.keyboard(on_key=_on_key)
+    keyboard = ui.keyboard(on_key=_on_key, ignore=['input', 'select', 'button', 'textarea', "switch"])
     # dummy checkbox to bind keyboard enable state
     kb_enable = ui.checkbox(value=False).style("display:none").bind_enabled_to(keyboard, "active").bind_value_from(app.storage.user, "active_tab", backward=lambda v: v=="Wall Art")
     with ui.card():
         with ui.row():
             with ui.row():
-                ui.label("Axis:").classes("my-auto")
-                with ui.toggle({False: "X&Y", True: "Time"}, value=False).props('color="grey-7" rounded dense').classes("my-auto") as axis_z:
-                    ui.tooltip("(T) Change movement axis")
-                ui.label("Copy:").classes("my-auto")
-                with ui.switch().props("dense").classes("my-auto") as copy:
-                    ui.tooltip("(C) Copy to next free slot instead of moving. Makes selection look weird.")
-                ui.label("Displace:").classes("my-auto")
-                with ui.switch().props("dense").classes("my-auto") as displace:
-                    ui.tooltip("Displace existing walls when moving in time instead of replacing them.")
-                time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding and moving walls via (page-up)/(page-down)")
-                offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for offsetting when pressing (arrow keys)")
-                angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Rotation when pressing (A)/(D)")
+                axis_z = LargeSwitch("axis", "(T) Change movement axis between X/Y and Time", color="info", icon_unchecked="open_with", icon_checked="schedule")
+                displace = LargeSwitch("displace", "Displace existing walls when moving in time instead of replacing them.", color="warning", icon_unchecked="cancel", icon_checked="move_up")
+                time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
+                offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
+                angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
             with ui.expansion("Preview setttings", icon="palette").props("dense"):
                 sp = SettingsPanel()
                 ui.separator()
@@ -518,11 +537,11 @@ def wall_art_tab():
                         ui.icon("warning", size="xl").classes("my-auto")
                     ui.markdown("""
                         ## Camera
-                        Use left mouse to rotate the camera, right mouse (or left mouse and SHIFT or CTRL) to move. Scroll wheel zooms.  
+                        Use left mouse to rotate the camera, right mouse to move. Scroll wheel zooms.  
                         To turn the camera *without* deselecting, hold down ALT.
 
-                        Click on a wall to select it. Multiple walls can be selected by CTRL-Click (add/remove), or SHIFT-Click (expand selection to clicked wall).
-                        Then drag it around using left mouse and/or use one of the edit keys below.
+                        Click on a wall to select it. Multiple walls can be selected by CTRL-Click (to add), or SHIFT-Click (expand selection to clicked wall).
+                        Then drag it around using left mouse and/or use one of the edit keys below. Holding CTRL copies to the next free slot instead of moving.
 
                         ## General
                         |Key|Function|
@@ -536,7 +555,6 @@ def wall_art_tab():
                         |CTRL+🇾|Redo last operation|
                         |🇶/🇪|Select previous/next Wall (SHIFT: Expand selection)|
                         |🇹|Change Axis between X/Y and Time|
-                        |🇨|Toggle Copy (Makes selection look weird)|
                         |🇷|Compress all walls to timestep|
                         |🇧|Open Blender|
 
@@ -553,7 +571,7 @@ def wall_art_tab():
                         |🇸|Mirror on X axis (left-right)|
                         |⬅️➡️⬆️⬇️|Offset X/Y|
                         |Page Up/Down|Offset Time|
-                        |Enter/Space|Apply|
+                        |Enter/Space|Apply (CTRL: Copy to next free slot)|
                     """)
                 with ui.button(icon="keyboard", on_click=key_dialog.open, color="info").classes("cursor-help").style("width: 36px"):
                     ui.tooltip("Show controls")
@@ -589,6 +607,7 @@ def wall_art_tab():
                     undo.push_undo("compress")
                     new_sources = set()
                     for i, (t, w) in enumerate(sorted(walls.items())):
+                        w = w.copy()
                         del walls[t]
                         w[...,2] = i * time_step.parsed_value
                         walls[w[0,2]] = w
@@ -601,36 +620,55 @@ def wall_art_tab():
                     ui.tooltip("Compress wall spacing to time step (effects all walls)")
                 with ui.dialog() as blend_dialog, ui.card():
                     ui.label("Blend between patterns")
-                    with ui.row():
-                        blend_wallcount = SMHInput("Walls", 0, "blend_wallcount", "Walls per pattern. Can be -1 if pattern count is set")
-                        blend_patterncount = SMHInput("Patterns", 0, "blend_patterncount", "Number of patterns to blend between. Can be -1 if wall count is set")
+                    blend_pattern = ui.select({}, label="Choose a detected pattern:")
+                    # >1 option: show selector
+                    blend_pattern.bind_visibility_from(blend_pattern, "options", backward=lambda opts: len(opts)!=1)
+                    # 1 option: show just text
+                    ui.label("").bind_visibility_from(blend_pattern, "options", backward=lambda opts: len(opts)==1).bind_text_from(
+                        blend_pattern, "options", backward=lambda opts: "Detected: " + next(iter(opts.values())) if opts else ""
+                    )
                     with ui.row():
                         blend_interval = SMHInput("Interval", "1/2", "blend_interval", "Interval between blending steps", suffix="b")
                         def _do_blend():
                             nonlocal walls
+                            wc, pc, pl = blend_pattern.value
+                            if len(walls) != wc*pc:
+                                error(f"Wall count changed! Expected {pc*wc}, found {len(walls)}", data=walls)
+                                return
                             try:
-                                patterns = np.array([w[0] for _, w in sorted(walls.items())]).reshape((int(blend_patterncount.parsed_value), int(blend_wallcount.parsed_value), 5))
+                                patterns = np.array([w[0] for _, w in sorted(walls.items())]).reshape((pc, wc, 5))
                                 interval = blend_interval.parsed_value
-                            except ParseInputError as pie:
-                                error(f"Error parsing blend inputs: {pie.input_id}", pie, data=pie.value)
-                                return
                             except ValueError as ve:
-                                error(f"Could not split up {len(walls)} walls into {blend_patterncount.parsed_value} patterns with {blend_wallcount.parsed_value} walls each", ve, data=walls)
+                                error(f"Could not split up {len(walls)} walls into {pc} patterns with {wc} wall{'s'*(wc!=1)} each", ve, data=walls)
                                 return
-                            max_pattern_delta = np.max(np.diff(patterns[:,0,2]))
-                            if max_pattern_delta <= interval:
-                                error(f"Blend interval ({pretty_fraction(interval)}b) must be greater than largest pattern distance ({pretty_fraction(max_pattern_delta)}b), else blending will do nothing.", data=walls)
+                            pattern_deltas = np.diff(patterns[:,0,2])
+                            if pattern_deltas.max() <= interval:
+                                error(
+                                    f"Blend interval ({pretty_fraction(interval)}b) must be greater than largest pattern distance ({pretty_fraction(pattern_deltas.max())}b), else blending will do nothing.",
+                                    data=walls,
+                                )
                                 return
-                            small_deltas = np.sum(np.diff(patterns[:,0,2]) < interval)  # equal is a "regular" usecase, ie when re-blending some parts
+
+                            if interval <= pl:
+                                ui.notify(
+                                    f"Blend interval ({pretty_fraction(interval)}b) is shorter than pattern length ({pretty_fraction(pl)}b), leading to overlaps. This may result in strange results.",
+                                    type="warning",
+                                )
+
+                            small_deltas = np.sum(pattern_deltas < interval)  # equal is a "regular" usecase, ie when re-blending some parts
                             if small_deltas: 
-                                ui.notify(f"Blend interval ({pretty_fraction(interval)}b) is smaller than {small_deltas} of {patterns.shape[0]-1} pattern distances. Blending will do nothing between these.", type="warning")
+                                ui.notify(
+                                    f"Blend interval ({pretty_fraction(interval)}b) is smaller than {small_deltas} of {patterns.shape[0]-1} pattern distances. Blending will do nothing between these.",
+                                    type="warning"
+                                )
                             undo.push_undo("blend")
                             try:
                                 walls |= pattern_generation.blend_walls_multiple(patterns, interval=interval)
                             except ValueError as ve:
                                 error("Error blending walls", ve, data=walls)
                                 return
-                            ui.notify(f"Created {len(walls)//patterns.shape[1] - patterns.shape[0]} additional patterns between the existing {patterns.shape[0]}", type="info")
+                            added = len(walls)//patterns.shape[1] - patterns.shape[0]
+                            ui.notify(f"Created {added} additional pattern{'s'*(added!=1)} between the existing {patterns.shape[0]}", type="info")
                             _soft_refresh()
                             blend_dialog.close()
                         ui.button(icon="blender", on_click=_do_blend).props("outline").classes("w-16 h-10")
@@ -638,16 +676,22 @@ def wall_art_tab():
                 def _open_blend_dialog():
                     if len(walls) < 2:
                         error("Need at least two walls to do blending", data=walls)
-                        return
+                        returnc
                     # autodetect patterns
                     try:
-                        wallcount, patterncount = pattern_generation.find_wall_patterns(walls)
+                        detected_patterns = pattern_generation.find_wall_patterns(walls)
                     except ValueError as ve:
                         error(f"Could not detect patterns in walls: {ve}", data=walls)
                         return
                     blend_dialog.open()
-                    blend_wallcount.set_value(str(wallcount))
-                    blend_patterncount.set_value(str(patterncount))
+                    blend_pattern.set_options({
+                        (w, p, l): (
+                            f"{p} patterns, each with {w} walls and {pretty_fraction(l)}b long"
+                            if w != 1 else f"{p} instances of a single wall"
+                        )
+                        for w, p, l in detected_patterns
+                    })
+                    blend_pattern.set_value(detected_patterns[0])
                     blend_interval.update()  # workaround for nicegui#2149
 
                 with ui.button(icon="blender", on_click=_open_blend_dialog, color="info").style("width: 36px"):
@@ -661,7 +705,7 @@ def wall_art_tab():
                         # python closure doesn't work as needed here, so enclose i as default param instead
                         _spawn_wall(wall_type=wall_type, change_selection=e.args["ctrlKey"], extend_selection=e.args["shiftKey"])
                     with ui.button(color="positive").on("click", _add_wall).classes("p-2"):
-                        ui.tooltip(f"({k}) Spawn '{t}' wall (after selection), hold CTRL to change wall type instead")
+                        ui.tooltip(f"({k+1}) Spawn '{t}' wall (after selection), hold CTRL to change wall type instead")
                         v = synth_format.WALL_VERTS[t]
                         # draw wall vertices as svg
                         content = f'''

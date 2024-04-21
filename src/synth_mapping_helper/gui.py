@@ -53,20 +53,21 @@ def entrypoint():
 
     args = parser.parse_args()
 
-    try:
-        resp = requests.get(f"http://{args.host}:{args.port}/version")
-        resp.raise_for_status()
-        print(f"ERROR: {resp.json()} is already running on http://{args.host}:{args.port}")
-        sys.exit(-1)
-    except requests.ConnectionError:
-        # we want an connection error to occur, else there is another instance (or something else) running
-        pass
-    except Exception as e:
-        # unexpected error getting or parsing version
-        print(f"ERROR: Could not check if there is another instance already running on http://{args.host}:{args.port}")
-        print(f"           {e!r}")
-        print("       If this persists after a restart, something else may be using that port and you could add e.g. --port=8181 to change the SMH-GUI port")
-        sys.exit(-1)
+    if not args.dev_mode:
+        try:
+            resp = requests.get(f"http://{args.host}:{args.port}/version")
+            resp.raise_for_status()
+            print(f"ERROR: {resp.json()} is already running on http://{args.host}:{args.port}")
+            sys.exit(-1)
+        except requests.ConnectionError:
+            # we want an connection error to occur, else there is another instance (or something else) running
+            pass
+        except Exception as e:
+            # unexpected error getting or parsing version
+            print(f"ERROR: Could not check if there is another instance already running on http://{args.host}:{args.port}")
+            print(f"           {e!r}")
+            print("       If this persists after a restart, something else may be using that port and you could add e.g. --port=8181 to change the SMH-GUI port")
+            sys.exit(-1)
 
     @ui.page("/")
     def index():
