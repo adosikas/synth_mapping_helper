@@ -148,6 +148,18 @@ def round_tick_for_json_index(time: float) -> float | int:
     if time.is_integer():
         return int(time)
     return round_tick_for_json(time)
+
+# Hacky classes used to trick ZipFile._open_to_write
+class _TrueInt(int):
+    # this makes it think there are already flags, so it doesn't add "permissions: ?rw-------"
+    def __bool__(self):
+        return True
+class _NonAsciiStr(str):
+    # this makes it think the filename is not ascii, so it adds the UTF8 flag
+    def encode(self, encoding: str = None) -> bytes:
+        if encoding == "ascii":
+            raise UnicodeEncodeError(encoding, self, 0, 0, "dummy error to trick ZipFile._open_to_write")
+        return super().encode(encoding=encoding)
     
 
 @dataclasses.dataclass
@@ -366,14 +378,6 @@ class SynthFile:
         out_buffer = output_file if isinstance(output_file, BytesIO) else BytesIO()  # buffer output zip file in memory, only write on success
         in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
         with ZipFile(in_bio) as inzip, ZipFile(out_buffer, "w") as outzip:
-            # copy all content except beatmap json
-            outzip.comment = inzip.comment
-            for info in inzip.infolist():
-                if info.filename == BEATMAP_JSON_FILE:
-                    beatmap_info = info
-                else:
-                    outzip.writestr(info, inzip.read(info.filename))
-
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
             beatmap["BPM"] = self.bpm
             beatmap["Offset"] = self.offset_ms
@@ -416,7 +420,18 @@ class SynthFile:
 
             # write modified beatmap json, in a way that closely mirrors the editor
             beatmap_json = json.dumps(beatmap, indent=2, allow_nan=False)
-            outzip.writestr(beatmap_info, codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
+        
+            # copy all content verbatim except beatmap json
+            outzip.comment = inzip.comment
+            for info in inzip.infolist():
+                # trick write logic to make output work on Quest
+                info.external_attr = _TrueInt(0)
+                info.filename = _NonAsciiStr(info.filename)
+
+                if info.filename == BEATMAP_JSON_FILE:
+                    outzip.writestr(info, codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
+                else:
+                    outzip.writestr(info, inzip.read(info.filename))
         # write output zip
         if isinstance(output_file, BytesIO):
             output_file.seek(0)
