@@ -8,50 +8,7 @@ from nicegui import app, events, ui
 
 from .utils import *
 from ..utils import pretty_list
-from .. import synth_format, movement
-from .. import __version__
-
-density_container = tuple[list[float], list[int], float]
-
-def density(times: list[float], window: float) -> density_container:
-    if not times:
-        return [], [], 0.0
-    out = []
-    visible_t = []
-    c = 0
-    for t in sorted(times):
-        start = t - window
-        while c and visible_t[0] < start:
-            out.append((visible_t[0], c))
-            out.append((visible_t[0], c-1))
-            visible_t = visible_t[1:]
-            c -= 1
-        out.append((start, c))
-        out.append((start, c+1))
-        visible_t.append(t)
-        c += 1
-    while visible_t:
-        out.append((visible_t[0], c))
-        out.append((visible_t[0], c-1))
-        visible_t = visible_t[1:]
-        c -= 1
-    x = [x for x,_ in out]
-    y = [y for _,y in out]
-    # x coords, y coords, maximum y
-    return x, y, max(y)
-
-def wall_mode(highest_density: int, *, combined: bool) -> str:
-    mode = "OK"
-    if combined:
-        if highest_density >= 500:
-            mode = "Quest-Limited"
-        elif highest_density >= 200:
-            mode = "Quest-Wireframe"
-    else:
-        if highest_density >= 80:
-            mode = "PC-Limited"
-
-    return f"{mode}, max {highest_density}"
+from .. import synth_format, movement, analysis, __version__
     
 
 def file_utils_tab():
@@ -179,30 +136,7 @@ def file_utils_tab():
             }).classes("w-full h-auto").on("cellClicked", _stats_notify)
 
             ui.label("Wall density")
-            wall_densities: dict[str, tuple[density_container, ...]] = {
-                d: (
-                    # combined
-                    density(c.walls.keys(), 4*self.data.bpm/60),
-                ) + tuple(
-                    # wall types
-                    density([t for t, w in c.walls.items() if w[0,3] == wall_type], 4*self.data.bpm/60)
-                    for (wall_type, _) in synth_format.WALL_TYPES.values()
-                )
-                for d, c in self.data.difficulties.items()
-            }
             wfig = go.Figure(
-                [
-                    go.Scatter(
-                        x=x, y=y, name=f"{d} ({l}) [{wall_mode(m, combined=(l == 'Combined'))}]",
-                        showlegend=True,
-                        legendgroup=d,
-                        # start with only combined visible and single only when above PC limit
-                        visible=(l == "Combined" or m >= 80) or "legendonly"
-                    )
-                    for d, con in wall_densities.items()
-                    for l, (x, y, m) in zip(("Combined",) + tuple(synth_format.WALL_TYPES), con)
-                    if y
-                ],
                 layout=go.Layout(
                     xaxis=go.layout.XAxis(title="Measure"),
                     yaxis=go.layout.YAxis(title="Visible Walls (4s)"),
@@ -210,58 +144,41 @@ def file_utils_tab():
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
                 ),
             )
-            # show horizontal lines when combined y ([0][1]) is close to or over the limit
-            max_com_d = max(con[0][2] for con in wall_densities.values())
-            if max_com_d >= 180:
-                wfig.add_hline(200, line={"color": "gray"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            if max_com_d >= 450:
-                wfig.add_hline(500, line={"color": "red"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            # show horizontal lines when single y ([0][1]) is over the limit
-            max_single_d = max(max(m for _,_,m in con[1:]) for con in wall_densities.values())
-            if max_single_d >= 80:
-                wfig.add_hline(80, line={"color": "yellow"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            ui.plotly(wfig).classes("w-full h-96")
-
-            # same thing, but for combined notes and rail nodes
-            ui.label("Note & Rail density")
-            note_densities: dict[str, tuple[density_container, ...]] = {
-                d: (
-                    # notes & all rail nodes
-                    density([
-                        n[2]
-                        for ty in synth_format.NOTE_TYPES  # all types
-                        for ns in getattr(c, ty).values()  # all nodes & rails
-                        for n in ns # all rail nodes
-                    ], window=4*self.data.bpm/60),
-                    # notes & rail starts (aka orbs)
-                    density([
-                        ti
-                        for ty in synth_format.NOTE_TYPES  # all types
-                        for ti in getattr(c, ty)  # all nodes & rails
-                    ], window=4*self.data.bpm/60),
-                    # just rail nodes
-                    density([
-                        n[2]
-                        for ty in synth_format.NOTE_TYPES  # all types
-                        for ns in getattr(c, ty).values()  # all nodes & rails
-                        for n in ns[1:] # just rail nodes
-                    ], window=4*self.data.bpm/60),
-                )
+            for t, b in self.data.bookmarks.items():
+                wfig.add_vline(t, line={"color": "lightgray"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+            
+            # difficulty->wall_type
+            wall_densities: dict[str, dict[str, analysis.PlotDataContainer]] = {
+                d: analysis.wall_densities(c)
                 for d, c in self.data.difficulties.items()
             }
+            # show horizontal lines when combined y is close to or over the limit
+            max_com_d = max(den_dict["combined"].max_value for den_dict in wall_densities.values())
+            if max_com_d > 0.9 * analysis.QUEST_WIREFRAME_LIMIT:
+                wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+            if max_com_d > 0.9 * analysis.QUEST_RENDER_LIMIT:
+                wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+            # show horizontal lines when single y is over the limit
+            max_single_d = max(max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined") for den_dict in wall_densities.values())
+            if max_single_d > 0.95 * analysis.PC_TYPE_DESPAWN:
+                wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
+
+            for d, den_dict in wall_densities.items():
+                for wt in ("combined", *synth_format.WALL_TYPES):
+                    pdc = den_dict[wt]
+                    if pdc.max_value:
+                        wfig.add_scatter(
+                            x=pdc.plot_times, y=pdc.plot_values, name=f"{d} ({wt}) [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
+                            showlegend=True,
+                            legendgroup=d,
+                            # start with only combined visible and single only when above PC limit
+                            visible=(wt == "combined" or pdc.max_value > 0.95 * analysis.PC_TYPE_DESPAWN) or "legendonly"
+                        )
+            ui.plotly(wfig).classes("w-full h-96")
+
+            # mostly the same thing, but for combined notes and rail nodes
+            ui.label("Note & Rail density")
             nfig = go.Figure(
-                [
-                    go.Scatter(
-                        x=x, y=y, name=f"{d} ({l}) [max {m}]",
-                        showlegend=True,
-                        legendgroup=d,
-                        # start with only "Combined" visible
-                        visible=(l == "Combined") or "legendonly",
-                    )
-                    for d, con in note_densities.items()
-                    for l, (x, y, m) in zip(("Combined", "Notes & Rail Heads", "Rail Nodes"), con)
-                    if y
-                ],
                 layout=go.Layout(
                     xaxis=go.layout.XAxis(title="Measure"),
                     yaxis=go.layout.YAxis(title="Visible (4s)"),
@@ -269,6 +186,22 @@ def file_utils_tab():
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
                 ),
             )
+            for t, b in self.data.bookmarks.items():
+                nfig.add_vline(t, line={"color": "lightgray"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+
+            for d, c in self.data.difficulties.items():
+                den_dict = analysis.note_densities(c)
+                for nt in ("combined", *synth_format.NOTE_TYPES):
+                    den_subdict = den_dict[nt]
+                    for sub_t, pdc in den_subdict.items():
+                        if pdc.max_value:
+                            nfig.add_scatter(
+                                x=pdc.plot_times, y=pdc.plot_values, name=f"{d} ({nt} {sub_t}s) [max {pdc.max_value}]",
+                                showlegend=True,
+                                legendgroup=f"{d} {nt}",
+                                # start with only combined note visible
+                                visible=(nt == "combined" and sub_t == "note") or "legendonly",
+                            )
             ui.plotly(nfig).classes("w-full h-96")
 
     fi = FileInfo()
