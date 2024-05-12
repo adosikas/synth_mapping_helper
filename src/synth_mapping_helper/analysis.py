@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 
-import numpy as np 
+import numpy as np
 
-from synth_mapping_helper.synth_format import DataContainer, NOTE_TYPES, WALL_TYPES
+from synth_mapping_helper.synth_format import DataContainer, NOTE_TYPES, WALL_TYPES, AudioData
 
 RENDER_WINDOW = 4.0  # the game always renders 4 seconds ahead
 QUEST_WIREFRAME_LIMIT = 200  # combined
@@ -13,14 +14,12 @@ PC_TYPE_DESPAWN = 80  # for each type
 class PlotDataContainer:
     times: list[float]
     plot_data: "numpy array (n, 2)"
-    plot_times: list[float] = field(init=False)
-    plot_values: list[float] = field(init=False)
     max_value: float = field(init=False)
+    plot_times: list[np.datetime64] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.plot_times = list(self.plot_data[:,0])
-        self.plot_values = list(self.plot_data[:,1])
         self.max_value = self.plot_data[:,1].max() if self.plot_data.shape[0] else 0.0
+        self.plot_times = list(map(datetime.utcfromtimestamp, self.plot_data[:,0]))
 
 
 def density(times: list[float], window: float) -> PlotDataContainer:

@@ -2,6 +2,12 @@ from typing import Any, Union
 
 import numpy as np
 
+def beat_to_second(beat: float, bpm: float) -> float:
+    return beat * 60 / bpm
+
+def second_to_beat(second: float, bpm: float) -> float:
+    return second * bpm / 60
+
 def bounded_arange(start: float, end: float, step: float) -> "numpy array (x)":
     # arange would not include the end position, so we intentially overshoot, then correct
     new_times = np.arange(start, end + step, step)
@@ -72,7 +78,7 @@ class SecondFloat:
     def __init__(self, val: float) -> None:
         self.val = val
     def to_beat(self, bpm: float) -> float:
-        return self.val / 60 * bpm
+        return second_to_beat(self.val, bpm)
     def __str__(self) -> str:
         return f"{self.val}s"
     def __repr__(self) -> str:

@@ -155,7 +155,7 @@ def command_tab():
 
     with ui.card():
         with ui.row():
-            with ui.select(list(presets), with_input=True) as preset_selector:
+            with ui.select(list(presets), label="Preset Name", with_input=True).props("dense") as preset_selector:
                 ui.tooltip("Select a preset")
             preset_selector.bind_value(app.storage.user, "command_preset")
             with ui.button(icon="delete", color="red", on_click=remove_dialog.open).classes("my-auto").bind_enabled_from(preset_selector, "value"):
@@ -165,7 +165,7 @@ def command_tab():
             ui.separator().props("vertical")
             with ui.button(icon="save", on_click=save_presets).props("outline").classes("my-auto"):
                 ui.tooltip("Store presets")
-            ui.upload(label="Load from files", auto_upload=True, multiple=True, on_upload=load_commands).props('color="positive" flat').classes("h-10 w-40")
+            ui.upload(label="Import files", auto_upload=True, multiple=True, on_upload=load_commands).props('color="positive" flat').classes("w-40")
             with ui.button(icon="post_add", on_click=restore_presets, color="red").props("outline").classes("my-auto"):
                 ui.tooltip("Restore default presets")
         command_input = ui.textarea("Commands", placeholder="--offset=1,0,0", on_change=lambda e: presets.get(preset_selector.value) == e.value or preset_selector.set_value(None)).props("outlined").classes("w-full")

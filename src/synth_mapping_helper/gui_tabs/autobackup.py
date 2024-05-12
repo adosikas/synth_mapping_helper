@@ -35,7 +35,7 @@ def autobackup_tab():
 
         log.refresh()
 
-    watcher = ui.timer(0, watcher_func, active=False)
+    watcher = ui.timer(60, watcher_func, active=False)
 
     async def pick_dir(e: events.ClickEventArguments) -> None:
         key = "autobackup_workdir" if e.sender == workdir_picker else "autobackup_backupdir"

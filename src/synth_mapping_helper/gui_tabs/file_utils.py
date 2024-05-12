@@ -1,3 +1,4 @@
+import base64
 from io import BytesIO
 import dataclasses
 from typing import Optional
@@ -9,7 +10,7 @@ from nicegui import app, events, ui
 from .utils import *
 from ..utils import pretty_list
 from .. import synth_format, movement, analysis, __version__
-    
+
 
 def file_utils_tab():
     @dataclasses.dataclass
@@ -25,6 +26,14 @@ def file_utils_tab():
         def is_valid(self) -> bool:
             return self.data is not None
 
+        def clear(self) -> None:
+            self.data = None
+            self.output_filename = "No base file selected"
+            self.output_bpm = 0.0
+            self.output_offset = 0.0
+            self.merged_filenames = None
+            self.refresh()
+
         def upload(self, e: events.UploadEventArguments) -> None:
             self.clear()
             self.data = try_load_synth_file(e)
@@ -38,25 +47,42 @@ def file_utils_tab():
             self.merged_filenames = []
 
             e.sender.reset()
-            self.info_card.refresh()
+            self.refresh()
 
         def upload_merge(self, e: events.UploadEventArguments) -> None:
             merge = try_load_synth_file(e)
             if merge is None:
                 return
+            if merge.audio.raw_data != self.data.audio.raw_data:
+                ui.notify("Difference in audio files detected. Merge may yield weird results.", type="warning")
             self.data.merge(merge, merge_bookmarks=merge_bookmarks.value)
             self.merged_filenames.append(e.name)
         
             e.sender.reset()
-            self.info_card.refresh()
+            self.refresh()
 
-        def clear(self) -> None:
-            self.data = None
-            self.output_filename = "No base file selected"
-            self.output_bpm = 0.0
-            self.output_offset = 0.0
-            self.merged_filenames = None
-            self.info_card.refresh()
+        def upload_cover(self, e: events.UploadEventArguments) -> None:
+            if not e.name.lower().endswith(".png"):
+                error("Cover image must be .png")
+                return
+            self.data.meta.cover_data = e.content.read()
+            self.data.meta.cover_name = e.name
+            ui.notify(f"Changed cover image to {e.name}", type="info")
+            self.refresh()
+
+        def upload_audio(self, e: events.UploadEventArguments) -> None:
+            if not e.name.lower().endswith(".ogg"):
+                error("Audio file must be .ogg")
+                return
+            try:
+                new_audio = synth_format.AudioData.from_raw(e.content.read())
+            except ValueError as ve:
+                error("Audio file rejected", exc=ve, data=e.name)
+            else:
+                self.data.audio = new_audio
+                self.data.meta.audio_name = e.name
+                ui.notify(f"Changed audio to {e.name}", type="info")
+                self.refresh()
 
         def save(self) -> None:
             if self.output_bpm != self.data.bpm:
@@ -83,7 +109,7 @@ def file_utils_tab():
                 "SMH-GUI fixed error report:",
                 f"  SMH Version: {__version__}",
                 f"  Base BPM: {self.data.bpm}",
-                f"  Base Offset: {self.data.output_offset}",
+                f"  Base Offset: {self.data.offset_ms}",
                 f"  Merged {len(self.merged_filenames)} other files",
             ]
             for diff, errors in self.data.errors.items():
@@ -93,8 +119,34 @@ def file_utils_tab():
             ui.download('\n'.join(out).encode(), filename="smh_error_report.txt")
             info("Saved error log")
 
+        def refresh(self) -> None:
+            self.info_card.refresh()
+            self.stats_card.refresh()
+
         @ui.refreshable
-        def info_card(self) -> None:
+        def info_card(self):
+            if self.data is None:
+                ui.label("Load a map to show info")
+                return
+            ui.markdown("**Edit metadata**")
+            meta = self.data.meta
+            with ui.row():
+                with ui.column().classes("p-0 gap-0"):
+                    with ui.upload(label="Replace Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
+                        ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).classes("w-32 h-32").tooltip(meta.cover_name)
+                with ui.column():
+                    ui.input("Name").props("dense").classes("h-8").bind_value(meta, "name")
+                    ui.input("Artist").props("dense").classes("h-8").bind_value(meta, "artist")
+                    ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
+                    ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
+            with ui.row():
+                ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-32")
+                ui.number("BPM").props("dense").classes("w-16").bind_value(self, "output_bpm")
+                ui.number("Offset", suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset")
+            ui.audio("data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode())
+
+        @ui.refreshable
+        def stats_card(self) -> None:
             if self.data is None:
                 ui.label("Load a map to show stats and graphs")
                 return
@@ -145,7 +197,7 @@ def file_utils_tab():
                 ),
             )
             for t, b in self.data.bookmarks.items():
-                wfig.add_vline(t, line={"color": "lightgray"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+                wfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
             
             # difficulty->wall_type
             wall_densities: dict[str, dict[str, analysis.PlotDataContainer]] = {
@@ -153,22 +205,22 @@ def file_utils_tab():
                 for d, c in self.data.difficulties.items()
             }
             # show horizontal lines when combined y is close to or over the limit
-            max_com_d = max(den_dict["combined"].max_value for den_dict in wall_densities.values())
+            max_com_d = max(den_dict["combined"].max_value for den_dict in wall_densities.values()) if wall_densities else 0
             if max_com_d > 0.9 * analysis.QUEST_WIREFRAME_LIMIT:
-                wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+                wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
             if max_com_d > 0.9 * analysis.QUEST_RENDER_LIMIT:
-                wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+                wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
             # show horizontal lines when single y is over the limit
-            max_single_d = max(max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined") for den_dict in wall_densities.values())
+            max_single_d = max(max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined") for den_dict in wall_densities.values()) if wall_densities else 0
             if max_single_d > 0.95 * analysis.PC_TYPE_DESPAWN:
-                wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
+                wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow", "dash": "dash"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
 
             for d, den_dict in wall_densities.items():
                 for wt in ("combined", *synth_format.WALL_TYPES):
                     pdc = den_dict[wt]
                     if pdc.max_value:
                         wfig.add_scatter(
-                            x=pdc.plot_times, y=pdc.plot_values, name=f"{d} ({wt}) [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
+                            x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({wt}) [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
                             showlegend=True,
                             legendgroup=d,
                             # start with only combined visible and single only when above PC limit
@@ -187,7 +239,7 @@ def file_utils_tab():
                 ),
             )
             for t, b in self.data.bookmarks.items():
-                nfig.add_vline(t, line={"color": "lightgray"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+                nfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
 
             for d, c in self.data.difficulties.items():
                 den_dict = analysis.note_densities(c)
@@ -196,7 +248,7 @@ def file_utils_tab():
                     for sub_t, pdc in den_subdict.items():
                         if pdc.max_value:
                             nfig.add_scatter(
-                                x=pdc.plot_times, y=pdc.plot_values, name=f"{d} ({nt} {sub_t}s) [max {pdc.max_value}]",
+                                x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({nt} {sub_t}s) [max {pdc.max_value}]",
                                 showlegend=True,
                                 legendgroup=f"{d} {nt}",
                                 # start with only combined note visible
@@ -206,30 +258,51 @@ def file_utils_tab():
 
     fi = FileInfo()
 
-    with ui.card().classes("mb-4"):
-        ui.label("Here you can work with .synth files directly. This can also fix some kinds of corrupted data.")
-        ui.label("Tip: You can drag and drop files on the boxes below, including from the file selector.")
+    with ui.dialog() as help_dialog, ui.card():
+        ui.markdown("""
+            **This tab allows you to work .synth files directly.**
+
+            The following features are supported:
+
+            * View and edit metadata:
+                * audio file
+                * cover image
+                * name, artist and mapper
+            * Change BPM/Offset (without changing timing of existing objects)
+            * Detect and correct certain types of file corruption (NaN value, duplicate notes)
+            * Merge files, including different BPM
+            * Show stats
+                * Object counts per difficulty
+                * Density plot for Walls (including checks for PC or Quest limitations)
+                * Density plot for Notes and Rails
+
+            To start, just open a .synth file by clciking the plus button below.  
+            You can also drag files directly onto these file selectors.
+        """)
+    ui.button("What can I do here?", icon="help", color="info", on_click=help_dialog.open)
     
     with ui.row().classes("mb-4"):
-        with ui.card():
-            ui.label("Base / Repair / BPM change")
-            ui.upload(label="Base file", auto_upload=True, on_upload=fi.upload).classes("h-14 w-full")
-            ui.input("Filename").classes("w-full").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
-            with ui.row().classes("w-full"):
-                ui.number("BPM").classes("w-16").bind_value(fi, "output_bpm").bind_enabled_from(fi, "is_valid")
-                ui.number("Offset", suffix="ms").classes("w-24").bind_value(fi, "output_offset").bind_enabled_from(fi, "is_valid")
-                with ui.switch("Finalize Walls").props("dense").classes("my-auto").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid"):
+        with ui.card().classes("mb-4"):
+            with ui.upload(label="Select a .synth file ->", auto_upload=True, on_upload=fi.upload).classes("w-full").add_slot("list"):
+                ui.tooltip("Select a file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
+                ui.input("Output Filename").props("dense").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
+                with ui.switch("Finalize Walls").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid").classes("my-auto"):
                     ui.tooltip("Shifts some walls down, such that they look ingame as they do in the editor")
-                ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
-            with ui.row().classes("w-full"):
-                ui.button("clear", icon="clear", color="negative", on_click=fi.clear).bind_enabled_from(fi, "is_valid")
-                ui.button("save", icon="save", color="positive", on_click=fi.save).bind_enabled_from(fi, "is_valid").classes("ml-auto")
-                ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
-        with ui.card():
-            ui.label("Merge files into base")
-            merge_bookmarks = ui.switch("Merge Bookmarks", value=True).classes("w-full").bind_value(app.storage.user, "merge_bookmarks").bind_enabled_from(fi, "is_valid").tooltip("Disable this if you merge maps that contain the same bookmarks")
-            ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive"').classes("h-14 w-full").bind_enabled_from(fi, "is_valid")
-            ui.label("Note: BPM & Offset will be matched automatically.")
-            ui.tooltip("Select a base file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
+                with ui.row():
+                    ui.button("clear", icon="clear", color="negative", on_click=fi.clear).props("dense").classes("w-24").bind_enabled_from(fi, "is_valid")
+                    ui.button("save", icon="save", color="positive", on_click=fi.save).props("dense").classes("w-24").bind_enabled_from(fi, "is_valid")
+        with ui.card().classes("w-100").bind_visibility(fi, "is_valid"):
+            fi.info_card()
+
+        with ui.card().bind_visibility(fi, "is_valid"):
+            ui.markdown("**Merge files into base**")
+            merge_bookmarks = ui.switch("Merge Bookmarks", value=True).classes("w-full").bind_value(app.storage.user, "merge_bookmarks").tooltip("Disable this if you merge maps that contain the same bookmarks")
+            with ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive"').classes("w-full").add_slot("list"):
+                ui.markdown("""
+                    Should have the same audio file as the base.  
+                    BPM & Offset will be matched automatically.
+                """)
+            
+
     with ui.card().classes("w-full"):
-        fi.info_card()
+        fi.stats_card()

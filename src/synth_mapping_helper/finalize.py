@@ -102,7 +102,7 @@ def main(options):
                 axs[-1].xaxis.set_major_formatter(min_sec_formatter)
                 # bookmarks
                 for bookmark in beatmap["Bookmarks"]["BookmarksList"]:
-                    time = int(bookmark["time"]) / 64 * 60 / bpm
+                    time = utils.beat_to_second(int(bookmark["time"]) / 64, bpm)
                     for ax in axs:
                         ax.axvline(time, color="grey")
                     axs[0].text(time, 0.99, bookmark["name"], ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
@@ -181,7 +181,7 @@ def main(options):
 
                 # bookmarks
                 for bookmark in beatmap["Bookmarks"]["BookmarksList"]:
-                    time = int(bookmark["time"]) / 64 * 60 / bpm
+                    time = utils.beat_to_second(int(bookmark["time"]) / 64, bpm)
                     for ax in axs:
                         ax.axvline(time, color="grey")
                     axs[0].text(time, 0.99, bookmark["name"], ha='left', va='bottom', rotation=45, transform=axs[0].get_xaxis_transform())
@@ -190,12 +190,12 @@ def main(options):
                 # walls
                 all_walls: dict[str, list[float]] = {w_type: [] for w_type in synth_format.WALL_TYPES}
                 for slide in beatmap["Slides"][diff]:
-                    all_walls[synth_format.WALL_LOOKUP[slide["slideType"]]].append(slide["time"] / 64 * 60 / bpm)
+                    all_walls[synth_format.WALL_LOOKUP[slide["slideType"]]].append(utils.beat_to_second(slide["time"] / 64, bpm))
                 for k, walls in all_walls.items():
                     all_walls[k] = sorted(walls)
-                all_walls["crouch"] = sorted(w["time"] / 64 * 60 / bpm for w in beatmap["Crouchs"][diff])
-                all_walls["square"] = sorted(w["time"] / 64 * 60 / bpm for w in beatmap["Squares"][diff])
-                all_walls["triangle"] = sorted(w["time"] / 64 * 60 / bpm for w in beatmap["Triangles"][diff])
+                all_walls["crouch"] = sorted(utils.beat_to_second(w["time"] / 64, bpm) for w in beatmap["Crouchs"][diff])
+                all_walls["square"] = sorted(utils.beat_to_second(w["time"] / 64, bpm) for w in beatmap["Squares"][diff])
+                all_walls["triangle"] = sorted(utils.beat_to_second(w["time"] / 64, bpm) for w in beatmap["Triangles"][diff])
 
                 wall_markers = {
                     "wall_left": ("s", "left", 7),
@@ -207,7 +207,8 @@ def main(options):
                     "triangle": ("^", "none", 1),
                     "square": ("s", "none", 0),
                 }
-                seconds_per_tick = 60 / (64 * bpm)  # [seconds / minute] / ([ticks / beat] * [beats / minute])
+                # ceil wall delay to next 1/64
+                seconds_per_tick = utils.beat_to_second(1/64)
                 quest_wall_delay = np.ceil(0.05 / seconds_per_tick) * seconds_per_tick
 
                 for wall_type, (marker, fill, y) in wall_markers.items():

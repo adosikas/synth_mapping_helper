@@ -1,17 +1,21 @@
 #/usr/bin/env python3
+import base64
 from io import BytesIO
 import codecs
 import dataclasses
+import datetime
 import json
 from pathlib import Path
 import time
 from typing import Union
-from zipfile import ZipFile
+import zipfile
 
 import numpy as np
 import pyperclip
+import soundfile
 
-from . import movement
+from . import movement, __version__
+from .utils import second_to_beat, beat_to_second
 
 # For simplicity, we exclusively use grid coordinates (x, y) and use measures for time (z)
 # These values are only needed to convert to / from the format the game uses
@@ -23,12 +27,8 @@ GRID_SCALE = 0.1365  # xy_coord = xy_grid * GRID_SCALE
 X_OFFSET = 0.002
 Y_OFFSET = 0.0012
 
-# not sure where this comes from, but is needed to work with z coordinates
-# z_coord = index * (bpm / BPM_DIVISOR)
-# also maybe useful: bpm = (z_coord / index) * BPM_DIVISOR
-BPM_DIVISOR = 1200
-
-MS_PER_MIN = 60 * 1000
+# The game stores Z position as 20th of seconds for some reason...
+Z_MULTIPLIER = 20
 
 NOTE_TYPES = ("right", "left", "single", "both")
 NOTE_TYPE_STRINGS = ("RightHanded", "LeftHanded", "OneHandSpecial", "BothHandsSpecial")
@@ -103,6 +103,7 @@ SINGLE_COLOR_NOTES = dict[float, "numpy array (n, 3)"]   # rail segment (n>1) an
 WALLS = dict[float, "numpy array (1, 5)"]    # x,y,t, type, angle
 
 BEATMAP_JSON_FILE = "beatmap.meta.bin"
+METADATA_JSON_FILE = "track.data.json"
 DIFFICULTIES = ("Easy", "Normal", "Hard", "Expert", "Master", "Custom")
 META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 
@@ -173,6 +174,10 @@ class DataContainer:
     # reuse same structure as notes for common code
     lights: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
     effects: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
+
+    def __bool__(self) -> bool:
+        # truthy when there is *any* object in any of the dicts
+        return any(bool(getattr(self, f)) for f in NOTE_TYPES + ("walls", "lights", "effects"))
 
     def get_counts(self) -> dict[str, dict[str, int]]:
         out = {
@@ -279,60 +284,133 @@ class ClipboardDataContainer(DataContainer):
     selection_length: float = 0.0
 
 @dataclasses.dataclass
+class AudioData:
+    raw_data: bytes
+    sample_rate: int
+    channels: int
+    duration: float
+
+    @staticmethod
+    def from_raw(raw_data: bytes) -> "AudioData":
+        bio = BytesIO(raw_data)
+        try:
+            info = soundfile.info(bio)
+        except soundfile.SoundFileError as sfe:
+            raise ValueError(f"Could not parse audio file: {sfe!r}")
+        if info.format != "OGG":
+            raise ValueError("Audio format is not OGG")
+        return AudioData(
+            raw_data=raw_data,
+            sample_rate=info.samplerate,
+            channels=info.channels,
+            duration=info.duration,
+        )
+
+@dataclasses.dataclass
+class SynthFileMeta:
+    name: str
+    artist: str
+    mapper: str
+    audio_name: str
+    explicit: bool = False
+    cover_name: str = "No cover"
+    cover_data: bytes = b""
+    custom_difficulty_name: str = "Custom"
+    custom_difficulty_speed: float = 1.0
+
+@dataclasses.dataclass
 class SynthFile:
-    input_file: Union[Path, BytesIO]
-    meta: dict[str, str]
+    meta: SynthFileMeta
+    audio: AudioData
     bookmarks: dict[float, str]
     difficulties: dict[str, DataContainer]
 
-    errors: dict[str, list[tuple[str, JSONParseError]]] = dataclasses.field(default_factory=dict)
-    offset_ms: float = 0.0
+    errors: dict[str, list[tuple[str, JSONParseError]]]
+    offset_ms: float
+
+    @staticmethod
+    def empty_from_audio(ogg_file: Union[Path, BytesIO], *, filename: str = None, name: str = None, artist: str = "unknown artist", mapper: str = "your name here") -> "SynthFile":
+        audio = AudioData.from_raw(ogg_file)
+        if filename is None:
+            if isinstance(ogg_file, Path):
+                filename = ogg_file.name
+            elif name is not None:
+                filename = name + ".ogg"
+            else:
+                filename = "unnamed.ogg"
+        if name is None:
+            name = filename.removesuffix(".ogg")
+        return SynthFile(
+            meta=SynthFileMeta(
+                name=name,
+                artist=artist,
+                mapper=mapper,
+                audio_name=filename,
+            ),
+            audio=audio,
+            bookmarks={},
+            difficulties={},
+            errors={},
+            offset_ms=0,
+        )
 
     @property
     def bpm(self) -> float:
         for d, c in self.difficulties.items():
             return c.bpm
+        return 0.0  # no difficulties
 
-    def reload(self) -> None:
-        self.errors: dict[str, list[tuple[str, JSONParseError]]] = {}
-        in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
-        with ZipFile(in_bio) as inzip:
+    @staticmethod
+    def from_synth(synth_file: Union[Path, BytesIO]) -> "SynthFile":
+        errors: dict[str, list[tuple[str, JSONParseError]]] = {}
+        with zipfile.ZipFile(synth_file) as inzip:
             # load beatmap json
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
-            bpm: float = beatmap["BPM"]
-            self.offset_ms = beatmap["Offset"]
-            self.meta = {k: beatmap[k] for k in META_KEYS}
-            self.bookmarks = {
-                # bookmarks are stored in steps of 64 per beat (regardless of BPM)
-                round_time_to_fractions(bookmark_dict["time"] / 64): bookmark_dict["name"]
-                for bookmark_dict in beatmap["Bookmarks"]["BookmarksList"]
-            }
+            audio = AudioData.from_raw(inzip.read(beatmap["AudioName"]))
 
-            for diff in DIFFICULTIES:
-                diff_removed : list[tuple[str, JSONParseError]] = []
-                # r, l, s, b
-                notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
-                for time, time_notes in beatmap["Track"][diff].items():
-                    time_types = set()
-                    for note in time_notes:
-                        try:
-                            note_type, nodes = note_from_synth(bpm, 0, note)
-                            if note_type in time_types:
-                                raise JSONParseError(note, "duplicate note type")
-                            time_types.add(note_type)
-                            notes[note_type][nodes[0,2]] = nodes
-                        except JSONParseError as jpe:
-                            try:
-                                time = f"{time} (measure {float(time)/64})"
-                            except:
-                                pass
-                            diff_removed.append((jpe, time))
-
-                walls: dict[float, list["numpy array (1, 5)"]] = {}
-                # slides (right, left, angle_right, center, angle_right)
-                for wall_dict in beatmap["Slides"][diff]:
+        bpm: float = beatmap["BPM"]
+        difficulties: dict[str, DataContainer] = {}
+        for diff in DIFFICULTIES:
+            diff_removed : list[tuple[str, JSONParseError]] = []
+            # r, l, s, b
+            notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
+            for time, time_notes in beatmap["Track"][diff].items():
+                time_types = set()
+                for note in time_notes:
                     try:
-                        wall = wall_from_synth(bpm, 0, wall_dict, wall_dict["slideType"])
+                        note_type, nodes = note_from_synth(bpm, 0, note)
+                        if note_type in time_types:
+                            raise JSONParseError(note, "duplicate note type")
+                        time_types.add(note_type)
+                        notes[note_type][nodes[0,2]] = nodes
+                    except JSONParseError as jpe:
+                        try:
+                            time = f"{time} (measure {float(time)/64})"
+                        except:
+                            pass
+                        diff_removed.append((jpe, time))
+
+            walls: dict[float, list["numpy array (1, 5)"]] = {}
+            # slides (right, left, angle_right, center, angle_right)
+            for wall_dict in beatmap["Slides"][diff]:
+                try:
+                    wall = wall_from_synth(bpm, 0, wall_dict, wall_dict["slideType"])
+                    walls[wall[0, 2]] = wall
+                except JSONParseError as jpe:
+                    time = str(wall_dict.get("time"))
+                    try:
+                        time = f"{time} (measure {float(time)/64})"
+                    except:
+                        pass
+                    diff_removed.append((jpe, time))
+            # other (crouch, square, triangle)
+            for wall_type in ("Crouch", "Square", "Triangle"):
+                if wall_type + "s" not in beatmap:
+                    beta_warning()
+                    continue  # these are only in the beta editor
+                for wall_dict in beatmap[wall_type + "s"][diff]:
+                    try:
+                        wall = wall_from_synth(bpm, 0, wall_dict, WALL_TYPES[wall_type.lower()][0])
                         walls[wall[0, 2]] = wall
                     except JSONParseError as jpe:
                         time = str(wall_dict.get("time"))
@@ -341,97 +419,157 @@ class SynthFile:
                         except:
                             pass
                         diff_removed.append((jpe, time))
-                # other (crouch, square, triangle)
-                for wall_type in ("Crouch", "Square", "Triangle"):
-                    if wall_type + "s" not in beatmap:
-                        beta_warning()
-                        continue  # these are only in the beta editor
-                    for wall_dict in beatmap[wall_type + "s"][diff]:
-                        try:
-                            wall = wall_from_synth(bpm, 0, wall_dict, WALL_TYPES[wall_type.lower()][0])
-                            walls[wall[0, 2]] = wall
-                        except JSONParseError as jpe:
-                            time = str(wall_dict.get("time"))
-                            try:
-                                time = f"{time} (measure {float(time)/64})"
-                            except:
-                                pass
-                            diff_removed.append((jpe, time))
-                lights = {
-                    b: np.array([[0,0,b]])
-                    for t in beatmap["Lights"][diff]
-                    for b in [round_time_to_fractions(t / 64)]
-                }
-                effects = {
-                    b: np.array([[0,0,b]])
-                    for t in beatmap["Effects"][diff]
-                    for b in [round_time_to_fractions(t / 64)]
-                }
-                # add difficulty when there is a note of any type, a wall or lights/effects
-                if any(notes) or walls or lights or effects:
-                    self.difficulties[diff] = DataContainer(bpm, *notes, walls, lights, effects)
+            lights = {
+                b: np.array([[0,0,b]])
+                for t in beatmap["Lights"][diff]
+                for b in [round_time_to_fractions(t / 64)]
+            }
+            effects = {
+                b: np.array([[0,0,b]])
+                for t in beatmap["Effects"][diff]
+                for b in [round_time_to_fractions(t / 64)]
+            }
+            # add difficulty when there is a note of any type, a wall or lights/effects
+            if any(notes) or walls or lights or effects:
+                difficulties[diff] = DataContainer(bpm, *notes, walls, lights, effects)
 
-                if diff_removed:
-                    self.errors[diff] = diff_removed
+            if diff_removed:
+                errors[diff] = diff_removed
+            
+        return SynthFile(
+            meta=SynthFileMeta(
+                name = beatmap["Name"],
+                artist = beatmap["Author"],
+                mapper = beatmap["Beatmapper"],
+                explicit = beatmap["Explicit"],
+                cover_name = beatmap["Artwork"],
+                cover_data = base64.b64decode(beatmap["ArtworkBytes"]),  # this seems to be a converted form (to png)
+                audio_name = beatmap["AudioName"],
+                custom_difficulty_name = beatmap["CustomDifficultyName"],
+                custom_difficulty_speed = beatmap["CustomDifficultySpeed"],
+            ),
+            audio=audio,
+            bookmarks={
+                # bookmarks are stored in steps of 64 per beat (regardless of BPM)
+                round_time_to_fractions(bookmark_dict["time"] / 64): bookmark_dict["name"]
+                for bookmark_dict in beatmap["Bookmarks"]["BookmarksList"]
+            },
+            difficulties=difficulties,
+            errors=errors,
+            offset_ms=beatmap["Offset"],
+        )
 
     def save_as(self, output_file: Union[Path, BytesIO]) -> None:
         out_buffer = output_file if isinstance(output_file, BytesIO) else BytesIO()  # buffer output zip file in memory, only write on success
-        in_bio = self.input_file if isinstance(self.input_file, BytesIO) else BytesIO(self.input_file.read_bytes())
-        with ZipFile(in_bio) as inzip, ZipFile(out_buffer, "w") as outzip:
-            beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
-            beatmap["BPM"] = self.bpm
-            beatmap["Offset"] = self.offset_ms
-            beatmap["ModifiedTime"] = int(time.time())
 
-            beatmap["Bookmarks"]["BookmarksList"] = [
-                {"time": round_tick_for_json(t * 64), "name": n}
-                for t, n in sorted(self.bookmarks.items())
-            ]
+        bookmark_list = [
+            {"time": round_tick_for_json(t * 64), "name": n}
+            for t, n in sorted(self.bookmarks.items())
+        ]
+        now = datetime.datetime.now(datetime.timezone.utc)
+        out_beatmap = {
+            "Name": self.meta.name,
+            "Author": self.meta.artist,
+            "Artwork": self.meta.cover_name,
+            "ArtworkBytes": base64.b64encode(self.meta.cover_data).decode(),
+            "AudioName": self.meta.audio_name,
+            "AudioData": None,
+            "AudioFrecuency": self.audio.sample_rate,
+            "AudioChannels": self.audio.channels,
+            "BPM": self.bpm,
+            "Offset": self.offset_ms,
+            "Track": {d: {} for d in DIFFICULTIES},  # notes/rails
+            "Effects": {d: [] for d in DIFFICULTIES},
+            "Bookmarks" : {"BookmarksList": bookmark_list},
+            # note: for some of the following I just use dummy value, no idea what they are used for
+            "Jumps": {d: [] for d in DIFFICULTIES},  # ?
+            "Crouchs": {d: [] for d in DIFFICULTIES},
+            "Lights": {d: [] for d in DIFFICULTIES},
+            "Slides": {d: [] for d in DIFFICULTIES},
+            "Squares": {d: [] for d in DIFFICULTIES},
+            "Triangles": {d: [] for d in DIFFICULTIES},
+            "DrumSamples": None,  # ?
+            "FilePath": "Redacted",
+            "IsAdminOnly": False,  # ?
+            "EditorVersion": f"SMH v{__version__}",
+            "Beatmapper": self.meta.mapper,
+            "CustomDifficultyName": self.meta.custom_difficulty_name,
+            "CustomDifficultySpeed": self.meta.custom_difficulty_speed,
+            "UsingBeatMeasure": True,  # ?
+            "UpdatedWithMovementPositions": True,  # ?
+            "ProductionMode": False,  # ?
+            "Tags": [],  # ?
+            "BeatConverted": False,  # ?
+            "BeatModified": False,  # ?
+            "ModifiedTime": now.timestamp(),
+            "Explicit": self.meta.explicit,
+        }
 
-            for diff, data in self.difficulties.items():
-                new_notes = {}
-                for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
-                    type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
-                    for time_index, nodes in sorted(notes.items()):
-                        type_notes[round_tick_for_json_index(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
-                    for time_tick, synth_dict in sorted(type_notes.items()):
-                        existing = new_notes.setdefault(time_tick, [])
-                        # edit by reference
-                        existing.append(
-                            # keep same order as editor
-                            {"Id": f"Note_{time_tick}{NOTE_TYPE_STRINGS[note_type]}{len(existing)}", "ComboId": -1}
-                            | synth_dict
-                            | {"Direction": 0}
-                        )
-                beatmap["Track"][diff] = {k: v for k,v in sorted(new_notes.items())}
-                walls = {
-                    "crouchs": [],
-                    "squares": [],
-                    "triangles": [],
-                    "slides": [],
-                }
-                for _, wall in sorted(data.walls.items()):
-                    dest_list, wall_dict = wall_to_synth(data.bpm, wall)
-                    walls[dest_list].append(wall_dict)
-                for t, wall_list in walls.items():
-                    beatmap[t.capitalize()][diff] = wall_list
-                beatmap["Lights"][diff] = [round_tick_for_json(t * 64) for t in data.lights]
-                beatmap["Effects"][diff] = [round_tick_for_json(t * 64) for t in data.effects]
+        # fill per-difficulty arrays/dicts
+        for diff, data in self.difficulties.items():
+            new_notes = {}
+            for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
+                type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
+                for time_index, nodes in sorted(notes.items()):
+                    type_notes[round_tick_for_json_index(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
+                for time_tick, synth_dict in sorted(type_notes.items()):
+                    existing = new_notes.setdefault(time_tick, [])
+                    # edit by reference
+                    existing.append(
+                        # keep same order as editor
+                        {"Id": f"Note_{time_tick}{NOTE_TYPE_STRINGS[note_type]}{len(existing)}", "ComboId": -1}
+                        | synth_dict
+                        | {"Direction": 0}
+                    )
+            out_beatmap["Track"][diff] = {k: v for k,v in sorted(new_notes.items())}
+            walls = {
+                "crouchs": [],
+                "squares": [],
+                "triangles": [],
+                "slides": [],
+            }
+            for _, wall in sorted(data.walls.items()):
+                dest_list, wall_dict = wall_to_synth(data.bpm, wall)
+                walls[dest_list].append(wall_dict)
+            for t, wall_list in walls.items():
+                out_beatmap[t.capitalize()][diff] = wall_list
+            out_beatmap["Lights"][diff] = [round_tick_for_json(t * 64) for t in data.lights]
+            out_beatmap["Effects"][diff] = [round_tick_for_json(t * 64) for t in data.effects]
 
-            # write modified beatmap json, in a way that closely mirrors the editor
-            beatmap_json = json.dumps(beatmap, indent=2, allow_nan=False)
+        # write modified beatmap json, in a way that closely mirrors the editor
+        beatmap_json = json.dumps(out_beatmap, indent=2, allow_nan=False)
+        meta_json = json.dumps({
+            "name": self.meta.name,
+            "artist": self.meta.artist,
+            "duration": f"{self.audio.duration//60:.0f}:{self.audio.duration%60:02.0f}",
+            "coverImage": self.meta.cover_name,
+            "audioFile": self.meta.audio_name,
+            "supportedDifficulties": [
+                d if self.difficulties.get(d, False) else "" for d in DIFFICULTIES
+            ],
+            "bpm": self.bpm,
+            "mapper": self.meta.mapper,
+        }, indent=2, allow_nan=False)
         
-            # copy all content verbatim except beatmap json
-            outzip.comment = inzip.comment
-            for info in inzip.infolist():
-                # trick write logic to make output work on Quest
-                info.external_attr = _TrueInt(0)
-                info.filename = _NonAsciiStr(info.filename)
+        with zipfile.ZipFile(out_buffer, "w") as outzip:
+            def make_fileinfo(filename: str) -> zipfile.ZipInfo:
+                info = zipfile.ZipInfo(filename, now.timetuple()[:6])
+                info.compress_type = zipfile.ZIP_DEFLATED
+                # fake various file headers
+                info.create_system = 0
+                info.create_version = zipfile.ZIP64_VERSION
+                # editor files also contain NTFS timestamps, see "PKWARE Win95/WinNT Extra Field (0x000a)"" at
+                # https://mdfs.net/Docs/Comp/Archiving/Zip/ExtraField
 
-                if info.filename == BEATMAP_JSON_FILE:
-                    outzip.writestr(info, codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
-                else:
-                    outzip.writestr(info, inzip.read(info.filename))
+                # trick header encoder
+                info.external_attr = _TrueInt(0)
+                info.filename = _NonAsciiStr(filename)
+                return info
+            
+            outzip.writestr(make_fileinfo(BEATMAP_JSON_FILE), codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
+            outzip.writestr(make_fileinfo(self.meta.audio_name), self.audio.raw_data)
+            outzip.writestr(make_fileinfo(self.meta.cover_name), self.meta.cover_data)
+            outzip.writestr(make_fileinfo(METADATA_JSON_FILE), codecs.BOM_UTF8 + meta_json.encode("utf-8").replace(b"\n", b"\r\n"))
         # write output zip
         if isinstance(output_file, BytesIO):
             output_file.seek(0)
@@ -450,7 +588,7 @@ class SynthFile:
                 c.bpm = bpm
     def change_offset(self, offset_ms: float) -> None:
         if self.offset_ms != offset_ms:
-            delta = (offset_ms - self.offset_ms) / MS_PER_MIN * self.bpm
+            delta = second_to_beat((offset_ms - self.offset_ms)*1000, self.bpm)
             self.bookmarks = {
                 time + delta: name
                 for time, name in self.bookmarks.items()
@@ -484,7 +622,7 @@ def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type
             (coord[0] - X_OFFSET) / GRID_SCALE,
             (coord[1] - Y_OFFSET) / GRID_SCALE,
             # convert absolute coordinate to number of beats since start
-            round_time_to_fractions(coord[2] * bpm / BPM_DIVISOR - startMeasure / 64),
+            round_time_to_fractions(second_to_beat(coord[2] / 20, bpm) - startMeasure / 64),
         ])
     except (ValueError, TypeError) as exc:
         raise JSONParseError(coord, c_type) from exc
@@ -493,7 +631,7 @@ def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
         round((coord[0] * GRID_SCALE) + X_OFFSET, 11),
         round((coord[1] * GRID_SCALE) + Y_OFFSET, 11),
-        round((round_time_to_fractions(coord[2]) / bpm) * BPM_DIVISOR, 11),  # ([beat] / [beat / minute]) * 1200 = ([sec] * 60) * 1200
+        round(beat_to_second(round_time_to_fractions(coord[2], bpm)) * 20, 11),
     ]
 
 # full note dict
@@ -587,7 +725,7 @@ def import_clipboard_json(original_json: str, use_original: bool = False) -> Cli
         for b in [round_time_to_fractions((t-startMeasure)/64)]
     }
 
-    return ClipboardDataContainer(bpm, *notes, walls, lights, effects, original_json, clipboard["lenght"] / MS_PER_MIN * bpm)
+    return ClipboardDataContainer(bpm, *notes, walls, lights, effects, original_json, second_to_beat(clipboard["lenght"]/1000, bpm))
 
 def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
     return import_clipboard_json(pyperclip.paste(), use_original)
@@ -647,18 +785,16 @@ def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> st
         # position of selection start in beats*64 
         clipboard["startMeasure"] = round_tick_for_json(first * 64)
         # position of selection start in ms
-        clipboard["startTime"] = first * MS_PER_MIN / data.bpm
+        clipboard["startTime"] = beat_to_second(first, data.bpm) * 1000
         # length of the selection in milliseconds
         # and yes, the editor has a typo, so we need to missspell it too
-        clipboard["lenght"] = last * MS_PER_MIN / data.bpm
+        clipboard["lenght"] = beat_to_second(last, data.bpm) * 1000
     # always update length
-    clipboard["lenght"] = (last - first) * MS_PER_MIN / data.bpm
+    clipboard["lenght"] = beat_to_second(last - first, data.bpm) * 1000
     return json.dumps(clipboard)
 
 def export_clipboard(data: DataContainer, realign_start: bool = True):
     pyperclip.copy(export_clipboard_json(data, realign_start))
 
 def import_file(file_path: Union[Path, BytesIO]) -> SynthFile:
-    out = SynthFile(file_path, {}, {}, {})
-    out.reload()
-    return out
+    return SynthFile.from_synth(file_path)

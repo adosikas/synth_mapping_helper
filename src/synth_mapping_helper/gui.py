@@ -79,6 +79,13 @@ def entrypoint():
                 min-height: 0 !important;
                 padding: 0 !important;
             }
+            .q-uploader__header-content {
+                padding: 0px !important;
+            }
+            .q-uploader__list {
+                min-height: 0 !important;
+                padding: 0 !important;
+            }
         </style>""")
         with ui.header(elevated=True):
             with ui.tabs() as tabs:

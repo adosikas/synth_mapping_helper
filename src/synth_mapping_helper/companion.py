@@ -99,7 +99,7 @@ def prepare_data(data: DataContainer, options) -> tuple[
     ]],
 ]:
     # NOTES DATA
-    velocity_window_beats = options.velocity_window * (data.bpm / 60)  # [seconds] / [beats / second]
+    velocity_window_beats = utils.second_to_beat(options.velocity_window, data.bpm)
     note_out = []
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
         rails: list["xyz"] = []
@@ -171,7 +171,7 @@ def prepare_data(data: DataContainer, options) -> tuple[
         "triangle": ("^", "none", 1),
         "square": ("s", "none", 0),
     }
-    quest_wall_delay_beats = QUEST_WALL_DELAY * (data.bpm / 60)  # [sec] * ( [beat/min] / [sec/min] ) => [beat]
+    quest_wall_delay_beats = utils.second_to_beat(QUEST_WALL_DELAY, data.bpm)
 
     for wall_type in synth_format.WALL_TYPES:
         pc_density: list[tuple[float, int]] = []
@@ -251,7 +251,7 @@ def plot_notes(options, fig, infile: SynthFile, data: DataContainer, prepared_da
 
     ax_vel.set_ylabel("Velocity (sq/s)")
     ax_vel.set_ylim((0, options.velocity_limit))
-    vel_mul = data.bpm / 60  # [beat/min] / [sec/min] = [beat/sec]
+    vel_mul = utils.second_to_beat(1, data.bpm)
     ax_acc.set_ylabel("Acceleration (sq/s²)")
     ax_acc.set_ylim((0, options.acceleration_limit))
     acc_mul = vel_mul * vel_mul
@@ -314,7 +314,7 @@ def plot_walls(options, fig, infile: SynthFile, data: DataContainer, prepared_da
         "triangle": ("^", "none", 1),
         "square": ("s", "none", 0),
     }
-    quest_wall_delay_beats = QUEST_WALL_DELAY * (data.bpm / 60)  # [seconds] / [beats / second] => [beats]
+    quest_wall_delay_beats = utils.second_to_beat(QUEST_WALL_DELAY, data.bpm)
 
     for i, wall_type in enumerate(synth_format.WALL_TYPES):
         marker, fill, y = wall_markers[wall_type]
@@ -399,12 +399,12 @@ def main(options):
     data = synth_format.import_file(options.input)
 
     if isinstance(options.velocity_window, utils.SecondFloat):
-        options.velocity_window = options.velocity_window.to_beat(data.meta['BPM'])
+        options.velocity_window = options.velocity_window.to_beat(data.bpm)
     if isinstance(options.interpolation, utils.SecondFloat):
-        options.interpolation = options.interpolation.to_beat(data.meta['BPM'])
+        options.interpolation = options.interpolation.to_beat(data.bpm)
 
     fig = plt.figure(figsize=(win_w, win_h), dpi=options.menu_size, layout="constrained")
-    fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta['Author']} - {data.meta['Name']}")
+    fig.canvas.manager.set_window_title(f"SMH Companion - {data.meta.artist} - {data.meta.name}")
     menu, tab = fig.subfigures(2, 1, height_ratios=(1,win_h-1))
 
     active_tab = 0
@@ -458,12 +458,12 @@ def main(options):
 
     # this is used by autoreloader
     def btn_reload(ev) -> None:
-        nonlocal reload_last, autobackup_last, autobackup_interval_min
+        nonlocal data, reload_last, autobackup_last, autobackup_interval_min
         reload_last = time()
         reload_txt.set_text(f"Last reload: {strftime('%H:%M:%S')}")
-        data.reload()
+        data = synth_format.import_file(options.input)
         replace_prepared_data()
-        logging.info(f"Reloaded {data.input_file.resolve()}")
+        logging.info(f"Reloaded {options.input.resolve()}")
         # Update finalize button
         btns["Finalize"].label.set_text("UnFinalize" if data.bookmarks.get(0.0) == "#smh_finalized" else "Finalize")
         # Make a backup when enough time has passed
