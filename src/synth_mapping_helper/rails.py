@@ -101,7 +101,9 @@ def split_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COL
 
             current_rail_start = remainder[0, 2]
             current_rail_end = remainder[-1, 2]
-
+        else:
+            # ignore freestanding single note
+            out[time] = nodes
     return out
 
 def snap_singles_to_rail(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
@@ -205,7 +207,7 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
     for time in sorted(notes):
         nodes = notes[time]
 
-        if nodes.shape[0] != 1:  # existing rails are ignored and reset 
+        if nodes.shape[0] != 1:  # existing rails are added unchanged and stops notes from connecting past it
             current_rail_start = None
             current_rail_end = None
             out[time] = nodes
@@ -215,10 +217,12 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
             current_rail_end is None
             or time > current_rail_end + max_interval + MERGE_ACCURACY_BEAT
         ):
+            # start a new rail (but only 1 node for now)
             current_rail_start = time
             current_rail_end = nodes[-1, 2]
             out[time] = nodes
         else:
+            # extend the current rail inplace
             out[current_rail_start] = np.concatenate((out[current_rail_start], nodes))
             current_rail_end = nodes[-1, 2]
             # note: does not readd the single notes to the output dict

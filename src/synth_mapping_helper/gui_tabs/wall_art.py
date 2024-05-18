@@ -46,7 +46,7 @@ class SMHInput(ui.input):
             raise ParseInputError(self.storage_id, self.value) from ve
 
 class LargeSwitch(ui.switch):
-    def __init__(self, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None):
+    def __init__(self, value: bool|None, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None):
         super().__init__()
         self.bind_value(app.storage.user, f"wall_art_{storage_id}")
         self.classes("my-auto")
@@ -409,25 +409,39 @@ def wall_art_tab():
     with ui.card():
         with ui.row():
             with ui.row():
-                axis_z = LargeSwitch("axis", "(T) Change movement axis between X/Y and Time", color="info", icon_unchecked="open_with", icon_checked="schedule")
-                displace = LargeSwitch("displace", "Displace existing walls when moving in time instead of replacing them.", color="warning", icon_unchecked="cancel", icon_checked="move_up")
+                axis_z = LargeSwitch(False, "axis", "(T) Change movement axis between X/Y and Time", color="info", icon_unchecked="open_with", icon_checked="schedule")
+                displace = LargeSwitch(False, "displace", "Displace existing walls when moving in time instead of replacing them.", color="warning", icon_unchecked="cancel", icon_checked="move_up")
                 time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
                 offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
                 angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
-            with ui.expansion("Symmetry", icon="flip").props("dense"):
+            with ui.expansion("Symmetry", icon="flip").props("dense") as sym_exp:
                 with ui.row():
                     symmetry_step = SMHInput("Interval", "1/4", "symmetry_step", suffix="b", tooltip="Time step for symmetry copies")
-                    rotate_first = LargeSwitch("rotate_first", "Mirror or rotate first", color="secondary", icon_unchecked="flip", icon_checked="rotate_left")
+                    rotate_first = LargeSwitch(False, "rotate_first", "Mirror or rotate first", color="secondary", icon_unchecked="flip", icon_checked="rotate_left")
                     ui.separator().props("vertical")
-                    mirror_x = LargeSwitch("mirror_x", "Mirror across X axis, ie left-right", color="negative", icon_unchecked="align_horizontal_left", icon_checked="align_horizontal_center")
-                    mirror_y = LargeSwitch("mirror_y", "Mirror across Y axis, ie up-down", color="positive", icon_unchecked="align_vertical_bottom", icon_checked="align_vertical_center")
+                    mirror_x = LargeSwitch(False, "mirror_x", "Mirror across X axis, ie left-right", color="negative", icon_unchecked="align_horizontal_left", icon_checked="align_horizontal_center")
+                    mirror_y = LargeSwitch(False, "mirror_y", "Mirror across Y axis, ie up-down", color="positive", icon_unchecked="align_vertical_bottom", icon_checked="align_vertical_center")
                 with ui.row():
                     ui.label("Rotation: ").classes("my-auto")
-                    rotsym_direction = LargeSwitch("rotsym_direction", "Rotation direction", color="secondary", icon_unchecked="rotate_left", icon_checked="rotate_right").props('toggle-indeterminate indeterminate-icon="cancel"')
+                    rotsym_direction = LargeSwitch(None, "rotsym_direction", "Rotation direction", color="secondary", icon_unchecked="rotate_left", icon_checked="rotate_right").props('toggle-indeterminate indeterminate-icon="cancel"')
                     with ui.row():
                         ui.tooltip("Number of rotational symmetry. Note that mirror in both X and Y overlaps with even symmetries, ie 2x/4x/etc")
                         rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-28").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
                         ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}")
+                def _update_symex(_) -> None:
+                    enabled = []
+                    if mirror_x.value:
+                        enabled.append("X")
+                    if mirror_y.value:
+                        enabled.append("Y")
+                    if rotsym_direction.value is not None:
+                        if rotate_first.value:
+                            enabled.insert(0, f"x{rotsym.value}")
+                        else:
+                            enabled.append(f"x{rotsym.value}")
+                    return f"Symmetry: {', '.join(enabled) or 'off'}"
+                for inp in (mirror_x, mirror_y, rotsym_direction, rotate_first):
+                    inp.bind_value_to(sym_exp, "text", forward=_update_symex)
             with ui.expansion("Preview setttings", icon="palette").props("dense"):
                 sp = SettingsPanel()
                 ui.separator()

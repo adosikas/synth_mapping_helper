@@ -1,11 +1,13 @@
 import base64
 from io import BytesIO
 import dataclasses
+from pathlib import Path
 from typing import Optional
 import sys
 
 import plotly.graph_objects as go
-from nicegui import app, events, ui
+from nicegui import app, events, run, ui
+import numpy as np
 
 from .utils import *
 from ..utils import pretty_list
@@ -20,6 +22,7 @@ def file_utils_tab():
         output_bpm: float = 0.0
         output_offset: float = 0.0
         output_finalize: bool = False
+        bpm_scan_data: Optional[tuple[float, float, analysis.PlotDataContainer]] = None
         merged_filenames: Optional[list[str]] = None
 
         @property
@@ -32,21 +35,29 @@ def file_utils_tab():
             self.output_bpm = 0.0
             self.output_offset = 0.0
             self.merged_filenames = None
+            self.bpm_scan_data = None
             self.refresh()
 
-        def upload(self, e: events.UploadEventArguments) -> None:
+        async def upload(self, e: events.UploadEventArguments) -> None:
             self.clear()
-            self.data = try_load_synth_file(e)
-            if self.data is None:
-                self.info_card.refresh()
-                return
-            self.output_filename = add_suffix(e.name, "out")
-            self.output_bpm = self.data.bpm
-            self.output_offset = self.data.offset_ms
-            self.output_finalize = (self.data.bookmarks.get(0) == "#smh_finalized")
-            self.merged_filenames = []
-
             e.sender.reset()
+            self.refresh()
+            if e.name.endswith(".synth"):
+                self.data = try_load_synth_file(e)
+                self.output_filename = add_suffix(e.name, "out")
+            else:
+                try:
+                    self.data = await run.cpu_bound(synth_format.SynthFile.empty_from_audio, audio_file=BytesIO(e.content.read()), filename=e.name)
+                except Exception as exc:
+                    error(f"Creating .synth from {e.name} failed", exc=exc)
+                    self.data = None
+                else:
+                    self.output_filename = self.data.meta.name + ".synth"
+            if self.data is not None:
+                self.output_bpm = self.data.bpm
+                self.output_offset = self.data.offset_ms
+                self.output_finalize = (self.data.bookmarks.get(0) == "#smh_finalized")
+                self.merged_filenames = []
             self.refresh()
 
         def upload_merge(self, e: events.UploadEventArguments) -> None:
@@ -85,6 +96,12 @@ def file_utils_tab():
                 self.refresh()
 
         def save(self) -> None:
+            if self.output_bpm is None or not self.output_bpm > 0:
+                error("BPM must be greater than 0", data=bpm)
+                return
+            if self.output_offset is None or self.output_offset < 0:
+                error("Offset must be 0 or greater", data=offset)
+                return
             if self.output_bpm != self.data.bpm:
                 self.data.change_bpm(self.output_bpm)
             if self.output_offset != self.data.offset_ms:
@@ -102,7 +119,7 @@ def file_utils_tab():
 
             data = BytesIO()
             self.data.save_as(data)
-            ui.download(data.getvalue(), filename=self.output_filename)
+            ui.download(data.getvalue(), filename=self.output_filename or "unnamed.synth")
 
         def save_errors(self):
             out = [
@@ -122,6 +139,14 @@ def file_utils_tab():
         def refresh(self) -> None:
             self.info_card.refresh()
             self.stats_card.refresh()
+            self._bpm_card.refresh()
+
+        async def _bpm_scan(self, e: events.ClickEventArguments):
+            btn: ui.button = e.sender
+            btn.on("click", None)  # remove callback to prevent spam
+            btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
+            self.bpm_scan_data = await run.cpu_bound(analysis.bpm_scan, audio=fi.data.audio)
+            self._bpm_card.refresh()
 
         @ui.refreshable
         def info_card(self):
@@ -131,25 +156,82 @@ def file_utils_tab():
             ui.markdown("**Edit metadata**")
             meta = self.data.meta
             with ui.row():
-                with ui.column().classes("p-0 gap-0"):
-                    with ui.upload(label="Replace Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
-                        ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).classes("w-32 h-32").tooltip(meta.cover_name)
+                with ui.upload(label="Replace Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
+                    ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).tooltip(meta.cover_name)
                 with ui.column():
                     ui.input("Name").props("dense").classes("h-8").bind_value(meta, "name")
                     ui.input("Artist").props("dense").classes("h-8").bind_value(meta, "artist")
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
+            default_audio = "data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode()
+            with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-full").add_slot("list"):
+                preview_audio = ui.audio(default_audio)
+                async def _add_ticks(e: events.ClickEventArguments) -> bytes:
+                    bpm = self.output_bpm
+                    offset = self.output_offset
+                    if bpm is None or not bpm > 0:
+                        error("BPM must be greater than 0", data=bpm)
+                        return
+                    if offset is None or offset < 0:
+                        error("Offset must be 0 or greater", data=offset)
+                        return
+                    btn: ui.button = e.sender
+                    btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
+                    try:
+                        audio_data = await run.cpu_bound(analysis.audio_with_clicks, audio=self.data.audio, bpm=bpm, offset_ms=offset)
+                        preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(audio_data).decode())
+                    except Exception as exc:
+                        error("Generating metronome failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
+                    btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
+                with ui.row():
+                    with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-16").bind_value(self, "output_bpm"):
+                        ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
+                    ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset")
+                    def _reset_bpm():
+                        self.output_bpm = self.data.bpm
+                        self.output_offset = self.data.offset_ms
+                    ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("my-auto").tooltip("Reset to original values")
+
+                    ui.button(icon="timer", on_click=_add_ticks, color="positive").props("dense outline").classes("my-auto").tooltip("Add or update metronome in preview")
+                    ui.button(icon="timer_off", on_click=lambda _: preview_audio.set_source(default_audio), color="negative").props("dense outline").classes("my-auto").tooltip("Remove metronome from preview").bind_enabled_from(preview_audio, "source", lambda s: s!=default_audio)
+
+        @ui.refreshable
+        def _bpm_card(self) -> None:
+            if self.bpm_scan_data is None:
+                ui.button("Scan for BPM", icon="troubleshoot", on_click=self._bpm_scan).props('outline color="warning"').classes("mt-auto").tooltip("Detect BPM & offset. This will take a few seconds.")
+                return
+            bpm, offset_ms, pdc = self.bpm_scan_data
             with ui.row():
-                ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-32")
-                ui.number("BPM").props("dense").classes("w-16").bind_value(self, "output_bpm")
-                ui.number("Offset", suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset")
-            ui.audio("data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode())
+                ui.label(f"Detected BPM {bpm}, Offset {offset_ms} ms. This may not be accurate.").classes("my-auto")
+                def _apply_bpm():
+                    self.output_bpm = bpm
+                    self.output_offset = offset_ms
+                ui.button("Apply", icon="auto_fix_high", color="green", on_click=_apply_bpm).props("outline").tooltip("Apply BPM & Offset to map. Already placed objects will stay at their previous timing.")
+
+            with ui.row():
+                ui.label("Audio with clicks")
+                clickaudio = ui.audio("data:audio/ogg;base64,"+base64.b64encode(analysis.audio_with_clicks(self.data.audio, bpm=bpm, offset_ms=offset_ms)).decode())
+
+            bpmfig = go.Figure(
+                layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Time", tickformat="%M:%S"),
+                    yaxis=go.layout.YAxis(title="Localized BPM estimate"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                ),
+            )
+            bpmfig.add_scatter(
+                x=pdc.plot_times, y=pdc.plot_data[:,1],
+            )
+            bpmfig.add_hline(bpm, line={"color": "grey", "dash": "dash"}, annotation=go.layout.Annotation(text="Global BPM", xanchor="left", yanchor="bottom"), annotation_position="left")
+            ui.plotly(bpmfig).classes("w-full h-96")
 
         @ui.refreshable
         def stats_card(self) -> None:
             if self.data is None:
                 ui.label("Load a map to show stats and graphs")
                 return
+            self._bpm_card()
+            ui.separator()
             ui.label(f"{len(self.data.bookmarks)} Bookmarks")
             if self.merged_filenames:
                 ui.label("Merged:")
@@ -264,11 +346,12 @@ def file_utils_tab():
 
             The following features are supported:
 
+            * Create new .synth files from .ogg files
+            * Detect and edit BPM/Offset (without changing timing of existing objects)
             * View and edit metadata:
                 * audio file
                 * cover image
                 * name, artist and mapper
-            * Change BPM/Offset (without changing timing of existing objects)
             * Detect and correct certain types of file corruption (NaN value, duplicate notes)
             * Merge files, including different BPM
             * Show stats
@@ -283,7 +366,7 @@ def file_utils_tab():
     
     with ui.row().classes("mb-4"):
         with ui.card().classes("mb-4"):
-            with ui.upload(label="Select a .synth file ->", auto_upload=True, on_upload=fi.upload).classes("w-full").add_slot("list"):
+            with ui.upload(label="Select a .synth or .ogg file ->", auto_upload=True, on_upload=fi.upload).classes("w-full").add_slot("list"):
                 ui.tooltip("Select a file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
                 ui.input("Output Filename").props("dense").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
                 with ui.switch("Finalize Walls").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid").classes("my-auto"):

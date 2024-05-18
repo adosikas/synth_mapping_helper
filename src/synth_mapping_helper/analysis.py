@@ -1,7 +1,11 @@
+from io import BytesIO
 from dataclasses import dataclass, field
+from datetime import datetime
 from datetime import datetime
 
 import numpy as np
+import librosa
+import soundfile
 
 from synth_mapping_helper.synth_format import DataContainer, NOTE_TYPES, WALL_TYPES, AudioData
 
@@ -101,3 +105,42 @@ def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
     }
     out["combined"] = density(times=list(data.walls), window=window_b)
     return out
+
+def load_audio(audio: AudioData) -> "numpy array (n,)":
+    data, _ = librosa.load(BytesIO(audio.raw_data), sr=audio.sample_rate)
+    audio.cache["data"] = data
+
+def calculate_onsets(audio: AudioData) -> "numpy array (n,)":
+    if "data" not in audio.cache:
+        load_audio(audio)
+    audio.cache["onsets"] = librosa.onset.onset_strength(y=audio.cache["data"], sr=audio.sample_rate, aggregate=np.median)
+
+def calculate_tempogram(audio: AudioData) -> "numpy array (n,)":
+    if "onsets" not in audio.cache:
+        calculate_onsets(audio)
+    audio.cache["tempogram"] = librosa.beat.tempogram(onset_envelope=audio.cache["onsets"], sr=audio.sample_rate)
+
+def bpm_scan(audio: AudioData) -> tuple[float, float, PlotDataContainer]:
+    if "tempogram" not in audio.cache:
+        calculate_tempogram(audio)
+    bpm_raw = librosa.feature.tempo(tg=audio.cache["tempogram"], sr=audio.sample_rate, aggregate=None)
+    time_bpm = np.stack((librosa.times_like(bpm_raw, sr=audio.sample_rate), bpm_raw), axis=-1)
+
+    # for some reason, the "tempo" reported by beat_track is not accurate across longer songs
+    # so, just calculate average beat time
+    _, beats = librosa.beat.beat_track(onset_envelope=audio.cache["onsets"], sr=audio.sample_rate, units="time")
+    avg_beat_time = ((beats[-1]-beats[0])/(len(beats)-1))
+    rounded_bpm = round(60/avg_beat_time, 3)
+    offset = -beats[0] % avg_beat_time  # editor wants offset for the *audio*, so inverse of first beat offset
+    return rounded_bpm, int(offset * 1000), PlotDataContainer(times=beats, plot_data=time_bpm)
+
+def audio_with_clicks(audio: AudioData, bpm: float, offset_ms: int) -> bytes:
+    bio = BytesIO()
+    beat_time = 60/bpm
+    if "data" not in audio.cache:
+        load_audio(audio)
+    data = audio.cache["data"]
+    clicks = librosa.clicks(times=np.arange(beat_time-offset_ms/1000, audio.duration, beat_time), sr=audio.sample_rate, length=len(data))
+    soundfile.write(file=bio, data=data + clicks, samplerate=audio.sample_rate, format="wav")
+    bio.seek(0)
+    return bio.read()

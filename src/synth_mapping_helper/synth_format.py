@@ -7,7 +7,7 @@ import datetime
 import json
 from pathlib import Path
 import time
-from typing import Union
+from typing import Any, Union
 import zipfile
 
 import numpy as np
@@ -289,12 +289,12 @@ class AudioData:
     sample_rate: int
     channels: int
     duration: float
+    cache: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     @staticmethod
-    def from_raw(raw_data: bytes) -> "AudioData":
-        bio = BytesIO(raw_data)
+    def from_raw(raw_data: bytes, *, convert_to_ogg: bool = False) -> "AudioData":
         try:
-            info = soundfile.info(bio)
+            info = soundfile.info(BytesIO(raw_data))
         except soundfile.SoundFileError as sfe:
             raise ValueError(f"Could not parse audio file: {sfe!r}")
         if info.format != "OGG":
@@ -311,10 +311,10 @@ class SynthFileMeta:
     name: str
     artist: str
     mapper: str
-    audio_name: str
+    audio_name: str  # without .ogg
     explicit: bool = False
-    cover_name: str = "No cover"
-    cover_data: bytes = b""
+    cover_name: str = "No cover"  # without .png
+    cover_data: bytes = b""  # from base64 in json, overwrites separate file
     custom_difficulty_name: str = "Custom"
     custom_difficulty_speed: float = 1.0
 
@@ -326,14 +326,15 @@ class SynthFile:
     difficulties: dict[str, DataContainer]
 
     errors: dict[str, list[tuple[str, JSONParseError]]]
-    offset_ms: float
+    offset_ms: int
 
     @staticmethod
-    def empty_from_audio(ogg_file: Union[Path, BytesIO], *, filename: str = None, name: str = None, artist: str = "unknown artist", mapper: str = "your name here") -> "SynthFile":
-        audio = AudioData.from_raw(ogg_file)
+    def empty_from_audio(audio_file: Union[Path, BytesIO], *, filename: str = None, name: str = None, artist: str = "unknown artist", mapper: str = "your name here") -> "SynthFile":
+        raw_data = audio_file.read_bytes() if isinstance(audio_file, Path) else audio_file.read()
+        audio = AudioData.from_raw(raw_data, convert_to_ogg=True)
         if filename is None:
-            if isinstance(ogg_file, Path):
-                filename = ogg_file.name
+            if isinstance(audio_file, Path):
+                filename = audio_file.name
             elif name is not None:
                 filename = name + ".ogg"
             else:
@@ -349,7 +350,7 @@ class SynthFile:
             ),
             audio=audio,
             bookmarks={},
-            difficulties={},
+            difficulties={DIFFICULTIES[0]: DataContainer()},
             errors={},
             offset_ms=0,
         )
@@ -435,6 +436,10 @@ class SynthFile:
 
             if diff_removed:
                 errors[diff] = diff_removed
+
+        if not difficulties:
+            # at add least one difficulty, such that BPM can be tracked
+            difficulties[DIFFICULTIES[0]] = DataContainer(bpm=bpm)
             
         return SynthFile(
             meta=SynthFileMeta(
@@ -442,7 +447,7 @@ class SynthFile:
                 artist = beatmap["Author"],
                 mapper = beatmap["Beatmapper"],
                 explicit = beatmap["Explicit"],
-                cover_name = beatmap["Artwork"],
+                cover_name = Path(beatmap["Artwork"]).stem + ".png",  # change to .png, regardless of input type
                 cover_data = base64.b64decode(beatmap["ArtworkBytes"]),  # this seems to be a converted form (to png)
                 audio_name = beatmap["AudioName"],
                 custom_difficulty_name = beatmap["CustomDifficultyName"],
@@ -484,8 +489,8 @@ class SynthFile:
             # note: for some of the following I just use dummy value, no idea what they are used for
             "Jumps": {d: [] for d in DIFFICULTIES},  # ?
             "Crouchs": {d: [] for d in DIFFICULTIES},
-            "Lights": {d: [] for d in DIFFICULTIES},
             "Slides": {d: [] for d in DIFFICULTIES},
+            "Lights": {d: [] for d in DIFFICULTIES},
             "Squares": {d: [] for d in DIFFICULTIES},
             "Triangles": {d: [] for d in DIFFICULTIES},
             "DrumSamples": None,  # ?
@@ -576,7 +581,16 @@ class SynthFile:
         else:
             output_file.write_bytes(out_buffer.getbuffer())
 
+    def reload(self, new_file: Union[Path, BytesIO]) -> "SynthFile":
+        new = type(self).from_synth(new_file)
+        if new.audio.raw_data == self.audio.raw_data:
+            # keep audio cache, if applicable
+            new.audio = self.audio
+        return new
+
     def change_bpm(self, bpm: float) -> None:
+        if not bpm > 0:
+            raise ValueError("BPM must be greater than 0")
         if self.bpm != bpm:
             ratio = bpm/self.bpm
             self.bookmarks = {
@@ -586,7 +600,9 @@ class SynthFile:
             for c in self.difficulties.values():
                 c.apply_for_all(movement.scale, [1,1,ratio])
                 c.bpm = bpm
-    def change_offset(self, offset_ms: float) -> None:
+    def change_offset(self, offset_ms: int) -> None:
+        if not offset_ms > 0:
+            raise ValueError("BPM must be greater than 0")
         if self.offset_ms != offset_ms:
             delta = second_to_beat((offset_ms - self.offset_ms)*1000, self.bpm)
             self.bookmarks = {
@@ -631,7 +647,7 @@ def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
     return [
         round((coord[0] * GRID_SCALE) + X_OFFSET, 11),
         round((coord[1] * GRID_SCALE) + Y_OFFSET, 11),
-        round(beat_to_second(round_time_to_fractions(coord[2], bpm)) * 20, 11),
+        round(beat_to_second(round_time_to_fractions(coord[2]), bpm) * 20, 11),
     ]
 
 # full note dict
