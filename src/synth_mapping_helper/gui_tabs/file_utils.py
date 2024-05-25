@@ -8,6 +8,7 @@ import sys
 import plotly.graph_objects as go
 from nicegui import app, events, run, ui
 import numpy as np
+import librosa
 
 from .utils import *
 from ..utils import pretty_list
@@ -22,7 +23,10 @@ def file_utils_tab():
         output_bpm: float = 0.0
         output_offset: float = 0.0
         output_finalize: bool = False
-        bpm_scan_data: Optional[tuple[float, float, analysis.PlotDataContainer]] = None
+        preview_audio: Optional[tuple[str, bytes]] = None
+        wall_densities: Optional[dict[str, dict[str, analysis.PlotDataContainer]]] = None
+        note_densities: Optional[dict[str, dict[str, analysis.PlotDataContainer]]] = None
+        bpm_scan_data: Optional[dict] = None
         merged_filenames: Optional[list[str]] = None
 
         @property
@@ -35,19 +39,21 @@ def file_utils_tab():
             self.output_bpm = 0.0
             self.output_offset = 0.0
             self.merged_filenames = None
+            self.tick_audio = None
             self.bpm_scan_data = None
+            self.wall_densities = None
+            self.note_densities = None
             self.refresh()
 
         async def upload(self, e: events.UploadEventArguments) -> None:
             self.clear()
             e.sender.reset()
-            self.refresh()
             if e.name.endswith(".synth"):
                 self.data = try_load_synth_file(e)
                 self.output_filename = add_suffix(e.name, "out")
             else:
                 try:
-                    self.data = await run.cpu_bound(synth_format.SynthFile.empty_from_audio, audio_file=BytesIO(e.content.read()), filename=e.name)
+                    self.data = synth_format.SynthFile.empty_from_audio(audio_file=BytesIO(e.content.read()), filename=e.name)
                 except Exception as exc:
                     error(f"Creating .synth from {e.name} failed", exc=exc)
                     self.data = None
@@ -58,6 +64,11 @@ def file_utils_tab():
                 self.output_offset = self.data.offset_ms
                 self.output_finalize = (self.data.bookmarks.get(0) == "#smh_finalized")
                 self.merged_filenames = []
+                self.bpm_scan_data = {"state": "Waiting"}
+                ui.timer(0.1, self._calc_wden, once=True)
+                ui.timer(0.2, self._calc_nden, once=True)
+                ui.timer(0.5, self._calc_bpm, once=True)
+
             self.refresh()
 
         def upload_merge(self, e: events.UploadEventArguments) -> None:
@@ -140,13 +151,25 @@ def file_utils_tab():
             self.info_card.refresh()
             self.stats_card.refresh()
             self._bpm_card.refresh()
+            self._wden_card.refresh()
+            self._nden_card.refresh()
 
-        async def _bpm_scan(self, e: events.ClickEventArguments):
+        async def _add_clicks(self, e: events.ClickEventArguments):
+            bpm = self.output_bpm
+            offset = self.output_offset
+            if bpm is None or not bpm > 0:
+                error("BPM must be greater than 0", data=bpm)
+                return
+            if offset is None or offset < 0:
+                error("Offset must be 0 or greater", data=offset)
+                return
             btn: ui.button = e.sender
-            btn.on("click", None)  # remove callback to prevent spam
             btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
-            self.bpm_scan_data = await run.cpu_bound(analysis.bpm_scan, audio=fi.data.audio)
-            self._bpm_card.refresh()
+            try:
+                _, self.tick_audio = await run.cpu_bound(analysis.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
+            except Exception as exc:
+                error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
+            btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
 
         @ui.refreshable
         def info_card(self):
@@ -163,67 +186,210 @@ def file_utils_tab():
                     ui.input("Artist").props("dense").classes("h-8").bind_value(meta, "artist")
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
-            default_audio = "data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode()
             with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-full").add_slot("list"):
-                preview_audio = ui.audio(default_audio)
-                async def _add_ticks(e: events.ClickEventArguments) -> bytes:
-                    bpm = self.output_bpm
-                    offset = self.output_offset
-                    if bpm is None or not bpm > 0:
-                        error("BPM must be greater than 0", data=bpm)
-                        return
-                    if offset is None or offset < 0:
-                        error("Offset must be 0 or greater", data=offset)
-                        return
-                    btn: ui.button = e.sender
-                    btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
-                    try:
-                        audio_data = await run.cpu_bound(analysis.audio_with_clicks, audio=self.data.audio, bpm=bpm, offset_ms=offset)
-                        preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(audio_data).decode())
-                    except Exception as exc:
-                        error("Generating metronome failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
-                    btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
+                ui.audio("").bind_source_from(self, "tick_audio", backward=lambda ta: f"data:audio/{'ogg' if ta is None else 'wav'};base64,"+base64.b64encode(self.data.audio.raw_data if ta is None else ta).decode())
                 with ui.row():
-                    with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-16").bind_value(self, "output_bpm"):
+                    with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm"):
                         ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
                     ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset")
                     def _reset_bpm():
                         self.output_bpm = self.data.bpm
                         self.output_offset = self.data.offset_ms
                     ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("my-auto").tooltip("Reset to original values")
+                    ui.button(icon="timer", on_click=self._add_clicks, color="positive").props("dense outline").classes("my-auto").tooltip("Add or update clicks in preview")
+                    def _reset_audio():
+                        self.tick_audio = None
+                    ui.button(icon="timer_off", on_click=_reset_audio, color="negative").props("dense outline").classes("my-auto").tooltip("Remove clicks from preview").bind_enabled_from(self, "tick_audio", lambda s: s is not None)
 
-                    ui.button(icon="timer", on_click=_add_ticks, color="positive").props("dense outline").classes("my-auto").tooltip("Add or update metronome in preview")
-                    ui.button(icon="timer_off", on_click=lambda _: preview_audio.set_source(default_audio), color="negative").props("dense outline").classes("my-auto").tooltip("Remove metronome from preview").bind_enabled_from(preview_audio, "source", lambda s: s!=default_audio)
+        async def _calc_bpm(self):
+            self.bpm_scan_data["state"] = "Loading Audio"
+            data, sr = await run.cpu_bound(analysis.load_audio, raw_data=fi.data.audio.raw_data)
+            self.bpm_scan_data["data"] = data
+            self.bpm_scan_data["sr"] = sr
+            self.bpm_scan_data["state"] = "Detecting Onsets"
+            onsets = await run.cpu_bound(analysis.calculate_onsets, data=data, sr=sr)
+            self.bpm_scan_data["onsets"] = onsets
+            self.bpm_scan_data["state"] = "Finding BPM"
+            peak_bpms, peak_values, pulse = await run.cpu_bound(analysis.find_bpm, onsets=onsets, sr=sr)
+            self.bpm_scan_data["peak_bpms"] = peak_bpms
+            self.bpm_scan_data["peak_values"] = peak_values
+            self.bpm_scan_data["pulse"] = pulse
+            self.bpm_scan_data["detected_bpm"] = round(peak_bpms[peak_values.argmax()], 3)
+            self.bpm_scan_data["bpm"] = self.bpm_scan_data["detected_bpm"]
+            await self._calc_beats()
+        async def _calc_beats(self):
+            # have this seperate so it could be updated seperately later
+            self.bpm_scan_data["state"] = "Locating beats"
+            self._bpm_card.refresh()
+            sr = self.bpm_scan_data["sr"]
+            bpm = self.bpm_scan_data["bpm"]
+            onsets = self.bpm_scan_data["onsets"]
+            beats = await run.cpu_bound(analysis.locate_beats, onsets=onsets, sr=sr, bpm=bpm)
+            self.bpm_scan_data["beats"] = beats
+            self.bpm_scan_data["state"] = "Done"
+            beat_time = 60/bpm
+            offsets = beat_time - (beats % beat_time)
+            offset_ms = int(offsets.mean()*1000)
+            self.bpm_scan_data["offset_ms"] = offset_ms
+            self._bpm_card.refresh()
 
         @ui.refreshable
         def _bpm_card(self) -> None:
-            if self.bpm_scan_data is None:
-                ui.button("Scan for BPM", icon="troubleshoot", on_click=self._bpm_scan).props('outline color="warning"').classes("mt-auto").tooltip("Detect BPM & offset. This will take a few seconds.")
+            if self.bpm_scan_data["state"] != "Done":
+                with ui.row():
+                    ui.spinner(size="xl")
+                    ui.label().classes("my-auto").bind_text_from(self.bpm_scan_data, "state", backward=lambda s: s + " (this may take a few seconds)")
                 return
-            bpm, offset_ms, pdc = self.bpm_scan_data
+            ui.label("BPM Scan Results")
+            sr = self.bpm_scan_data["sr"]
+            onsets = self.bpm_scan_data["onsets"]
+            peak_values = self.bpm_scan_data["peak_values"]
+            pulse = self.bpm_scan_data["pulse"]
+            peak_bpms = self.bpm_scan_data["peak_bpms"]
+            bpm = self.bpm_scan_data["bpm"]
+            detected_bpm = self.bpm_scan_data["detected_bpm"]
+            beats = self.bpm_scan_data["beats"]
+            offset_ms = self.bpm_scan_data["offset_ms"]
             with ui.row():
-                ui.label(f"Detected BPM {bpm}, Offset {offset_ms} ms. This may not be accurate.").classes("my-auto")
+                ui.label(f"{'Detected' if (detected_bpm==bpm) else 'Overwritten'} BPM: {bpm}, Offset: {offset_ms} ms").classes("my-auto")
                 def _apply_bpm():
                     self.output_bpm = bpm
                     self.output_offset = offset_ms
-                ui.button("Apply", icon="auto_fix_high", color="green", on_click=_apply_bpm).props("outline").tooltip("Apply BPM & Offset to map. Already placed objects will stay at their previous timing.")
-
-            with ui.row():
-                ui.label("Audio with clicks")
-                clickaudio = ui.audio("data:audio/ogg;base64,"+base64.b64encode(analysis.audio_with_clicks(self.data.audio, bpm=bpm, offset_ms=offset_ms)).decode())
+                ui.button("Apply", icon="auto_fix_high", on_click=_apply_bpm, color="positive").props("dense outline").tooltip("Apply detected BPM and offset")
+                async def _override_bpm():
+                    self.bpm_scan_data["bpm"] = self.output_bpm
+                    await self._calc_beats()
+                ui.button("BPM Override", icon="south", on_click=_override_bpm, color="warning").props("dense outline").tooltip("Override detected BPM with current BPM and recalculate beats and offset")
 
             bpmfig = go.Figure(
                 layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Time", tickformat="%M:%S"),
-                    yaxis=go.layout.YAxis(title="Localized BPM estimate"),
+                    xaxis=go.layout.XAxis(title="Time"),
+                    yaxis=go.layout.YAxis(title="BPM"),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
                 ),
             )
             bpmfig.add_scatter(
-                x=pdc.plot_times, y=pdc.plot_data[:,1],
+                x=librosa.times_like(peak_bpms, sr=sr), y=peak_bpms,
+                name="BPM",
             )
-            bpmfig.add_hline(bpm, line={"color": "grey", "dash": "dash"}, annotation=go.layout.Annotation(text="Global BPM", xanchor="left", yanchor="bottom"), annotation_position="left")
+            bpmfig.add_hline(bpm, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Detected BPM", xanchor="left", yanchor="bottom"), annotation_position="left")
             ui.plotly(bpmfig).classes("w-full h-96")
+
+            onset_fig = go.Figure(
+                layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Time"),
+                    yaxis=go.layout.YAxis(title=" "),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                ),
+            )
+            onset_fig.add_scatter(
+                x=librosa.times_like(onsets, sr=sr), y=onsets,
+                name="Onset strength",
+            )
+            onset_fig.add_scatter(
+                x=librosa.times_like(peak_values, sr=sr), y=peak_values,
+                name="BPM strength",
+            )
+            onset_fig.add_scatter(
+                x=librosa.times_like(pulse, sr=sr), y=pulse,
+                name="Pulse curve",
+                visible="legendonly",  # hide by default
+            )
+            onset_fig.add_scatter(
+                # just vertical lines
+                x=beats.repeat(3), y=[0,1,None]*len(beats),
+                name=f"Beats ({bpm} BPM)",
+                line=dict(dash="dot")
+            )
+            ui.plotly(onset_fig).classes("w-full h-96")
+
+        def _calc_wden(self):
+            self.wall_densities = {d: analysis.wall_densities(c) for d, c in self.data.difficulties.items()}
+            self._wden_card.refresh()
+
+        def _calc_nden(self):
+            self.note_densities = {d: analysis.note_densities(c) for d, c in self.data.difficulties.items()}
+            self._nden_card.refresh()
+
+        @ui.refreshable
+        def _wden_card(self) -> None:
+            ui.label("Wall density")
+            if self.wall_densities is None:
+                ui.spinner(size="xl")
+                return
+            wfig = go.Figure(
+                layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Measure"),
+                    yaxis=go.layout.YAxis(title="Visible Walls (4s)"),
+                    legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                ),
+            )
+            for t, b in self.data.bookmarks.items():
+                wfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+            
+            # difficulty->wall_type
+            wall_densities: dict[str, dict[str, analysis.PlotDataContainer]] = {
+                d: analysis.wall_densities(c)
+                for d, c in self.data.difficulties.items()
+            }
+            # show horizontal lines when combined y is close to or over the limit
+            max_com_d = max(den_dict["combined"].max_value for den_dict in self.wall_densities.values()) if self.wall_densities else 0
+            if max_com_d > 0.9 * analysis.QUEST_WIREFRAME_LIMIT:
+                wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+            if max_com_d > 0.9 * analysis.QUEST_RENDER_LIMIT:
+                wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+            # show horizontal lines when single y is over the limit
+            max_single_d = max(max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined") for den_dict in self.wall_densities.values()) if self.wall_densities else 0
+            if max_single_d > 0.95 * analysis.PC_TYPE_DESPAWN:
+                wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow", "dash": "dash"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
+
+            for d, den_dict in self.wall_densities.items():
+                for wt in ("combined", *synth_format.WALL_TYPES):
+                    pdc = den_dict[wt]
+                    if pdc.max_value:
+                        wfig.add_scatter(
+                            x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({wt}) [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
+                            showlegend=True,
+                            legendgroup=d,
+                            # start with only combined visible and single only when above PC limit
+                            visible=(wt == "combined" or pdc.max_value > 0.95 * analysis.PC_TYPE_DESPAWN) or "legendonly"
+                        )
+            ui.plotly(wfig).classes("w-full h-96")
+
+        @ui.refreshable
+        def _nden_card(self) -> None:
+            ui.label("Note & Rail density")
+            if self.wall_densities is None:
+                ui.spinner(size="xl")
+                return
+            # mostly the same thing as walls, but for combined notes and rail nodes
+            nfig = go.Figure(
+                layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Measure"),
+                    yaxis=go.layout.YAxis(title="Visible (4s)"),
+                    legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                ),
+            )
+            for t, b in self.data.bookmarks.items():
+                nfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+
+            for d, den_dict in self.note_densities.items():
+                for nt in ("combined", *synth_format.NOTE_TYPES):
+                    den_subdict = den_dict[nt]
+                    for sub_t, pdc in den_subdict.items():
+                        if pdc.max_value:
+                            nfig.add_scatter(
+                                x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({nt} {sub_t}s) [max {pdc.max_value}]",
+                                showlegend=True,
+                                legendgroup=f"{d} {nt}",
+                                # start with only combined note visible
+                                visible=(nt == "combined" and sub_t == "note") or "legendonly",
+                            )
+            ui.plotly(nfig).classes("w-full h-96")
 
         @ui.refreshable
         def stats_card(self) -> None:
@@ -269,74 +435,10 @@ def file_utils_tab():
                 ],
             }).classes("w-full h-auto").on("cellClicked", _stats_notify)
 
-            ui.label("Wall density")
-            wfig = go.Figure(
-                layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Measure"),
-                    yaxis=go.layout.YAxis(title="Visible Walls (4s)"),
-                    legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
-                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
-                ),
-            )
-            for t, b in self.data.bookmarks.items():
-                wfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
-            
-            # difficulty->wall_type
-            wall_densities: dict[str, dict[str, analysis.PlotDataContainer]] = {
-                d: analysis.wall_densities(c)
-                for d, c in self.data.difficulties.items()
-            }
-            # show horizontal lines when combined y is close to or over the limit
-            max_com_d = max(den_dict["combined"].max_value for den_dict in wall_densities.values()) if wall_densities else 0
-            if max_com_d > 0.9 * analysis.QUEST_WIREFRAME_LIMIT:
-                wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            if max_com_d > 0.9 * analysis.QUEST_RENDER_LIMIT:
-                wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            # show horizontal lines when single y is over the limit
-            max_single_d = max(max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined") for den_dict in wall_densities.values()) if wall_densities else 0
-            if max_single_d > 0.95 * analysis.PC_TYPE_DESPAWN:
-                wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow", "dash": "dash"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
-
-            for d, den_dict in wall_densities.items():
-                for wt in ("combined", *synth_format.WALL_TYPES):
-                    pdc = den_dict[wt]
-                    if pdc.max_value:
-                        wfig.add_scatter(
-                            x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({wt}) [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
-                            showlegend=True,
-                            legendgroup=d,
-                            # start with only combined visible and single only when above PC limit
-                            visible=(wt == "combined" or pdc.max_value > 0.95 * analysis.PC_TYPE_DESPAWN) or "legendonly"
-                        )
-            ui.plotly(wfig).classes("w-full h-96")
-
-            # mostly the same thing, but for combined notes and rail nodes
-            ui.label("Note & Rail density")
-            nfig = go.Figure(
-                layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Measure"),
-                    yaxis=go.layout.YAxis(title="Visible (4s)"),
-                    legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
-                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
-                ),
-            )
-            for t, b in self.data.bookmarks.items():
-                nfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
-
-            for d, c in self.data.difficulties.items():
-                den_dict = analysis.note_densities(c)
-                for nt in ("combined", *synth_format.NOTE_TYPES):
-                    den_subdict = den_dict[nt]
-                    for sub_t, pdc in den_subdict.items():
-                        if pdc.max_value:
-                            nfig.add_scatter(
-                                x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({nt} {sub_t}s) [max {pdc.max_value}]",
-                                showlegend=True,
-                                legendgroup=f"{d} {nt}",
-                                # start with only combined note visible
-                                visible=(nt == "combined" and sub_t == "note") or "legendonly",
-                            )
-            ui.plotly(nfig).classes("w-full h-96")
+            ui.separator()
+            self._wden_card()
+            ui.separator()
+            self._nden_card()
 
     fi = FileInfo()
 

@@ -106,41 +106,59 @@ def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
     out["combined"] = density(times=list(data.walls), window=window_b)
     return out
 
-def load_audio(audio: AudioData) -> "numpy array (n,)":
-    data, _ = librosa.load(BytesIO(audio.raw_data), sr=audio.sample_rate)
-    audio.cache["data"] = data
-
-def calculate_onsets(audio: AudioData) -> "numpy array (n,)":
-    if "data" not in audio.cache:
-        load_audio(audio)
-    audio.cache["onsets"] = librosa.onset.onset_strength(y=audio.cache["data"], sr=audio.sample_rate, aggregate=np.median)
-
-def calculate_tempogram(audio: AudioData) -> "numpy array (n,)":
-    if "onsets" not in audio.cache:
-        calculate_onsets(audio)
-    audio.cache["tempogram"] = librosa.beat.tempogram(onset_envelope=audio.cache["onsets"], sr=audio.sample_rate)
-
-def bpm_scan(audio: AudioData) -> tuple[float, float, PlotDataContainer]:
-    if "tempogram" not in audio.cache:
-        calculate_tempogram(audio)
-    bpm_raw = librosa.feature.tempo(tg=audio.cache["tempogram"], sr=audio.sample_rate, aggregate=None)
-    time_bpm = np.stack((librosa.times_like(bpm_raw, sr=audio.sample_rate), bpm_raw), axis=-1)
-
-    # for some reason, the "tempo" reported by beat_track is not accurate across longer songs
-    # so, just calculate average beat time
-    _, beats = librosa.beat.beat_track(onset_envelope=audio.cache["onsets"], sr=audio.sample_rate, units="time")
-    avg_beat_time = ((beats[-1]-beats[0])/(len(beats)-1))
-    rounded_bpm = round(60/avg_beat_time, 3)
-    offset = -beats[0] % avg_beat_time  # editor wants offset for the *audio*, so inverse of first beat offset
-    return rounded_bpm, int(offset * 1000), PlotDataContainer(times=beats, plot_data=time_bpm)
-
-def audio_with_clicks(audio: AudioData, bpm: float, offset_ms: int) -> bytes:
+def export_wav(data: "numpy array", samplerate: int = 22050) -> bytes:
     bio = BytesIO()
+    soundfile.write(file=bio, data=data, samplerate=samplerate, format="wav")
+    return bio.getvalue()
+
+def load_audio(raw_data: bytes) -> "numpy array (s,), int":
+    data, sr = librosa.load(BytesIO(raw_data))  # load with default samplerate and as mono
+    return data, sr
+
+def calculate_onsets(data: "numpy array (s,)", sr: int) -> "numpy array (m,)":
+    return librosa.util.normalize(librosa.onset.onset_strength(y=data, sr=sr, aggregate=np.median, center=True))
+
+def find_bpm(onsets: "numpy array (m,)", sr: int) -> "numpy array (m,), numpy array (m,)":
+    # 193 bins from 0 to ~ 300 bpm
+    hop_len = 1<<(sr.bit_length()-4)
+    win_len = 384
+    # this is based on librosa.beat.plp
+    ftgram = librosa.feature.fourier_tempogram(onset_envelope=onsets, sr=sr, hop_length=hop_len, win_length=win_len)
+    tempo_frequencies = librosa.fourier_tempo_frequencies(sr=sr, hop_length=hop_len, win_length=win_len)
+    ftgram[..., tempo_frequencies < 30, :] = 0
+    ftgram[..., tempo_frequencies > 300, :] = 0
+    ftmag = np.log1p(1e6 * np.abs(ftgram))
+    peak_idx = ftmag.argmax(axis=-2)
+    # Now we have a peak bin, estimate the binning error (±1/2) using
+    # https://ccrma.stanford.edu/~jos/sasp/Quadratic_Interpolation_Spectral_Peaks.html
+    # Then we can store BPM and peak value for every frame
+    bpm_peaks = []
+    bpm_peak_values = []
+    bpm_multiplier = sr/(hop_len*win_len) * 60  # used to convert intermediate bin to bpm
+    for i, pb in enumerate(peak_idx):
+        if pb == 0 or pb == ftgram.shape[-1]:
+            bpm_peaks.append(0)
+            bpm_peak_values.append(0)
+        else:
+            a, b, c = np.abs(ftgram[..., pb-1:pb+2, i])
+            p = 1/2 * (a-c) / (a-2*b+c)
+            bpm_peaks.append((pb+p)*bpm_multiplier)
+            bpm_peak_values.append(b-1/4*(a-c)*p)
+    # back to plp
+    peak_values = ftmag.max(axis=-2, keepdims=True)
+    ftgram[ftmag < peak_values] = 0
+    ftgram /= librosa.util.tiny(ftgram) ** 0.5 + np.abs(ftgram.max(axis=-2, keepdims=True))
+    pulse = librosa.istft(ftgram, hop_length=1, n_fft=win_len, length=onsets.shape[-1])
+    pulse = np.clip(pulse, 0, None, pulse)
+    # bpms, normalized bpm strength, pulse curve
+    return np.array(bpm_peaks), librosa.util.normalize(np.array(bpm_peak_values)), librosa.util.normalize(pulse)
+
+def locate_beats(onsets: "numpy array (m,)", sr: int, bpm: float) -> "numpy array (t,)":
+    _, beats = librosa.beat.beat_track(onset_envelope=onsets, bpm=bpm, units="time", trim=False)
+    return beats
+
+def audio_with_clicks(raw_audio_data: bytes, duration: float, bpm: float, offset_ms: int) -> tuple[str, bytes]:
     beat_time = 60/bpm
-    if "data" not in audio.cache:
-        load_audio(audio)
-    data = audio.cache["data"]
-    clicks = librosa.clicks(times=np.arange(beat_time-offset_ms/1000, audio.duration, beat_time), sr=audio.sample_rate, length=len(data))
-    soundfile.write(file=bio, data=data + clicks, samplerate=audio.sample_rate, format="wav")
-    bio.seek(0)
-    return bio.read()
+    data, sr = librosa.load(BytesIO(raw_audio_data))
+    clicks = librosa.clicks(times=np.arange(beat_time-offset_ms/1000, duration, beat_time), length=len(data), sr=sr)
+    return "wav", export_wav(data+clicks)
