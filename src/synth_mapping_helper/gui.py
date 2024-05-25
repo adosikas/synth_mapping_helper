@@ -53,7 +53,7 @@ def entrypoint():
 
     args = parser.parse_args()
 
-    if not args.dev_mode:
+    if not args.dev_mode and __name__ == "__main__":  # don't check in dev mode or when spawned as child process
         try:
             resp = requests.get(f"http://{args.host}:{args.port}/version")
             resp.raise_for_status()
@@ -113,19 +113,20 @@ def entrypoint():
                 with ui.tab_panel(elem):
                     func()
 
-    logging.basicConfig(
-        format='%(asctime)s %(levelname)-8s [%(name)s] %(message)s',
-        level=args.log_level,
-        datefmt='%Y-%m-%d %H:%M:%S',
-        handlers=[
-            logging.FileHandler("smh_gui.log"),
-            logging.StreamHandler()
-        ]
-    )
-    if args.dev_mode:
-        logging.getLogger("watchfiles.main").level = logging.WARN  # hide change detection
+    if __name__ == "__main__":  # don't run when spawned as child process
+        logging.basicConfig(
+            format='%(asctime)s %(levelname)-8s [%(name)s] %(message)s',
+            level=args.log_level,
+            datefmt='%Y-%m-%d %H:%M:%S',
+            handlers=[
+                logging.FileHandler("smh_gui.log"),
+                logging.StreamHandler()
+            ]
+        )
+        if args.dev_mode:
+            logging.getLogger("watchfiles.main").level = logging.WARN  # hide change detection
 
-    logger.info(f"Starting {version}{' in background' if args.background else ''}...")
+        logger.info(f"Starting {version}{' in background' if args.background else ''}...")
     ui.run(
         host=args.host,
         port=args.port,
