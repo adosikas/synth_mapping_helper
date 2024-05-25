@@ -417,17 +417,18 @@ def wall_art_tab():
             with ui.expansion("Symmetry", icon="flip").props("dense") as sym_exp:
                 with ui.row():
                     symmetry_step = SMHInput("Interval", "1/4", "symmetry_step", suffix="b", tooltip="Time step for symmetry copies")
-                    rotate_first = LargeSwitch(False, "rotate_first", "Mirror or rotate first", color="secondary", icon_unchecked="flip", icon_checked="rotate_left")
+                    with LargeSwitch(False, "rotate_first", color="secondary", icon_unchecked="flip", icon_checked="adjust") as rotate_first:
+                        ui.tooltip().bind_text_from(rotate_first, "value", lambda rf: "Rotate first, then mirror" if rf else "Mirror first, then rotate")
                     ui.separator().props("vertical")
                     mirror_x = LargeSwitch(False, "mirror_x", "Mirror across X axis, ie left-right", color="negative", icon_unchecked="align_horizontal_left", icon_checked="align_horizontal_center")
                     mirror_y = LargeSwitch(False, "mirror_y", "Mirror across Y axis, ie up-down", color="positive", icon_unchecked="align_vertical_bottom", icon_checked="align_vertical_center")
                 with ui.row():
                     ui.label("Rotation: ").classes("my-auto")
-                    rotsym_direction = LargeSwitch(None, "rotsym_direction", "Rotation direction", color="secondary", icon_unchecked="rotate_left", icon_checked="rotate_right").props('toggle-indeterminate indeterminate-icon="cancel"')
+                    rotsym_direction = LargeSwitch(None, "rotsym_direction", "Rotation direction", color="white", icon_unchecked="rotate_left", icon_checked="rotate_right").props('toggle-indeterminate indeterminate-icon="cancel" icon-color="black"')
                     with ui.row():
                         ui.tooltip("Number of rotational symmetry. Note that mirror in both X and Y overlaps with even symmetries, ie 2x/4x/etc")
-                        rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-28").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
-                        ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}")
+                        rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-24").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
+                        ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}").bind_visibility_from(rotsym_direction, "value", backward=lambda v: v is not None)
                 def _update_symex(_) -> None:
                     enabled = []
                     if mirror_x.value:
@@ -435,10 +436,11 @@ def wall_art_tab():
                     if mirror_y.value:
                         enabled.append("Y")
                     if rotsym_direction.value is not None:
+                        rotdir = "↻" if rotsym_direction.value else "↺"
                         if rotate_first.value:
-                            enabled.insert(0, f"x{rotsym.value}")
+                            enabled.insert(0, f"{rotdir}{rotsym.value}")
                         else:
-                            enabled.append(f"x{rotsym.value}")
+                            enabled.append(f"{rotdir}{rotsym.value}")
                     return f"Symmetry: {', '.join(enabled) or 'off'}"
                 for inp in (mirror_x, mirror_y, rotsym_direction, rotate_first):
                     inp.bind_value_to(sym_exp, "text", forward=_update_symex)
