@@ -4,13 +4,13 @@ from nicegui import app, ui
 import requests
 import logging
 
-from .utils import error
+from .utils import GUITab, error
 from .. import __version__
 from ..utils import pretty_time_delta
 
 releases = None
 
-def version_tab():
+def _version_tab():
     @ui.refreshable
     def release_list():
         if releases == "error":
@@ -85,3 +85,10 @@ def version_tab():
         if not releases:  # don't check if we already have data
             releases = []
             ui.timer(0.001, check, once=True)  # Use a timer to detect when the client connects
+
+version_tab = GUITab(
+    name="version_history",
+    label="Version History",
+    icon="update",
+    content_func=_version_tab,
+)

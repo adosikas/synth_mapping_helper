@@ -49,7 +49,7 @@ DEFAULT_PRESETS = {
 
 presets = {}
 
-def command_tab():
+def _command_tab():
     loaded_presets = app.storage.user.get("command_presets")
     if loaded_presets:
         logger.info(f"Loaded {len(loaded_presets)} presets")
@@ -61,22 +61,24 @@ def command_tab():
     @ui.refreshable
     def quick_run_buttons():
         for p in presets:
-            ui.button(p, icon="fast_forward", on_click=run_preset)
+            ui.button(p, icon="fast_forward", on_click=run_preset).tooltip(f"Load and immediately execute {p} preset")
 
     def presets_updated():
         preset_selector.set_options(list(presets))
         quick_run_buttons.refresh()
 
+    @handle_errors
     def load_commands(e: events.UploadEventArguments):
         data = e.content.read()
         try:
             presets[e.name] = data.decode()
             presets_updated()
             preset_selector.value = e.name  # this also loads the content
-        except UnicodeDecodeError as exc:
-            error(f"Error reading commands from {e.name}", exc)
+        except UnicodeDecodeError as ude:
+            raise PrettyError(msg=f"Error reading commands from {e.name}", exc=ude, data=data[ude.start: ude.end].hex())
         e.sender.reset()
 
+    @handle_errors
     def run_command():
         p = cli.get_parser()
         p.exit_on_error = False
@@ -93,17 +95,14 @@ def command_tab():
 
             try:
                 opts, remaining = p.parse_known_args(args)
-            except ArgumentError as exc:
-                error(f"Error parsing line {i+1}", exc)
-                break
+            except ArgumentError as ae:
+                raise PrettyError(msg=f"Error parsing line {i+1}", exc=ae, data=line) from ae
             if remaining:
-                error(f"Unknown arguments in line {i+1}: {remaining}")
-                break
+                raise PrettyError(msg=f"Unknown arguments in line {i+1}", exc=exc, data=remaining)
             try:
                 cli.main(opts)
-            except RuntimeError as exc:
-                error(f"Error running line {i+1}", exc)
-                break
+            except RuntimeError as re:
+                raise PrettyError(msg=f"Error running line {i+1}", exc=re, data=line) from re
             count += 1
         else:
             if preset_selector.value:
@@ -175,13 +174,20 @@ def command_tab():
         add_button.bind_enabled_from(command_input, "value")
 
         with ui.row():
-            ui.button("Execute", icon="play_arrow", on_click=run_command).bind_enabled_from(command_input, "value")
+            ui.button("Execute", icon="play_arrow", on_click=run_command).bind_enabled_from(command_input, "value").tooltip("Execute commands and copy result to clipboard")
             with ui.checkbox("Use original JSON") as use_orig_cb:
                 wiki_reference("Miscellaneous-Options#use-original-json")
             with ui.checkbox("Mirror for left hand") as mirror_left_cb:
                 wiki_reference("Miscellaneous-Options#mirror-operations-for-left-hand")
         ui.separator()
     
-        ui.label("Quick run:")
+        ui.label("Quick run:").tooltip("Stored presets will show here")
         with ui.row():
             quick_run_buttons()
+
+command_tab = GUITab(
+    name="command",
+    label="Commands",
+    icon="play_arrow",
+    content_func=_command_tab,
+)

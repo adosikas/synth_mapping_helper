@@ -3,7 +3,7 @@ import numpy as np
 
 from .. import synth_format, movement
 from ..utils import parse_number
-from .utils import ParseInputError, info, error
+from .utils import GUITab, ParseInputError, info, error, write_clipboard
 from .map_render import SettingsPanel, MapScene
 
 FONT_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -88,9 +88,9 @@ class SMHInput(ui.input):
         try:
             return parse_number(self.value)
         except ValueError as ve:
-            raise ParseInputError(self.storage_id, self.value) from ve
+            raise ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve)
 
-def text_gen_tab() -> None:
+def _text_gen_tab() -> None:
     preview_scene: MapScene|None = None
     with ui.card():
         with ui.row():
@@ -113,7 +113,7 @@ def text_gen_tab() -> None:
                 """)
                 def _is_valid_clipboard(s: str) -> bool:
                     try:
-                        synth_format.import_clipboard_json(s)
+                        synth_format.ClipboardDataContainer.from_json(s)
                         return True
                     except Exception as e:
                         return False
@@ -163,7 +163,7 @@ def text_gen_tab() -> None:
             def _soft_refresh(copy:bool = True):
                 data = synth_format.ClipboardDataContainer()
                 try:
-                    font_data = synth_format.import_clipboard_json(font_input.value)
+                    font_data = synth_format.ClipboardDataContainer.from_json(font_input.value)
                 except Exception as exc:
                     error(f"Error parsing font data", exc, data=font_input.value)
                     return
@@ -185,11 +185,11 @@ def text_gen_tab() -> None:
                     error(f"Error parsing text setting: {pie.input_id}", pie, data=pie.value)
                     return
                 if copy:
+                    write_clipboard(data.to_clipboard_json(realign_start=False))
                     info(
                         "Generated text",
                         caption=f"Copied {len(data.walls)} walls to clipboard",
                     )
-                    synth_format.export_clipboard(data, realign_start=False)
                 try:
                     preview_settings = sp.parse_settings()
                 except ParseInputError as pie:
@@ -215,3 +215,10 @@ def text_gen_tab() -> None:
         draw_preview_scene()
         apply_button.on("click", draw_preview_scene.refresh)
         generate_button.on("click", _soft_refresh)
+
+text_gen_tab = GUITab(
+    name="text_gen",
+    label="Text",
+    icon="rtt",
+    content_func=_text_gen_tab,
+)

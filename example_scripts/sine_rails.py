@@ -19,8 +19,6 @@ phase_offset = 0  # start of the sine in degrees, where 0 and 180 start at the c
 
 interval = 1/64  # in beats
 
-data = synth_format.import_clipboard()
-
 def _rail_sines(nodes: "numpy array (n, 3+)", direction: int = 1) -> "numpy array (n, 3+)":
     if nodes.shape[0] == 1:
         return nodes
@@ -37,6 +35,5 @@ def _rail_sines(nodes: "numpy array (n, 3+)", direction: int = 1) -> "numpy arra
     interp_nodes[1::2,:2] -= offsets[1::2]  # add to XY axis (negative for 1,3,5,...)
     return interp_nodes
 
-data.apply_for_notes(_rail_sines)  # apply for all notes/rails
-
-synth_format.export_clipboard(data)
+with synth_format.clipboard_data() as data:
+    data.apply_for_notes(_rail_sines)  # apply for all notes/rails

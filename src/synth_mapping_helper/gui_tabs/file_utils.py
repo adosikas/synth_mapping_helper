@@ -15,7 +15,7 @@ from ..utils import pretty_list
 from .. import synth_format, movement, analysis, __version__
 
 
-def file_utils_tab():
+def _file_utils_tab():
     @dataclasses.dataclass
     class FileInfo:
         data: Optional[synth_format.SynthFile] = None
@@ -46,8 +46,8 @@ def file_utils_tab():
             self.refresh()
 
         async def upload(self, e: events.UploadEventArguments) -> None:
-            self.clear()
             e.sender.reset()
+            self.clear()
             if e.name.endswith(".synth"):
                 self.data = try_load_synth_file(e)
                 self.output_filename = add_suffix(e.name, "out")
@@ -72,6 +72,7 @@ def file_utils_tab():
             self.refresh()
 
         def upload_merge(self, e: events.UploadEventArguments) -> None:
+            e.sender.reset()
             merge = try_load_synth_file(e)
             if merge is None:
                 return
@@ -80,10 +81,10 @@ def file_utils_tab():
             self.data.merge(merge, merge_bookmarks=merge_bookmarks.value)
             self.merged_filenames.append(e.name)
         
-            e.sender.reset()
             self.refresh()
 
         def upload_cover(self, e: events.UploadEventArguments) -> None:
+            e.sender.reset()
             if not e.name.lower().endswith(".png"):
                 error("Cover image must be .png")
                 return
@@ -491,3 +492,10 @@ def file_utils_tab():
 
     with ui.card().classes("w-full"):
         fi.stats_card()
+
+file_utils_tab = GUITab(
+    name="fileutils",
+    label="File Utils",
+    icon="construction",
+    content_func=_file_utils_tab,
+)

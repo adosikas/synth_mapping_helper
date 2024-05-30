@@ -45,7 +45,7 @@ def _space_walls(data: synth_format.DataContainer, interval: float) -> None:
         out[i*interval] = (w*[1,1,0,1,1]) + [0,0,i*interval,0,0]
     data.walls = out
 
-def dashboard_tab():
+def _dashboard_tab():
     class SMHInput(ui.input):
         def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, **kwargs):
             self.on_parsed_value_change: Callable|None = None
@@ -77,7 +77,7 @@ def dashboard_tab():
             try:
                 return parse_number(self.value)
             except ValueError as ve:
-                raise ParseInputError(self.storage_id, self.value) from ve
+                raise ParseInputError(input_id=self.storage_id, value=self.value, exc=ve) from ve
 
     with ui.row().classes("mb-4"):
         # with ui.card().classes("h-16"), ui.row():
@@ -121,37 +121,34 @@ def dashboard_tab():
                 if wiki_ref is not None:
                     wiki_reference(wiki_ref, True).props("floating")
 
-        def do_action(self, e: events.ClickEventArguments):
-            clipboard = pyperclip.paste()
+        @handle_errors
+        def do_action(self):
             settings = {
                 k.removeprefix("dashboard_"): v for k, v in app.storage.user.items()
                 if k.startswith("dashboard_")
             }
             try:
-                d = synth_format.import_clipboard_json(clipboard, use_original=sw_use_orig.value)
-            except ValueError as ve:
-                error(f"Error reading data from clipboard", ve, settings=settings, data=clipboard)
-                return
-            try:
-                self._func(
-                    data=d,
-                    types=synth_format.ALL_TYPES,  # placeholder
-                    mirror_left=sw_mirror_left.value,
-                    relative=(coordinate_mode.value=="relative"),
-                    pivot=[pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value] if (coordinate_mode.value=="pivot") else None
-                )
-            except ParseInputError as pie:
-                error(f"Error parsing value: {pie.input_id}", pie, settings=settings, data=pie.value)
-                return
+                with safe_clipboard_data(use_original=sw_use_orig.value, realign_start=sw_realign.value) as data:
+                    self._func(
+                        data=data,
+                        types=synth_format.ALL_TYPES,  # placeholder
+                        mirror_left=sw_mirror_left.value,
+                        relative=(coordinate_mode.value == "relative"),
+                        pivot=[pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value] if (coordinate_mode.value=="pivot") else None
+                    )
+            except (PrettyError, ParseInputError):
+                raise
             except Exception as exc:
-                error(f"Error executing '{self._tooltip}'", exc, settings=settings, data=clipboard)
-                return
-            counts = d.get_counts()
+                raise PrettyError(
+                    msg=f"Error executing '{self._tooltip}'",
+                    exc=exc,
+                    context={"settings": settings},
+                ) from exc
+            counts = data.get_counts()
             info(
                 f"Completed: '{self._tooltip}'",
                 caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
             )
-            synth_format.export_clipboard(d, realign_start=sw_realign.value)
 
     with ui.row():
         with ui.card():
@@ -651,3 +648,10 @@ def dashboard_tab():
                     icon_angle=90,
                     func=lambda data, **kwargs: _space_walls(data, interval=(4*data.bpm/60)/wall_limit.parsed_value),
                 )
+
+dashboard_tab = GUITab(
+    name = "dashboard",
+    label = "Dashboard",
+    icon = "dashboard",
+    content_func=_dashboard_tab,
+)

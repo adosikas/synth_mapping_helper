@@ -18,15 +18,15 @@ from .gui_tabs.stacking import stacking_tab
 from .gui_tabs.text_gen import text_gen_tab
 from .gui_tabs.wall_art import wall_art_tab
 
-tab_list = [
-    ["Dashboard", "dashboard", dashboard_tab, None],
-    ["Stacking", "layers", stacking_tab, None],
-    ["Text", "rtt", text_gen_tab, None],
-    ["Wall Art", "wallpaper", wall_art_tab, None],
-    ["Commands", "play_arrow", command_tab, None],
-    ["File utils", "construction", file_utils_tab, None],
-    ["Autobackup", "manage_history", autobackup_tab, None],
-    ["Version History", "update", version_tab, None],
+tab_list: list[GUITab] = [
+    dashboard_tab,
+    stacking_tab,
+    text_gen_tab,
+    wall_art_tab,
+    command_tab,
+    file_utils_tab,
+    autobackup_tab,
+    version_tab,
 ]
 
 version = f"SMH-GUI v{__version__}"
@@ -42,7 +42,7 @@ async def stop():
 
 def entrypoint():
     parser = ArgumentParser(description=version)
-    parser.add_argument("-l", "--log-level", type=str, default="INFO", help="Set log level")
+    parser.add_argument("-l", "--log-level", type=str, help="Set log level")
     parser.add_argument("--host", type=str, default="127.0.0.1",
         help="""Host for the webserver. Defaults to 127.0.0.1 (localhost).
             Can be set to a local IP if you want to access the GUI from another device, eg. tablet.\n
@@ -52,6 +52,8 @@ def entrypoint():
     parser.add_argument("--dev-mode", action="store_true", help="Open in dev mode (reloads when editing python files)")
 
     args = parser.parse_args()
+    if args.log_level is None:
+        args.log_level = "DEBUG" if args.dev_mode else "INFO"
 
     if not args.dev_mode and __name__ == "__main__":  # don't check in dev mode or when spawned as child process
         try:
@@ -89,8 +91,10 @@ def entrypoint():
         </style>""")
         with ui.header(elevated=True):
             with ui.tabs() as tabs:
-                for idx, (name, icon, *_) in enumerate(tab_list):
-                    tab_list[idx][3] = ui.tab(name, icon=icon)
+                tab_containers = [
+                    ui.tab(name=t.name, label=t.label, icon=t.icon)
+                    for t in tab_list
+                ]
             with ui.button(icon="bug_report" + "support", color="negative", on_click=lambda _:ui.download("error_report", "smh_gui_error.json")).props("text-color=white").classes("ml-auto"):
                 ui.tooltip("Save report of last error")
             with ui.element():
@@ -108,21 +112,29 @@ def entrypoint():
                 else:
                     ui.tooltip("Quit")
                 
-        with ui.tab_panels(tabs, value=tab_list[0][0]).classes("w-full").bind_value(app.storage.user, "active_tab"):
-            for _, _, func, elem in tab_list:
-                with ui.tab_panel(elem):
-                    func()
+        with ui.tab_panels(tabs, value=tab_list[0].name).classes("w-full").bind_value(app.storage.user, "active_tab"):
+            for t in tab_list:
+                with ui.tab_panel(t.name) as panel:
+                    try:
+                        t.content_func()
+                    except Exception as exc:
+                        panel.clear()
+                        error(f"Error loading {t.label} tab", exc=exc, context=t.name, data=t.get_settings())
+                        ui.label(f"Error loading {t.label} tab: {exc!r}")
+                        ui.label("Consider sending me the error report, so this can be avoided in the future.")
+                        ui.label("You may try reverting to the default settings below.")
+                        ui.button("Delete settings", icon="delete", color="negative", on_click=lambda: t.delete_settings())
 
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)-8s [%(name)s] %(message)s',
+        level=args.log_level,
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[
+            logging.FileHandler("smh_gui.log"),
+            logging.StreamHandler()
+        ]
+    )
     if __name__ == "__main__":  # don't run when spawned as child process
-        logging.basicConfig(
-            format='%(asctime)s %(levelname)-8s [%(name)s] %(message)s',
-            level=args.log_level,
-            datefmt='%Y-%m-%d %H:%M:%S',
-            handlers=[
-                logging.FileHandler("smh_gui.log"),
-                logging.StreamHandler()
-            ]
-        )
         if args.dev_mode:
             logging.getLogger("watchfiles.main").level = logging.WARN  # hide change detection
 

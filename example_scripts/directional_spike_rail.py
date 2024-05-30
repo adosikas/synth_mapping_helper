@@ -14,8 +14,6 @@ spike_length = 1/32  # in beats
 spike_angle = 90  # 0 means in direction of movement, 90 is to the left of direction, -90 is to the right
 mirror_left = False  # mirror angle for left hand
 
-data = synth_format.import_clipboard()
-
 def _add_directional_spikes(nodes: "numpy array (n, 3)", direction: int = 1) -> "numpy array (n, 3)":
     # calculate "angle" at each rail node by looking at the direction to previous and upcoming node
     tangents = np.diff(nodes[:,:2], axis=0, prepend=nodes[0,:2][np.newaxis], append=nodes[-1,:2][np.newaxis])
@@ -29,6 +27,5 @@ def _add_directional_spikes(nodes: "numpy array (n, 3)", direction: int = 1) -> 
     nodes[2::3, 2] += spike_length  # move third node of each triplet earlier in time
     return nodes
 
-data.apply_for_notes(_add_directional_spikes, mirror_left=mirror_left)
-
-synth_format.export_clipboard(data)
+with synth_format.clipboard_data() as data:
+    data.apply_for_notes(_add_directional_spikes, mirror_left=mirror_left)

@@ -10,8 +10,6 @@ from synth_mapping_helper import synth_format, movement
 
 cycle = 3  # in beats, for a full cycle. Can be negative to reverse direction
 
-data = synth_format.import_clipboard()
-
 def _do_spiral(nodes: "numpy array (n, 3+)", direction: int = 1) -> "numpy array (n, 3+)":
     return np.concatenate([
         # for every rail node, determine angle based on time, and rotate position by that
@@ -19,6 +17,5 @@ def _do_spiral(nodes: "numpy array (n, 3+)", direction: int = 1) -> "numpy array
         for n in nodes
     ])
 
-data.apply_for_all(_do_spiral)  # apply for all notes and walls
-
-synth_format.export_clipboard(data)
+with synth_format.clipboard_data() as data:
+    data.apply_for_all(_do_spiral)  # apply for all notes and walls

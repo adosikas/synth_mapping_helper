@@ -56,25 +56,34 @@ def _clear_button(*inp: ui.input) -> ui.button:
     _register_marking(bt, *inp)
     return bt
 
+def _find_first(types: list[str] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)"]]:
+    with safe_clipboard_data(use_original=False, write=False) as d:
+        first_t: Optional[str] = None
+        first: Optional["numpy array (3+)"] = None
+        for t in types:
+            n = sorted(d.get_object_dict(t).items())
+            if n and (first is None or n[0][1][0,2] < first[2]):
+                first_t = t
+                first = n[0][1][0]
+        if first_t is None:
+            return None
+        return first_t, first, second
+
+
 def _find_first_pair(types: list[str] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)", "numpy array (3)"]]:
-    clipboard = pyperclip.paste()
-    try:
-        d = synth_format.import_clipboard_json(clipboard, use_original=False)
-    except ValueError as ve:
-        error(f"Error reading data from clipboard", ve, data=clipboard)
-        return None
-    first_t: Optional[str] = None
-    first: Optional["numpy array (3+)"] = None
-    second: Optional["numpy array (3+)"] = None
-    for t in types:
-        n = sorted(d.get_object_dict(t).items())
-        if len(n) >= 2 and (second is None or n[0][2][0,2] < second[2]):
-            first_t = t
-            first = n[0][1][0]
-            second = n[1][1][0]
-    if first_t is None:
-        return None
-    return first_t, first, second
+    with safe_clipboard_data(use_original=False, write=False) as d:
+        first_t: Optional[str] = None
+        first: Optional["numpy array (3+)"] = None
+        second: Optional["numpy array (3+)"] = None
+        for t in types:
+            n = sorted(d.get_object_dict(t).items())
+            if len(n) >= 2 and (second is None or n[0][2][0,2] < second[2]):
+                first_t = t
+                first = n[0][1][0]
+                second = n[1][1][0]
+        if first_t is None:
+            return None
+        return first_t, first, second
 
 def _stack(
     d: synth_format.DataContainer, count: int, pivot: tuple[float, float, float],
@@ -162,9 +171,9 @@ class SMHInput(ui.input):
         try:
             return parse_number(self.value)
         except ValueError as ve:
-            raise ParseInputError(self.storage_id, self.value) from ve
+            raise ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve) from ve
 
-def stacking_tab():
+def _stacking_tab():
     preview_scene: MapScene|None = None
     with ui.row():
         with ui.card():
@@ -173,21 +182,11 @@ def stacking_tab():
             pivot_y = SMHInput("Y", "0", "pivot_y", suffix="sq", icons={1: "north", -1: "south"})
 
             def _pick_pivot():
-                clipboard = pyperclip.paste()
-                try:
-                    d = synth_format.import_clipboard_json(clipboard, use_original=False)
-                except ValueError as ve:
-                    error(f"Error reading data from clipboard", ve, data=clipboard)
-                    return
-                first_t: Optional[str] = None
-                first: Optional["numpy array (3)"] = None
-                for t in synth_format.NOTE_TYPES:
-                    n = sorted(d.get_object_dict(t).items())
-                    if n and (first is None or n[0][1][0,2] < first[2]):
-                        first_t = t
-                        first = n[0][1][0]
-                if first_t is None:
+                result = _find_first(types=synth_format.NOTE_TYPES)
+                if result is None:
                     error("No note found!")
+                    return
+                first_t, first = result
                 pivot_x.set_value(pretty_fraction(first[0]))
                 pivot_y.set_value(pretty_fraction(first[1]))
                 info(f"Set pivot to first note ({first_t} hand{'s' if first_t == 'both' else ''})")
@@ -233,7 +232,7 @@ def stacking_tab():
                     error(f"Error parsing value: {pie.input_id}", pie, data=pie.value)
                     return
                 if any(np.isclose(first[:2], p)):
-                    error(f"{t} object pair too close to pivot", settings={"pivot": p}, data={"type": t, "first": first.tolist(), "second": second.tolist()})
+                    error(f"{t} object pair too close to pivot", data={"type": t, "first": first.tolist(), "second": second.tolist(), "pivot": p})
                     return
                 s_xy = (second[:2] - p) / (first[:2] - p)
                 scale_x.set_value(pretty_fraction(s_xy[0]))
@@ -241,7 +240,7 @@ def stacking_tab():
                 offset_t.set_value(pretty_fraction(delta[2]))
                 if len(delta) >= 5:
                     walls_angle.set_value(str(round((delta[4]+180)%360-180, 4)))
-                info(f"Set offset from {t} object pair")
+                info(f"Set scale from {t} object pair")
             with ui.button("Scale", icon="colorize", on_click=_pick_scale).props("outline size=sm align=left").classes("w-full mt-auto") as pick_scale:
                 ui.tooltip("Calculate scale (XY) between first two objects of the same type")
             _clear_button(scale_x, scale_y)
@@ -272,7 +271,7 @@ def stacking_tab():
                 offset_t.set_value(pretty_fraction(delta[2]))
                 if len(delta) >= 5:
                     walls_angle.set_value(str(round((delta[4]+360-ang+180)%360-180, 4)))
-                info(f"Set offset from {t} object pair")
+                info(f"Set rotation and outset from {t} object pair")
             with ui.button("Rotate", icon="colorize", on_click=_pick_rot).props("outline size=sm align=left").classes("w-full") as pick_rot:
                 ui.tooltip("Calculate Rotation and Outset between first two objects of the same type")
             _clear_button(pattern_angle, outset_amount)
@@ -287,24 +286,27 @@ def stacking_tab():
                     return
                 t, first, second = tfs
                 ang = (second[4] - first[4])
-                p = first[:3] + movement.rotate((second - first)[:3]/2, 90 - ang/2) / np.sin(np.radians(ang/2))
-
+                divisor = np.sin(np.radians(ang/2))
+                if divisor == 0:  # avoid division by 0 when angles match
+                    error(f"Wall pair ({t}) have matching angle, cannot determine spiral", data={"first": first.tolist(), "second": second.tolist()})
+                    return
+                # calculate pivot naively
+                p = first[:3] + movement.rotate((second - first)[:3]/2, 90 - ang/2) / divisor
                 pivot_x.set_value(pretty_fraction(p[0]))
                 pivot_y.set_value(pretty_fraction(p[1]))
 
+                pattern_angle.set_value(str(round((ang+180)%360-180, 4)))
+                offset_t.set_value(pretty_fraction(second[2] - first[2]))
+            
+                # reset the rest
                 offset_x.set_value(offset_x.default_value)
                 offset_y.set_value(offset_y.default_value)
-
                 scale_x.set_value(scale_x.default_value)
                 scale_y.set_value(scale_y.default_value)
-
-                pattern_angle.set_value(str(round((ang+180)%360-180, 4)))
                 outset_amount.set_value(outset_amount.default_value)
+                walls_angle.set_value(walls_angle.default_value)
 
-                walls_angle.set_value("0")
-                offset_t.set_value(pretty_fraction(second[2] - first[2]))
-
-                info(f"Set offset from {t} object pair")
+                info(f"Calculated spiral from {t} wall pair")
             all_values = (
                 pivot_x, pivot_y,
                 offset_x, offset_y,
@@ -319,13 +321,8 @@ def stacking_tab():
         _register_marking(pick_scale, scale_x, scale_y, offset_t, walls_angle)
         _register_marking(pick_rot, pattern_angle, outset_amount, offset_t, walls_angle)
 
+        @handle_errors
         def _do_stack(count_mode: str):
-            clipboard = pyperclip.paste()
-            try:
-                d = synth_format.import_clipboard_json(clipboard, use_original=True)
-            except ValueError as ve:
-                error(f"Error reading data from clipboard", ve, data=clipboard)
-                return None
             try:
                 o_t = offset_t.parsed_value
                 if not o_t:
@@ -359,8 +356,7 @@ def stacking_tab():
                     random_ranges_offset = [parse_xy_range(r) for r in random_offset.value.split(";")]
                     random_step_offset = None
             except ValueError as ve:
-                error("Error parsing random XY ranges", exc=ve, data=random_offset.value)
-                return
+                raise PrettyError(msg="Error parsing random XY ranges", exc=ve, data=random_offset.value)
             try:
                 if not random_angle.value:  # empty string or None
                     random_ranges_angle = random_step_angle = None
@@ -372,25 +368,29 @@ def stacking_tab():
                     random_ranges_angle = [parse_range(r) for r in random_angle.value.split(";")]
                     random_step_angle = None
             except ValueError as ve:
-                error("Error parsing random angle ranges", exc=ve, data=random_angle.value)
-                return
+                raise PrettyError(msg="Error parsing random angle ranges", exc=ve, data=random_angle.value)
             try:
-                _stack(d, c, p, o, s, r, wr, outset, random_ranges_offset, random_step_offset, random_ranges_angle, random_step_angle)
+                with safe_clipboard_data(use_original=True, realign_start=False) as d:
+                    if d is None:
+                        return None
+                    _stack(d, c, p, o, s, r, wr, outset, random_ranges_offset, random_step_offset, random_ranges_angle, random_step_angle)
             except Exception as exc:
-                error(f"Error executing stack", exc, settings={"count": c, "pivot": p, "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset}, data=clipboard)
-                return
+                raise PrettyError(
+                    msg=f"Error executing stack",
+                    exc=exc,
+                    settings={"count": c, "pivot": p, "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset},
+                    data=clipboard,
+                ) from exc
             counts = d.get_counts()
             info(
                 f"Completed stack",
                 caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
             )
-            synth_format.export_clipboard(d, realign_start=False)
             if preview_scene is not None:
                 try:
                     preview_settings = sp.parse_settings()
                 except ParseInputError as pie:
-                    error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
-                    return
+                    raise PrettyError(msg=f"Error parsing preview setting: {pie.input_id}", exc=pie, data=pie.value) from pie
                 preview_scene.render(d, preview_settings)
 
         with ui.card():
@@ -452,8 +452,9 @@ def stacking_tab():
     with ui.card():
         def _soft_refresh():
             try:
-                data = synth_format.import_clipboard()
+                data = synth_format.ClipboardDataContainer.from_json(read_clipboard())
             except:
+                # fall back to empty data on error
                 data = synth_format.DataContainer()
             try:
                 preview_settings = sp.parse_settings()
@@ -494,3 +495,10 @@ def stacking_tab():
             _soft_refresh()
         draw_preview_scene()
         apply_button.on("click", draw_preview_scene.refresh)
+
+stacking_tab = GUITab(
+    name="stacking",
+    label="Stacking",
+    icon="layers",
+    content_func=_stacking_tab,
+)

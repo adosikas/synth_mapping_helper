@@ -2,12 +2,13 @@
 import base64
 from io import BytesIO
 import codecs
+from contextlib import contextmanager
 import dataclasses
 import datetime
 import json
 from pathlib import Path
 import time
-from typing import Any, Union
+from typing import Any, Generator, Union
 import zipfile
 
 import numpy as np
@@ -278,10 +279,130 @@ class DataContainer:
             if wall[0, 3] == wall_type
         }
 
+    def to_clipboard_json(self, realign_start: bool = True) -> str:
+        clipboard = {
+            "BPM": self.bpm,
+            "startMeasure": 0,
+            "startTime": 0,
+            "lenght": 0,
+            "notes": {},
+            "effects": [],
+            "jumps": [],
+            "crouchs": [],
+            "squares": [],
+            "triangles": [],
+            "slides": [],
+            "lights": [],
+        }
+        if isinstance(self, ClipboardDataContainer) and self.original_json:
+            clipboard["original_json"] = self.original_json
+
+        first = 99999
+        last = -99999
+        for note_type, notes in enumerate((self.right, self.left, self.single, self.both)):
+            type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
+            for time_index, nodes in notes.items(): 
+                type_notes[round_tick_for_json(time_index * 64)] = note_to_synth(self.bpm, note_type, nodes)
+                if nodes[0, 2] < first:
+                    first = nodes[0, 2]
+                if nodes[-1, 2] > last:
+                    last = nodes[-1, 2]
+            for time_tick, synth_dict in sorted(type_notes.items()):
+                clipboard["notes"].setdefault(time_tick, []).append(synth_dict)
+        for _, wall in self.walls.items():
+            if wall[0, 2] < first:
+                first = wall[0, 2]
+            if wall[0, 2] > last:
+                last = wall[0, 2]
+            dest_list, wall_dict = wall_to_synth(self.bpm, wall)
+            clipboard[dest_list].append(wall_dict)
+
+        for t in self.lights:
+            if t < first:
+                first = t
+            if t > last:
+                last = t
+            clipboard["lights"].append(round_tick_for_json(t * 64))
+        for t in self.effects:
+            if t < first:
+                first = t
+            if t > last:
+                last = t
+            clipboard["effects"].append(round_tick_for_json(t * 64))
+
+        if realign_start:
+            # position of selection start in beats*64 
+            clipboard["startMeasure"] = round_tick_for_json(first * 64)
+            # position of selection start in ms
+            clipboard["startTime"] = beat_to_second(first, self.bpm) * 1000
+            # length of the selection in milliseconds
+            # and yes, the editor has a typo, so we need to missspell it too
+            clipboard["lenght"] = beat_to_second(last, self.bpm) * 1000
+        # always update length
+        clipboard["lenght"] = beat_to_second(last - first, self.bpm) * 1000
+        return json.dumps(clipboard)
+
 @dataclasses.dataclass
 class ClipboardDataContainer(DataContainer):
     original_json: str = ""
     selection_length: float = 0.0
+
+    @classmethod
+    def from_json(cls, clipboard_json: str, use_original: bool=False) -> "ClipboardDataContainer":
+        clipboard = json.loads(clipboard_json)
+        if not isinstance(clipboard, dict):
+            raise ValueError("clipboard did not contain json dict")
+        if "original_json" in clipboard:
+            original_json = clipboard["original_json"]
+            if use_original:
+                clipboard = json.loads(original_json)
+        else:
+            original_json = clipboard_json
+        bpm = clipboard["BPM"]
+        startMeasure = clipboard["startMeasure"]
+        # r, l, s, b
+        right: SINGLE_COLOR_NOTES = {}
+        left: SINGLE_COLOR_NOTES = {}
+        single: SINGLE_COLOR_NOTES = {}
+        both: SINGLE_COLOR_NOTES = {}
+        notes_lookup: tuple[SINGLE_COLOR_NOTES] = (right, left, single, both)
+        for time_index, time_notes in clipboard["notes"].items():
+            for note in time_notes:
+                note_type, nodes = note_from_synth(bpm, startMeasure, note)
+                notes_lookup[note_type][nodes[0,2]] = nodes
+
+        walls: dict[float, list["numpy array (1, 5)"]] = {}
+        # slides (right, left, angle_right, center, angle_right)
+        for wall_dict in clipboard["slides"]:
+            wall = wall_from_synth(bpm, startMeasure, wall_dict, wall_dict["slideType"])
+            walls[wall[0, 2]] = wall
+        # other (crouch, square, triangle)
+        for wall_type in ("crouch", "square", "triangle"):
+            if wall_type + "s" not in clipboard:
+                beta_warning()
+                continue  # these are only in the beta editor
+            for wall_dict in clipboard[wall_type + "s"]:
+                wall = wall_from_synth(bpm, startMeasure, wall_dict, WALL_TYPES[wall_type][0])
+                walls[wall[0, 2]] = wall
+        
+        lights = {
+            b: np.array([[0,0,b]])
+            for t in clipboard["lights"]
+            for b in [round_time_to_fractions((t-startMeasure)/64)]
+        }
+        effects = {
+            b: np.array([[0,0,b]])
+            for t in clipboard["effects"]
+            for b in [round_time_to_fractions((t-startMeasure)/64)]
+        }
+
+        return cls(
+            # DataContainer
+            bpm=bpm, right=right, left=left, single=single, both=both, walls=walls, lights=lights, effects=effects,
+            # ClipboardDataContainer
+            original_json=original_json, selection_length=second_to_beat(clipboard["lenght"]/1000, bpm),
+        )
+
 
 @dataclasses.dataclass
 class AudioData:
@@ -698,119 +819,30 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
             del wall_dict["zRotation"]
     return dest_list, wall_dict
 
-# full json
+# legacy/convenience wrappers
+
+# clipboard
 def import_clipboard_json(original_json: str, use_original: bool = False) -> ClipboardDataContainer:
-    clipboard = json.loads(original_json)
-    if not isinstance(clipboard, dict):
-        raise ValueError("clipboard did not contain json dict")
-    if "original_json" in clipboard:
-        original_json = clipboard["original_json"]
-    if use_original:
-        clipboard = json.loads(original_json)
-    bpm = clipboard["BPM"]
-    startMeasure = clipboard["startMeasure"]
-    # r, l, s, b
-    notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
-    for time_index, time_notes in clipboard["notes"].items():
-        for note in time_notes:
-            note_type, nodes = note_from_synth(bpm, startMeasure, note)
-            notes[note_type][nodes[0,2]] = nodes
-
-    walls: dict[float, list["numpy array (1, 5)"]] = {}
-    # slides (right, left, angle_right, center, angle_right)
-    for wall_dict in clipboard["slides"]:
-        wall = wall_from_synth(bpm, startMeasure, wall_dict, wall_dict["slideType"])
-        walls[wall[0, 2]] = wall
-    # other (crouch, square, triangle)
-    for wall_type in ("crouch", "square", "triangle"):
-        if wall_type + "s" not in clipboard:
-            beta_warning()
-            continue  # these are only in the beta editor
-        for wall_dict in clipboard[wall_type + "s"]:
-            wall = wall_from_synth(bpm, startMeasure, wall_dict, WALL_TYPES[wall_type][0])
-            walls[wall[0, 2]] = wall
-    
-    lights = {
-        b: np.array([[0,0,b]])
-        for t in clipboard["lights"]
-        for b in [round_time_to_fractions((t-startMeasure)/64)]
-    }
-    effects = {
-        b: np.array([[0,0,b]])
-        for t in clipboard["effects"]
-        for b in [round_time_to_fractions((t-startMeasure)/64)]
-    }
-
-    return ClipboardDataContainer(bpm, *notes, walls, lights, effects, original_json, second_to_beat(clipboard["lenght"]/1000, bpm))
+    return ClipboardDataContainer.from_json(clipboard_json=original_json, use_original=use_original)
 
 def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
     return import_clipboard_json(pyperclip.paste(), use_original)
 
 def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> str:
-    clipboard = {
-        "BPM": data.bpm,
-        "startMeasure": 0,
-        "startTime": 0,
-        "lenght": 0,
-        "notes": {},
-        "effects": [],
-        "jumps": [],
-        "crouchs": [],
-        "squares": [],
-        "triangles": [],
-        "slides": [],
-        "lights": [],
-    }
-    if isinstance(data, ClipboardDataContainer) and data.original_json:
-        clipboard["original_json"] = data.original_json
-
-    first = 99999
-    last = -99999
-    for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
-        type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
-        for time_index, nodes in notes.items(): 
-            type_notes[round_tick_for_json(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
-            if nodes[0, 2] < first:
-                first = nodes[0, 2]
-            if nodes[-1, 2] > last:
-                last = nodes[-1, 2]
-        for time_tick, synth_dict in sorted(type_notes.items()):
-            clipboard["notes"].setdefault(time_tick, []).append(synth_dict)
-    for _, wall in data.walls.items():
-        if wall[0, 2] < first:
-            first = wall[0, 2]
-        if wall[0, 2] > last:
-            last = wall[0, 2]
-        dest_list, wall_dict = wall_to_synth(data.bpm, wall)
-        clipboard[dest_list].append(wall_dict)
-
-    for t in data.lights:
-        if t < first:
-            first = t
-        if t > last:
-            last = t
-        clipboard["lights"].append(round_tick_for_json(t * 64))
-    for t in data.effects:
-        if t < first:
-            first = t
-        if t > last:
-            last = t
-        clipboard["effects"].append(round_tick_for_json(t * 64))
-
-    if realign_start:
-        # position of selection start in beats*64 
-        clipboard["startMeasure"] = round_tick_for_json(first * 64)
-        # position of selection start in ms
-        clipboard["startTime"] = beat_to_second(first, data.bpm) * 1000
-        # length of the selection in milliseconds
-        # and yes, the editor has a typo, so we need to missspell it too
-        clipboard["lenght"] = beat_to_second(last, data.bpm) * 1000
-    # always update length
-    clipboard["lenght"] = beat_to_second(last - first, data.bpm) * 1000
-    return json.dumps(clipboard)
+    return data.to_clipboard_json(realign_start=realign_start)
 
 def export_clipboard(data: DataContainer, realign_start: bool = True):
     pyperclip.copy(export_clipboard_json(data, realign_start))
 
+@contextmanager
+def clipboard_data(use_original: bool = False, realign_start: bool = True) -> Generator[ClipboardDataContainer, None, None]:
+    # Usage:
+    #   with synth_format.clipboard_data() as data:
+    #     data.apply_for_all(...)
+    data = ClipboardDataContainer.from_json(pyperclip.paste(), use_original=use_original)
+    yield data
+    pyperclip.copy(data.to_clipboard_json(realign_start=realign_start))
+
+# file
 def import_file(file_path: Union[Path, BytesIO]) -> SynthFile:
     return SynthFile.from_synth(file_path)

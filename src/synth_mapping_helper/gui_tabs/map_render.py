@@ -63,7 +63,7 @@ class SMHInput(ui.input):
         try:
             return parse_number(self.value)
         except ValueError as ve:
-            raise utils.ParseInputError(self.storage_id, self.value) from ve
+            raise utils.ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve) from ve
 
 class SettingsPanel(ui.element):
     def __init__(self) -> None:

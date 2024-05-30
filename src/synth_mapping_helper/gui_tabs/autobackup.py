@@ -14,7 +14,7 @@ def _isdir(v: str) -> bool:
 last_check: dict[Path, float] = {}
 last_backup: dict[Path, float] = {}
 
-def autobackup_tab():
+def _autobackup_tab():
     watcher_dir: Optional[Path] = None
     def watcher_func():
         global last_check
@@ -82,3 +82,10 @@ def autobackup_tab():
     ui.label("Last backup:").classes("my-4")
     with ui.card().classes("w-full"):
             log()
+
+autobackup_tab = GUITab(
+    name="autobackup",
+    label="AutoBackup",
+    icon="manage_history",
+    content_func=_autobackup_tab,
+)

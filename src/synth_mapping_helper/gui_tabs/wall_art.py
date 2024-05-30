@@ -11,7 +11,7 @@ import pyperclip
 import requests
 
 from .map_render import MapScene, SettingsPanel
-from .utils import ParseInputError, info, error
+from .utils import GUITab, ParseInputError, info, error, safe_clipboard_data
 from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
@@ -43,7 +43,7 @@ class SMHInput(ui.input):
         try:
             return parse_number(self.value)
         except ValueError as ve:
-            raise ParseInputError(self.storage_id, self.value) from ve
+            raise ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve) from ve
 
 class LargeSwitch(ui.switch):
     def __init__(self, value: bool|None, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None):
@@ -58,7 +58,7 @@ def image_proxy(url:str):
     r = requests.get(url)
     return Response(content=r.content)
 
-def wall_art_tab():
+def _wall_art_tab():
     preview_scene: MapScene|None = None
     refimg_obj: Texture|None = None
     walls: synth_format.WALLS = {}
@@ -631,14 +631,9 @@ def wall_art_tab():
                     ui.tooltip().bind_text_from(undo, "redo_stack", backward=lambda rs: f"Redo '{rs[-1][0]}' (CTRL+Y) [{len(rs)} steps]" if rs else "Redo (CTRL+Y)")
                 ui.separator()
                 def _paste():
-                    clipboard = pyperclip.paste()
-                    try:
-                        data = synth_format.import_clipboard_json(clipboard, use_original=False)
-                    except ValueError as ve:
-                        error(f"Error reading data from clipboard", ve, data=clipboard)
-                        return
-                    undo.push_undo("paste from clipboad")
-                    walls.update(data.walls)
+                    with safe_clipboard_data(use_original=False, write=False) as data:
+                        undo.push_undo("paste from clipboad")
+                        walls.update(data.walls)
                     _soft_refresh()
                     info(f"Added {len(data.walls)} walls from clipboard")
                 with ui.button(icon="content_paste", color="positive", on_click=_paste).style("width: 36px"):
@@ -765,3 +760,10 @@ def wall_art_tab():
                         ui.html(content)
             
         apply_button.on("click", draw_preview_scene.refresh)
+
+wall_art_tab = GUITab(
+    name="wall_art",
+    label="Wall Art",
+    icon="wallpaper",
+    content_func=_wall_art_tab,
+)

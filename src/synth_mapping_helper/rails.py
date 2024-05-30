@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 from scipy.interpolate import CubicHermiteSpline
 
@@ -230,7 +232,7 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
     return out
 
 def interpolate_nodes(
-    data: "numpy array (n, 3)", mode: "'spline' or 'linear'", interval: float, *, direction: bool = 1
+    data: "numpy array (n, 3)", mode: Literal["spline", "linear"], interval: float, *, direction: bool = 1
 ) -> "numpy array (n, 3)":
     """places nodes at defined interval along the rail, interpolating between existing nodes. Can be negative to start from end."""
     if data.shape[0] == 1:  # ignore single nodes
