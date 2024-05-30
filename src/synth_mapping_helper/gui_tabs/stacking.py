@@ -9,24 +9,6 @@ from .map_render import SettingsPanel, MapScene
 from ..utils import parse_number, parse_range, parse_xy_range, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
-def _negate(val: str|None) -> str|None:
-    if not val:
-        return val
-    if val.startswith("-"):
-        return val[1:]
-    return "-" + val
-
-def _icon(val: str|None, icons: dict) -> str:
-    try:
-        v = parse_number(val)
-    except ValueError:
-        return "error"
-    if v > 0:
-        return icons.get(1, "add")
-    if v < 0:
-        return icons.get(-1, "remove")
-    return icons.get(0, "close")
-
 def _icon_scale(val: str|None, icons: dict) -> str:
     try:
         v = parse_number(val)
@@ -136,56 +118,24 @@ def _stack(
         else:
             d.merge(stacking)
 
-class SMHInput(ui.input):
-    def __init__(self, label: str, value: str|float, storage_id: str, tooltip: Optional[str]=None, suffix: Optional[str] = None, icons: dict[int, str]|None = None,**kwargs):
-        super().__init__(label=label, value=str(value), **kwargs)
-        self.bind_value(app.storage.user, f"stacking_{storage_id}")
-        self.classes("w-24 h-10")
-        self.props('dense input-style="text-align: right" no-error-icon')
-        self.storage_id = storage_id
-        self.default_value = value
-        if suffix:
-            self.props(f'suffix="{suffix}"')
-        with self:
-            if tooltip is not None:
-                ui.tooltip(tooltip)
-        if icons is not None:
-            with self.add_slot("prepend"):
-                self.icon = ui.icon("", color="primary").classes("border-2 rounded cursor-pointer").on(
-                    "click", lambda e: self.set_value(_negate(self.value))
-                ).bind_name_from(self, "value", lambda v: _icon(v, icons))
-                ui.tooltip("Click to negate")
-        with self.add_slot("error"):
-            ui.element().style("visiblity: hidden")
+def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
+    default_kwargs = {"tab_id": "stacking", "width": 24}
+    return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
-    def _handle_value_change(self, value: Any) -> None:
-        super()._handle_value_change(value)
-        try:
-            parse_number(value)
-            self.props(remove="error")
-        except ValueError:
-            self.props(add="error")
-
-    @property
-    def parsed_value(self) -> float:
-        try:
-            return parse_number(self.value)
-        except ValueError as ve:
-            raise ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve) from ve
 
 def _stacking_tab():
     preview_scene: MapScene|None = None
     with ui.row():
         with ui.card():
             ui.label("Pivot")
-            pivot_x = SMHInput("X", "0", "pivot_x", suffix="sq", icons={1: "east", -1: "west"})
-            pivot_y = SMHInput("Y", "0", "pivot_y", suffix="sq", icons={1: "north", -1: "south"})
+            pivot_x = make_input("X", "0", "pivot_x", suffix="sq", negate_icons={1: "east", -1: "west"})
+            pivot_y = make_input("Y", "0", "pivot_y", suffix="sq", negate_icons={1: "north", -1: "south"})
 
+            @handle_errors
             def _pick_pivot():
                 result = _find_first(types=synth_format.NOTE_TYPES)
                 if result is None:
-                    error("No note found!")
-                    return
+                    raise PrettyError(msg="No note found!")
                 first_t, first = result
                 pivot_x.set_value(pretty_fraction(first[0]))
                 pivot_y.set_value(pretty_fraction(first[1]))
@@ -195,35 +145,37 @@ def _stacking_tab():
             _clear_button(pivot_x, pivot_y)
         with ui.card():
             ui.label("Offset")
-            offset_x = SMHInput("X", "0", "offset_x", suffix="sq", icons={1: "east", -1: "west"})
-            offset_y = SMHInput("Y", "0", "offset_y", suffix="sq", icons={1: "north", -1: "south"})
+            offset_x = make_input("X", "0", "offset_x", suffix="sq", negate_icons={1: "east", -1: "west"})
+            offset_y = make_input("Y", "0", "offset_y", suffix="sq", negate_icons={1: "north", -1: "south"})
+            @handle_errors
             def _pick_offset():
                 tfs = _find_first_pair()
-                if tfs is not None:
-                    t, first, second = tfs
-                    delta = second - first
-                    offset_x.set_value(pretty_fraction(delta[0]))
-                    offset_y.set_value(pretty_fraction(delta[1]))
-                    offset_t.set_value(pretty_fraction(delta[2]))
-                    if len(delta) >= 5:
-                        walls_angle.set_value(str(round((delta[4]+180)%360-180, 4)))
-                    info(f"Set offset from {t} object pair")
+                if tfs is None:
+                    raise PrettyError(msg="No object pair found!")
+                t, first, second = tfs
+                delta = second - first
+                offset_x.set_value(pretty_fraction(delta[0]))
+                offset_y.set_value(pretty_fraction(delta[1]))
+                offset_t.set_value(pretty_fraction(delta[2]))
+                if len(delta) >= 5:
+                    walls_angle.set_value(str(round((delta[4]+180)%360-180, 4)))
+                info(f"Set offset from {t} object pair")
             with ui.button("Offset", icon="colorize", on_click=_pick_offset).props("outline size=sm align=left").classes("w-full") as pick_offset:
                 ui.tooltip("Calculate offset between first two objects of the same type")
             _clear_button(offset_x, offset_y)
         with ui.card():
             ui.label("Scale")
-            scale_x = SMHInput("X", "100%", "scale_x", tooltip="Can be given as % or ratio")
+            scale_x = make_input("X", "100%", "scale_x", tooltip="Can be given as % or ratio")
             with scale_x.add_slot("prepend"):
                 ui.icon("close").classes("rotate-90").bind_name_from(scale_x, "value", lambda v: _icon_scale(v, {1: "unfold_more", -1: "unfold_less"}))
-            scale_y = SMHInput("Y", "100%", "scale_y", tooltip="Can be given as % or ratio")
+            scale_y = make_input("Y", "100%", "scale_y", tooltip="Can be given as % or ratio")
             with scale_y.add_slot("prepend"):
                 ui.icon("close").bind_name_from(scale_y, "value", lambda v: _icon_scale(v, {1: "unfold_more", -1: "unfold_less"}))
+            @handle_errors
             def _pick_scale():
                 tfs = _find_first_pair()
                 if tfs is None:
-                    error("No object pairs found!")
-                    return
+                    raise PrettyError(msg="No object pair found!")
                 t, first, second = tfs
                 delta = second - first
                 try:
@@ -246,13 +198,13 @@ def _stacking_tab():
             _clear_button(scale_x, scale_y)
         with ui.card():
             ui.label("Rotation")
-            pattern_angle = SMHInput("Pattern", "0", "pattern_angle", suffix="°", icons={1: "rotate_left", -1: "rotate_right"})
-            outset_amount = SMHInput("Outset", "0", "outset", suffix="sq", icons={1: "open_in_full", -1: "close_fullscreen"})
+            pattern_angle = make_input("Pattern", "0", "pattern_angle", suffix="°", negate_icons={1: "rotate_left", -1: "rotate_right"})
+            outset_amount = make_input("Outset", "0", "outset", suffix="sq", negate_icons={1: "open_in_full", -1: "close_fullscreen"})
+            @handle_errors
             def _pick_rot():
                 tfs = _find_first_pair()
                 if tfs is None:
-                    error("No object pairs found!")
-                    return
+                    raise PrettyError(msg="No object pair found!")
                 t, first, second = tfs
                 delta = second - first
                 try:
@@ -277,13 +229,13 @@ def _stacking_tab():
             _clear_button(pattern_angle, outset_amount)
         with ui.card():
             ui.label("All")
-            walls_angle = SMHInput("Wall rotation", "0", "walls_angle", suffix="°", icons={1: "rotate_left", -1: "rotate_right"})
-            offset_t = SMHInput("Time", "1/16", "offset_t", suffix="b", icons={1: "fast_forward", -1: "fast_rewind"})
+            walls_angle = make_input("Wall rotation", "0", "walls_angle", suffix="°", negate_icons={1: "rotate_left", -1: "rotate_right"})
+            offset_t = make_input("Time", "1/16", "offset_t", suffix="b", negate_icons={1: "fast_forward", -1: "fast_rewind"})
+            @handle_errors
             def _pick_spiral():
                 tfs = _find_first_pair(list(synth_format.WALL_TYPES))
                 if tfs is None:
-                    error("No wall pairs found!")
-                    return
+                    raise PrettyError(msg="No object pair found!")
                 t, first, second = tfs
                 ang = (second[4] - first[4])
                 divisor = np.sin(np.radians(ang/2))
@@ -323,26 +275,21 @@ def _stacking_tab():
 
         @handle_errors
         def _do_stack(count_mode: str):
-            try:
-                o_t = offset_t.parsed_value
-                if not o_t:
-                    error("Time offset must not be 0", data=offset_t.value)
-                    return
-                if count_mode == "count":
-                    c = int(count.parsed_value)
-                elif count_mode == "duration":
-                    c = int(duration.parsed_value / o_t)
-                elif count_mode == "fill":
-                    c = int(d.selection_length / o_t)
-                p = [pivot_x.parsed_value, pivot_y.parsed_value, 0]
-                o = [offset_x.parsed_value, offset_y.parsed_value, o_t]
-                s = [scale_x.parsed_value, scale_y.parsed_value, 1]
-                r = pattern_angle.parsed_value
-                wr = walls_angle.parsed_value
-                outset = outset_amount.parsed_value
-            except ParseInputError as pie:
-                error(f"Error parsing value: {pie.input_id}", pie, data=pie.value)
-                return
+            o_t = offset_t.parsed_value
+            if not o_t:
+                raise PrettyError("Time offset must not be 0", data=offset_t.value)
+            if count_mode == "count":
+                c = int(count.parsed_value)
+            elif count_mode == "duration":
+                c = int(duration.parsed_value / o_t)
+            elif count_mode == "fill":
+                c = int(d.selection_length / o_t)
+            p = [pivot_x.parsed_value, pivot_y.parsed_value, 0]
+            o = [offset_x.parsed_value, offset_y.parsed_value, o_t]
+            s = [scale_x.parsed_value, scale_y.parsed_value, 1]
+            r = pattern_angle.parsed_value
+            wr = walls_angle.parsed_value
+            outset = outset_amount.parsed_value
             try:
                 if not random_offset.value:  # empty string or None
                     random_ranges_offset = random_step_offset = None
@@ -356,7 +303,7 @@ def _stacking_tab():
                     random_ranges_offset = [parse_xy_range(r) for r in random_offset.value.split(";")]
                     random_step_offset = None
             except ValueError as ve:
-                raise PrettyError(msg="Error parsing random XY ranges", exc=ve, data=random_offset.value)
+                raise PrettyError(msg="Error parsing random XY ranges", exc=ve, data=random_offset.value) from ve
             try:
                 if not random_angle.value:  # empty string or None
                     random_ranges_angle = random_step_angle = None
@@ -368,12 +315,12 @@ def _stacking_tab():
                     random_ranges_angle = [parse_range(r) for r in random_angle.value.split(";")]
                     random_step_angle = None
             except ValueError as ve:
-                raise PrettyError(msg="Error parsing random angle ranges", exc=ve, data=random_angle.value)
+                raise PrettyError(msg="Error parsing random angle ranges", exc=ve, data=random_angle.value) from ve
             try:
                 with safe_clipboard_data(use_original=True, realign_start=False) as d:
-                    if d is None:
-                        return None
                     _stack(d, c, p, o, s, r, wr, outset, random_ranges_offset, random_step_offset, random_ranges_angle, random_step_angle)
+            except PrettyError:
+                raise
             except Exception as exc:
                 raise PrettyError(
                     msg=f"Error executing stack",
@@ -387,10 +334,7 @@ def _stacking_tab():
                 caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
             )
             if preview_scene is not None:
-                try:
-                    preview_settings = sp.parse_settings()
-                except ParseInputError as pie:
-                    raise PrettyError(msg=f"Error parsing preview setting: {pie.input_id}", exc=pie, data=pie.value) from pie
+                preview_settings = sp.parse_settings()
                 preview_scene.render(d, preview_settings)
 
         with ui.card():
@@ -399,11 +343,11 @@ def _stacking_tab():
                 ui.tooltip("Stack until end of selection")
             ui.separator()
             with ui.row():
-                count = SMHInput("Count", 15, "count", suffix="x").classes("w-12", remove="w-24")
+                count = make_input("Count", 15, "count", suffix="x", width=12)
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("count")).props("rounded").classes("w-10 mt-auto")
             ui.separator()
             with ui.row():
-                duration = SMHInput("Duration", 1, "duration", suffix="b").classes("w-12", remove="w-24")
+                duration = make_input("Duration", 1, "duration", suffix="b", width=12)
                 ui.button(icon="play_arrow", on_click=lambda _: _do_stack("duration")).props("rounded").classes("w-10 mt-auto")
         with ui.card():
             ui.label("Substeps")
@@ -413,12 +357,13 @@ def _stacking_tab():
                 pattern_angle, walls_angle,
                 offset_t, outset_amount,
             )
+            @handle_errors
             def _subdivide(substeps: float) -> None:
                 for v in (offset_x, offset_y, pattern_angle, walls_angle,offset_t, outset_amount):
                     v.set_value(pretty_fraction(v.parsed_value/substeps))
                 for v in (scale_x, scale_y):
                     v.set_value(f"{v.parsed_value**(1/substeps):.1%}")
-            subdiv = SMHInput("Substeps", "2", "subdiv", tooltip="Number of substeps (should be >1)", suffix="x")
+            subdiv = make_input("Substeps", "2", "subdiv", tooltip="Number of substeps (should be >1)", suffix="x")
             with subdiv.add_slot("prepend"):
                 ui.icon("density_medium")
             _register_marking(ui.button("Subdivide", on_click=lambda _: _subdivide(subdiv.parsed_value if subdiv.parsed_value else 1)).props("outline size=sm").classes("w-full"), *subdiv_values).tooltip("Divide current step into substeps")
@@ -443,6 +388,7 @@ def _stacking_tab():
             with ui.label("Random"):
                 with ui.button(icon="help", on_click=random_dialog.open).props('flat text-color=info').classes("w-4 h-4 text-xs cursor-help"):
                     ui.tooltip("Show range input format help")
+            # custom input format, don't use SMHInput
             random_offset = ui.input("XY Offset Range", value="").props('dense suffix="sq"').classes("w-24").bind_value(app.storage.user, "stacking_random_offset")
             random_offset.default_value = ""
             random_angle = ui.input("Rotation Range", value="").props('dense suffix="°"').classes("w-24").bind_value(app.storage.user, "stacking_random_angle")
@@ -450,17 +396,14 @@ def _stacking_tab():
             _clear_button(random_offset, random_angle)
 
     with ui.card():
+        @handle_errors
         def _soft_refresh():
             try:
                 data = synth_format.ClipboardDataContainer.from_json(read_clipboard())
             except:
                 # fall back to empty data on error
                 data = synth_format.DataContainer()
-            try:
-                preview_settings = sp.parse_settings()
-            except ParseInputError as pie:
-                error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
-                return
+            preview_settings = sp.parse_settings()
             if preview_scene is None:
                 draw_preview_scene.refresh()
             if preview_scene is not None:
@@ -472,25 +415,22 @@ def _stacking_tab():
                     ui.tooltip("Preview current clipboard")
             with ui.expansion("Settings", icon="settings").props("dense"):
                 with ui.row():
-                    scene_width = SMHInput("Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
-                    scene_height = SMHInput("Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
+                    scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px")
+                    scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
                 with ui.row():
-                    time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
-                    frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
+                    time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
+                    frame_length = make_input("Frame Length", "16", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
                 apply_button = ui.button("Apply").props("outline")
             with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
                 sp = SettingsPanel()
         @ui.refreshable
+        @handle_errors
         def draw_preview_scene():
             nonlocal preview_scene
-            try:
-                w = int(scene_width.parsed_value)
-                h = int(scene_height.parsed_value)
-                l = int(frame_length.parsed_value)
-                t = time_scale.parsed_value
-            except ParseInputError as pie:
-                error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
-                return
+            w = int(scene_width.parsed_value)
+            h = int(scene_height.parsed_value)
+            l = int(frame_length.parsed_value)
+            t = time_scale.parsed_value
             preview_scene = MapScene(width=w, height=h, frame_length=l, time_scale=t)
             _soft_refresh()
         draw_preview_scene()

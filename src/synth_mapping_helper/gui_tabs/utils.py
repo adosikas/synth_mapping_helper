@@ -1,8 +1,10 @@
+from contextlib import contextmanager
 from dataclasses import dataclass
 import datetime
+from functools import wraps
 from io import BytesIO
-from contextlib import contextmanager
 import json
+import math
 import logging
 from typing import Any, Callable, Generator, Optional
 
@@ -11,11 +13,11 @@ from nicegui import app, events, ui
 from nicegui.storage import PersistentDict
 import pyperclip
 
-from .. import synth_format, __version__
+from .. import synth_format, utils, __version__
 
 __all__ = [
     "logger", "wiki_base",
-    "GUITab",
+    "GUITab", "SMHInput",
     "error", "warning", "info",
     "wiki_reference", "try_load_synth_file", "add_suffix",
     "ParseInputError", "PrettyError", "handle_errors",
@@ -48,6 +50,78 @@ class GUITab:
                 count += 1
                 del app.storage.user[s_id]
         logger.info(f"Deleted {count} settings for {self.label} tab")
+
+
+class SMHInput(ui.input):
+    def __init__(self,
+        storage_id: Optional[str],
+        label: str,
+        default_value: str|float,
+        tooltip: Optional[str] = None,
+        suffix: Optional[str] = None,
+        negate_icons: dict[int, str]|None = None,
+        on_parsed_value_change: Optional[None] = None,
+        tab_id: Optional[str] = None,
+        width: int = 12,
+        height: int = 10,
+        **input_kwargs,
+    ):
+        self.on_parsed_value_change = on_parsed_value_change
+        super().__init__(label=label, value=str(default_value), **input_kwargs)
+        if storage_id is not None:
+            if tab_id is not None:
+                storage_id = f"{tab_id}_{storage_id}"
+            self.bind_value(app.storage.user, storage_id)
+        self.classes(f"w-{width} h-{height}")
+        self.props('dense input-style="text-align: right" no-error-icon')
+        self.storage_id = storage_id
+        self.default_value = default_value
+        if suffix:
+            self.props(f'suffix="{suffix}"')
+        if tooltip is not None:
+            self.tooltip(tooltip)
+        if negate_icons is not None:
+            negate_icons = {1: "add", 0: "close", -1: "remove"} | negate_icons
+            def _negate(val: str|None) -> str|None:
+                if not val:
+                    return val
+                if val.startswith("-"):
+                    return val[1:]
+                return "-" + val
+            def _get_icon(val: str|None) -> str:
+                try:
+                    v = utils.parse_number(val)
+                except ValueError:
+                    return "error"
+                if v > 0:
+                    return negate_icons[1]
+                if v < 0:
+                    return negate_icons[-1]
+                return negate_icons[0]
+            with self.add_slot("prepend"):
+                self.icon = ui.icon("", color="primary").classes("border-2 rounded cursor-pointer").on(
+                    "click", lambda e: self.set_value(_negate(self.value))
+                ).bind_name_from(self, "value", _get_icon)
+                ui.tooltip("Click to negate")
+        with self.add_slot("error"):
+            ui.element().style("visiblity: hidden")
+
+    def _handle_value_change(self, value: Any) -> None:
+        super()._handle_value_change(value)
+        try:
+            v = utils.parse_number(value)
+            if self.on_parsed_value_change is not None:
+                self.on_parsed_value_change(v)
+            self.props(remove="error")
+        except ValueError:
+            self.props(add="error")
+
+    @property
+    def parsed_value(self) -> float:
+        try:
+            return utils.parse_number(self.value)
+        except ValueError as ve:
+            raise ParseInputError(input_id=self.storage_id, value=self.value, exc=ve) from ve
 
 class PrettyJSONResponse(Response):
     media_type = "application/json"
@@ -152,6 +226,7 @@ def handle_errors(func: Callable) -> Callable:
     #   ui.button(on_click=_do_stuff)
     # Lambdas:
     #   ui.button(on_click=handle_errors(lambda ...))
+    @wraps(func)
     def _wrapped_func(*args, **kwargs) -> Any:
         try:
             return func(*args, **kwargs)

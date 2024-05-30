@@ -134,10 +134,11 @@ def entrypoint():
             logging.StreamHandler()
         ]
     )
-    if __name__ == "__main__":  # don't run when spawned as child process
-        if args.dev_mode:
-            logging.getLogger("watchfiles.main").level = logging.WARN  # hide change detection
+    # hide some spammy logs
+    for ln in ("watchfiles", "multipart", "numba"):
+        logging.getLogger(ln).setLevel(logging.WARN)
 
+    if __name__ == "__main__":  # don't run when spawned as child process
         logger.info(f"Starting {version}{' in background' if args.background else ''}...")
     ui.run(
         host=args.host,

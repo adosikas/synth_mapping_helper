@@ -348,19 +348,24 @@ def main(options):
     if options.spiral:
         if (1 / options.spiral) % 1 == 0:
             abort("Chosen spiral factor divides 1 and would result in a straight rail. Refusing action!")
-        def _add_spiral(nodes: "numpy array (n, 3)", direction: int = 1) -> "numpy array (n, 3)":
-            nodes[:, :2] += pattern_generation.spiral(options.spiral * direction, nodes.shape[0], options.start_angle if direction == 1 else 180 - options.start_angle) * options.radius
-            return nodes
-        data.apply_for_notes(_add_spiral, types=filter_types, mirror_left=options.mirror_left)
+        data.apply_for_notes(
+            pattern_generation.add_spiral,
+            fidelity=options.spiral,
+            radius=options.radius,
+            start_angle=options.start_angle,
+            types=filter_types,
+            mirror_left=options.mirror_left,
+        )
     if options.spikes is not None:
-        def _add_spikes(nodes: "numpy array (n, 3)", direction: int = 1) -> "numpy array (n, 3)":
-            count = nodes.shape[0]
-            nodes = np.repeat(nodes, 3, axis=0)
-            nodes[::3] -= options.spike_width
-            nodes[1::3] -= options.spike_width/2
-            nodes[:, :2] += pattern_generation.spikes(options.spikes * direction, count, options.start_angle if direction == 1 else 180 - options.start_angle) * options.radius
-            return nodes
-        data.apply_for_notes(_add_spikes, types=filter_types, mirror_left=options.mirror_left)
+        data.apply_for_notes(
+            pattern_generation.add_spikes,
+            fidelity=options.spikes,
+            radius=options.radius,
+            spike_duration=options.spike_width,
+            start_angle=options.start_angle,
+            types=filter_types,
+            mirror_left=options.mirror_left,
+        )
 
     # movement
     if options.stack_count:

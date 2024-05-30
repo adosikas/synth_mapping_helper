@@ -3,7 +3,7 @@ import numpy as np
 
 from .. import synth_format, movement
 from ..utils import parse_number
-from .utils import GUITab, ParseInputError, info, error, write_clipboard
+from .utils import GUITab, SMHInput, ParseInputError, info, error, write_clipboard
 from .map_render import SettingsPanel, MapScene
 
 FONT_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -60,35 +60,9 @@ def generate_text(
         p = movement.rotate_around(p, rotation, pivot)  # rotate position
         lr += letter_rotation
 
-class SMHInput(ui.input):
-    def __init__(self, label: str, value: str|float, storage_id: str, tooltip: str|None=None, suffix: str|None = None, **kwargs):
-        super().__init__(label=label, value=str(value), **kwargs)
-        self.bind_value(app.storage.user, f"text_gen_{storage_id}")
-        self.classes("w-16 h-10")
-        self.props('dense input-style="text-align: right" no-error-icon')
-        self.storage_id = storage_id
-        if suffix:
-            self.props(f'suffix="{suffix}"')
-        with self:
-            if tooltip is not None:
-                ui.tooltip(tooltip)
-        with self.add_slot("error"):
-            ui.element().style("visiblity: hidden")
-
-    def _handle_value_change(self, value: str) -> None:
-        super()._handle_value_change(value)
-        try:
-            parse_number(value)
-            self.props(remove="error")
-        except ValueError:
-            self.props(add="error")
-
-    @property
-    def parsed_value(self) -> float:
-        try:
-            return parse_number(self.value)
-        except ValueError as ve:
-            raise ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve)
+def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
+    default_kwargs = {"tab_id": "text_gen", "width": 20}
+    return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 def _text_gen_tab() -> None:
     preview_scene: MapScene|None = None
@@ -124,39 +98,39 @@ def _text_gen_tab() -> None:
         ui.separator()
         with ui.row():
             center_sw = ui.switch("Center", value=True).bind_value(app.storage.user, "text_gen_centered")
-            wall_spacing = SMHInput("Wall Spacing", "1/64", "wall_spacing", suffix="b")
-            offset_t = SMHInput("Letter Spacing", "1/16", "offset_t", suffix="b")
-            rotation = SMHInput("Rotation", "-10", "rotation", suffix="°")
+            wall_spacing = make_input("Wall Spacing", "1/64", "wall_spacing", suffix="b")
+            offset_t = make_input("Letter Spacing", "1/16", "offset_t", suffix="b")
+            rotation = make_input("Rotation", "-10", "rotation", suffix="°")
         ui.separator()
         with ui.row():
             with ui.column():
                 ui.label("Start")
-                start_x = SMHInput("X", "0", "start_x", suffix="sq")
-                start_y = SMHInput("Y", "40", "start_y", suffix="sq")
+                start_x = make_input("X", "0", "start_x", suffix="sq")
+                start_y = make_input("Y", "40", "start_y", suffix="sq")
             ui.separator().props("vertical")
             with ui.column():
                 ui.label("Offset")
-                offset_x = SMHInput("X", "15", "offset_x", suffix="sq")
-                offset_y = SMHInput("Y", "0", "offset_y", suffix="sq")
+                offset_x = make_input("X", "15", "offset_x", suffix="sq")
+                offset_y = make_input("Y", "0", "offset_y", suffix="sq")
             ui.separator().props("vertical")
             with ui.column():
                 ui.label("Pivot")
-                pivot_x = SMHInput("Pivot X", "0", "pivot_x", suffix="sq")
-                pivot_y = SMHInput("Pivot Y", "0", "pivot_y", suffix="sq")
+                pivot_x = make_input("Pivot X", "0", "pivot_x", suffix="sq")
+                pivot_y = make_input("Pivot Y", "0", "pivot_y", suffix="sq")
             ui.separator().props("vertical")
             with ui.column():
                 ui.label("Letter Rotation")
-                letter_rotation_start = SMHInput("Start", "0", "letter_rotation_start", suffix="°")
-                letter_rotation = SMHInput("Angle", "-10", "letter_rotation", suffix="°")
+                letter_rotation_start = make_input("Start", "0", "letter_rotation_start", suffix="°")
+                letter_rotation = make_input("Angle", "-10", "letter_rotation", suffix="°")
     with ui.card():
         with ui.row():
             with ui.expansion("Settings", icon="settings").props("dense"):
                 with ui.row():
-                    scene_width = SMHInput("Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
-                    scene_height = SMHInput("Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
+                    scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px")
+                    scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
                 with ui.row():
-                    time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
-                    frame_length = SMHInput("Frame Length", "2", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
+                    time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
+                    frame_length = make_input("Frame Length", "2", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
             with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
                 sp = SettingsPanel()
             apply_button = ui.button("Apply").props("outline")

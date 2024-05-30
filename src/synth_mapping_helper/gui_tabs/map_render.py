@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from nicegui import app, ui, elements
 import numpy as np
 
+from .utils import SMHInput
 from ..utils import parse_number, pretty_fraction
 from .. import synth_format, utils
 
@@ -35,54 +36,28 @@ WALL_VERTS = {
     for i in synth_format.WALL_LOOKUP
 }
 
-class SMHInput(ui.input):
-    def __init__(self, label: str, value: str|float, storage_id: str, tooltip: str|None=None, suffix: str|None = None, **kwargs):
-        super().__init__(label=label, value=str(value), **kwargs)
-        self.bind_value(app.storage.user, f"render_{storage_id}")
-        self.classes("w-14 h-10")
-        self.props('dense input-style="text-align: right" no-error-icon')
-        self.storage_id = storage_id
-        if suffix:
-            self.props(f'suffix="{suffix}"')
-        with self:
-            if tooltip is not None:
-                ui.tooltip(tooltip)
-        with self.add_slot("error"):
-            ui.element().style("visiblity: hidden")
-
-    def _handle_value_change(self, value: str) -> None:
-        super()._handle_value_change(value)
-        try:
-            parse_number(value)
-            self.props(remove="error")
-        except ValueError:
-            self.props(add="error")
-
-    @property
-    def parsed_value(self) -> float:
-        try:
-            return parse_number(self.value)
-        except ValueError as ve:
-            raise utils.ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve) from ve
+def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
+    default_kwargs = {"tab_id": "render", "width": 14}
+    return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 class SettingsPanel(ui.element):
     def __init__(self) -> None:
         super().__init__()
         with self:
             with ui.row():
-                self.wall_size = SMHInput("Wall Depth", pretty_fraction(DEFAULT_SETTINGS.wall.size), "wall_size", suffix="b")
+                self.wall_size = make_input("Wall Depth", pretty_fraction(DEFAULT_SETTINGS.wall.size), "wall_size", suffix="b")
                 ui.separator().props("vertical")
                 self.wall_color = ui.color_input("Wall", value=DEFAULT_SETTINGS.wall.color, preview=True).props("dense").classes("w-24").bind_value(app.storage.user, "render_wall_color")
                 self.wall_color.button.style("color: black")
-                self.wall_opacity = SMHInput("Opacity", DEFAULT_SETTINGS.wall.opacity, "wall_opacity")
+                self.wall_opacity = make_input("Opacity", DEFAULT_SETTINGS.wall.opacity, "wall_opacity")
                 ui.separator().props("vertical")
                 self.wall_outline_color = ui.color_input("Outline", value=DEFAULT_SETTINGS.wall_outline.color, preview=True).props("dense").classes("w-24").bind_value(app.storage.user, "render_wall_outline_color")
                 self.wall_outline_color.button.style("color: black")
-                self.wall_outline_opacity = SMHInput("Opacity", DEFAULT_SETTINGS.wall_outline.opacity, "wall_outline_opacity")
+                self.wall_outline_opacity = make_input("Opacity", DEFAULT_SETTINGS.wall_outline.opacity, "wall_outline_opacity")
             ui.separator().classes("my-2")
             with ui.row():
-                self.note_colors: dict[str, SMHInput] = {
-                    t: ui.color_input(t.capitalize(), value=getattr(DEFAULT_SETTINGS, "color_"+t), preview=True).props("dense").classes("w-24")
+                self.note_colors: dict[str, ui.color_input] = {
+                    t: ui.color_input(t.capitalize(), value=getattr(DEFAULT_SETTINGS, "color_"+t), preview=True).props("dense").classes("w-24 h-10")
                     for t in synth_format.NOTE_TYPES
                 }
                 for t, ci in self.note_colors.items():
@@ -90,14 +65,14 @@ class SettingsPanel(ui.element):
                     ci.button.style("color: black")
             ui.separator().classes("my-2")
             with ui.row():
-                self.note_size = SMHInput("Note Size", DEFAULT_SETTINGS.note.size, "note_size", suffix="sq")
-                self.note_opacity = SMHInput("Opacity", DEFAULT_SETTINGS.note.opacity, "note_opacity")
+                self.note_size = make_input("Note Size", DEFAULT_SETTINGS.note.size, "note_size", suffix="sq")
+                self.note_opacity = make_input("Opacity", DEFAULT_SETTINGS.note.opacity, "note_opacity")
                 ui.separator().props("vertical")
-                self.rail_size = SMHInput("Rail Size", DEFAULT_SETTINGS.rail.size, "rail_size", suffix="sq")
-                self.rail_opacity = SMHInput("Opacity", DEFAULT_SETTINGS.rail.opacity, "rail_opacity")
+                self.rail_size = make_input("Rail Size", DEFAULT_SETTINGS.rail.size, "rail_size", suffix="sq")
+                self.rail_opacity = make_input("Opacity", DEFAULT_SETTINGS.rail.opacity, "rail_opacity")
                 ui.separator().props("vertical")
-                self.rail_node_size = SMHInput("Node Size", DEFAULT_SETTINGS.rail_node.size, "rail_node_size", suffix="sq")
-                self.rail_node_opacity = SMHInput("Opacity", DEFAULT_SETTINGS.rail_node.opacity, "rail_node_opacity")
+                self.rail_node_size = make_input("Node Size", DEFAULT_SETTINGS.rail_node.size, "rail_node_size", suffix="sq")
+                self.rail_node_opacity = make_input("Opacity", DEFAULT_SETTINGS.rail_node.opacity, "rail_node_opacity")
 
     def parse_settings(self) -> RenderSettings:
         return RenderSettings(

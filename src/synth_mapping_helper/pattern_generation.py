@@ -33,6 +33,14 @@ def spiral(
         rot = np.concatenate((rot, [(length / fidelity)]))
     return angle_to_xy(rot * 360 + start_angle)
 
+def add_spiral(nodes: "numpy array (n, 3)", fidelity: float, radius: float, start_angle: float = 0.0, direction: int = 1) -> "numpy array (n, 3)":
+    nodes = nodes.copy()
+    nodes[:, :2] += spiral(
+        fidelity=fidelity * direction,
+        length=nodes.shape[0],
+        start_angle=start_angle if direction == 1 else 180 - start_angle
+    ) * radius
+    return nodes
 
 def spikes(
     fidelity: float, length: float, start_angle: float = 0
@@ -43,6 +51,18 @@ def spikes(
         spiral(fidelity, length, start_angle) 
     )
     return output
+
+def add_spikes(nodes: "numpy array (n, 3)", fidelity: float, radius: float, spike_duration: float, start_angle: float = 0.0, direction: int = 1) -> "numpy array (n, 3)":
+    node_count = nodes.shape[0]  # backup count before repeat
+    nodes = np.repeat(nodes, 3, axis=0)
+    nodes[::3] -= spike_duration
+    nodes[1::3] -= spike_duration/2
+    nodes[:, :2] += spikes(
+        fidelity=fidelity * direction,
+        length=node_count,
+        start_angle=start_angle if direction == 1 else 180 - start_angle
+    ) * radius
+    return nodes
 
 def create_parallel(data: DataContainer, distance: float) -> None:
     """create parallel patterns by splitting specials, or adding the other hand

@@ -11,39 +11,13 @@ import pyperclip
 import requests
 
 from .map_render import MapScene, SettingsPanel
-from .utils import GUITab, ParseInputError, info, error, safe_clipboard_data
+from .utils import GUITab, SMHInput, ParseInputError, handle_errors, info, error, safe_clipboard_data
 from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
-class SMHInput(ui.input):
-    def __init__(self, label: str, value: str|float, storage_id: str, tooltip: str|None=None, suffix: str|None = None, **kwargs):
-        super().__init__(label=label, value=str(value), **kwargs)
-        self.bind_value(app.storage.user, f"wall_art_{storage_id}")
-        self.classes("w-16 h-10")
-        self.props('dense input-style="text-align: right" no-error-icon')
-        self.storage_id = storage_id
-        if suffix:
-            self.props(f'suffix="{suffix}"')
-        with self:
-            if tooltip is not None:
-                ui.tooltip(tooltip)
-        with self.add_slot("error"):
-            ui.element().style("visiblity: hidden")
-
-    def _handle_value_change(self, value: str) -> None:
-        super()._handle_value_change(value)
-        try:
-            parse_number(value)
-            self.props(remove="error")
-        except ValueError:
-            self.props(add="error")
-
-    @property
-    def parsed_value(self) -> float:
-        try:
-            return parse_number(self.value)
-        except ValueError as ve:
-            raise ParseInputError(storage_id=self.storage_id, value=self.value, exc=ve) from ve
+def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
+    default_kwargs = {"tab_id": "wall_art", "width": 16}
+    return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 class LargeSwitch(ui.switch):
     def __init__(self, value: bool|None, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None):
@@ -240,6 +214,7 @@ def _wall_art_tab():
             self.copy = copy
             self._update_cursors()
 
+        @handle_errors
         def apply(self):
             nonlocal walls
             ops = [l for v, l in [(self.copy, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
@@ -258,29 +233,26 @@ def _wall_art_tab():
                 new_walls[w[0,2]] = w
                 new_sources |= {w[0,2]}
 
-            try:
-                sym_ops: list[str|int] = []
-                if mirror_x.value:
-                    sym_ops.append("mirror_x")
-                if mirror_y.value:
-                    sym_ops.append("mirror_y")
-                if rotsym_direction.value is not None:
-                    rsym = rotsym.value * (-1 if rotsym_direction.value else 1)
-                    if rotate_first.value:
-                        sym_ops.insert(0, int(rsym))
-                    else:
-                        sym_ops.append(int(rsym))
-                sym_interval = symmetry_step.parsed_value
-                new_walls |= pattern_generation.generate_symmetry(new_walls, sym_ops, sym_interval)
-            except ParseInputError as pie:
-                error(f"Error parsing symmetry setting: {pie.input_id}", pie, data=pie.value)
-                # continue anyway
+            sym_ops: list[str|int] = []
+            if mirror_x.value:
+                sym_ops.append("mirror_x")
+            if mirror_y.value:
+                sym_ops.append("mirror_y")
+            if rotsym_direction.value is not None:
+                rsym = rotsym.value * (-1 if rotsym_direction.value else 1)
+                if rotate_first.value:
+                    sym_ops.insert(0, int(rsym))
+                else:
+                    sym_ops.append(int(rsym))
+            sym_interval = symmetry_step.parsed_value
+            new_walls |= pattern_generation.generate_symmetry(new_walls, sym_ops, sym_interval)
                 
             for _, w in sorted(new_walls.items()):
                 _insert_wall(w, displace_forward=self.offset[2]>0)
             _soft_refresh()
             self.select(new_sources, "set")
 
+        @handle_errors
         def start_drag(self, object_id: str):
             for t, c in self.cursors.items():
                 if c.id == object_id:
@@ -411,12 +383,12 @@ def _wall_art_tab():
             with ui.row():
                 axis_z = LargeSwitch(False, "axis", "(T) Change movement axis between X/Y and Time", color="info", icon_unchecked="open_with", icon_checked="schedule")
                 displace = LargeSwitch(False, "displace", "Displace existing walls when moving in time instead of replacing them.", color="warning", icon_unchecked="cancel", icon_checked="move_up")
-                time_step = SMHInput("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
-                offset_step = SMHInput("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
-                angle_step = SMHInput("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
+                time_step = make_input("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
+                offset_step = make_input("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
+                angle_step = make_input("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
             with ui.expansion("Symmetry", icon="flip").props("dense") as sym_exp:
                 with ui.row():
-                    symmetry_step = SMHInput("Interval", "1/4", "symmetry_step", suffix="b", tooltip="Time step for symmetry copies")
+                    symmetry_step = make_input("Interval", "1/4", "symmetry_step", suffix="b", tooltip="Time step for symmetry copies")
                     with LargeSwitch(False, "rotate_first", color="secondary", icon_unchecked="flip", icon_checked="adjust") as rotate_first:
                         ui.tooltip().bind_text_from(rotate_first, "value", lambda rf: "Rotate first, then mirror" if rf else "Mirror first, then rotate")
                     ui.separator().props("vertical")
@@ -450,34 +422,35 @@ def _wall_art_tab():
                 with ui.row():
                     move_color = ui.color_input("Move", value="#888888", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_move_color")
                     move_color.button.style("color: black")
-                    move_opacity = SMHInput("Opacity", "0.5", "move_opacity")
+                    move_opacity = make_input("Opacity", "0.5", "move_opacity")
                     copy_color = ui.color_input("Copy", value="#00ff00", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_copy_color")
                     copy_color.button.style("color: black")
-                    copy_opacity = SMHInput("Opacity", "0.5", "copy_opacity")
+                    copy_opacity = make_input("Opacity", "0.5", "copy_opacity")
                 ui.separator()
                 with ui.row():
-                    scene_width = SMHInput("Render Width", "800", "preview_width", suffix="px", tooltip="Width of the preview in px")
-                    scene_height = SMHInput("Render Height", "600", "preview_height", suffix="px", tooltip="Height of the preview in px")
-                    time_scale = SMHInput("Time Scale", "64", "preview_time_scale", tooltip="Ratio between XY and time")
-                    frame_length = SMHInput("Frame Length", "16", "preview_frame_length", suffix="b", tooltip="Number of beats to draw frames for")
+                    scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px")
+                    scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
+                    time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
+                    frame_length = make_input("Frame Length", "2", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
                 ui.separator()
                 with ui.element():
                     ui.tooltip("Display a reference image to align wall art. A low time scale (e.g. 1) is recommended to avoid distortion due to perspective, but may cause display issues.")
                     refimg_url = ui.input("Reference Image URL").props("dense").classes("w-full").bind_value(app.storage.user, "wall_art_ref_url")
                     with ui.row():
-                        refimg_width = SMHInput("Width", "16", "wall_art_ref_width", suffix="sq", tooltip="Width of the reference image in sq")
-                        refimg_height = SMHInput("Height", "12", "wall_art_ref_height", suffix="sq", tooltip="Height of the reference image in sq")
-                        refimg_opacity = SMHInput("Opacity", "0.1", "ref_opacity")
+                        refimg_width = make_input("Width", "16", "ref_width", suffix="sq", tooltip="Width of the reference image in sq")
+                        refimg_height = make_input("Height", "12", "height", suffix="sq", tooltip="Height of the reference image in sq")
+                        refimg_opacity = make_input("Opacity", "0.1", "ref_opacity")
                     with ui.row():
-                        refimg_x = SMHInput("X", "0", "wall_art_ref_x", suffix="sq", tooltip="Center X of the reference image in sq")
-                        refimg_y = SMHInput("Y", "0", "wall_art_ref_y", suffix="sq", tooltip="Center Y of the reference image in sq")
-                        refimg_t = SMHInput("Time", "1/4", "wall_art_ref_time", suffix="b", tooltip="Time of the reference image in beats")
+                        refimg_x = make_input("X", "0", "ref_x", suffix="sq", tooltip="Center X of the reference image in sq")
+                        refimg_y = make_input("Y", "0", "ref_y", suffix="sq", tooltip="Center Y of the reference image in sq")
+                        refimg_t = make_input("Time", "1/4", "ref_time", suffix="b", tooltip="Time of the reference image in beats")
                 apply_button = ui.button("Apply").props("outline")
         def _find_free_slot(t: float) -> float:
             while t in walls:
                 t = np.round(t/time_step.parsed_value + 1)*time_step.parsed_value
             return t
 
+        @handle_errors
         def _insert_wall(w: "np.array (1,5)", displace_forward: bool = False):
             if not displace.value:
                 walls[w[0,2]] = w
@@ -489,6 +462,7 @@ def _wall_art_tab():
                 pending[0,2] = np.round(pending[0,2]/time_step.parsed_value + displace_dir)*time_step.parsed_value
             walls[pending[0,2]] = pending
 
+        @handle_errors
         def _spawn_wall(wall_type: int, change_selection: bool = False, extend_selection: bool = False):
             if change_selection:
                 if not selection.sources:
@@ -500,24 +474,17 @@ def _wall_art_tab():
                 selection.select(set(), "toggle")
             else:
                 undo.push_undo(f"add {synth_format.WALL_LOOKUP[wall_type]}")
-                try:
-                    new_t = 0.0 if not selection.sources else max(selection.sources) + time_step.parsed_value
-                    if not displace.value:
-                        new_t = _find_free_slot(max(selection.sources, default=0.0))
-                    _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
-                    _soft_refresh()
-                    selection.select({new_t}, mode="set" if not extend_selection else "toggle")
-                except ParseInputError as pie:
-                    error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
-                    return
+                new_t = 0.0 if not selection.sources else max(selection.sources) + time_step.parsed_value
+                if not displace.value:
+                    new_t = _find_free_slot(max(selection.sources, default=0.0))
+                _insert_wall(np.array([[0.0,0.0,new_t,wall_type,0.0]]))
+                _soft_refresh()
+                selection.select({new_t}, mode="set" if not extend_selection else "toggle")
 
+        @handle_errors
         def _soft_refresh():
             nonlocal refimg_obj
-            try:
-                preview_settings = sp.parse_settings()
-            except ParseInputError as pie:
-                error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
-                return
+            preview_settings = sp.parse_settings()
             if preview_scene is None:
                 draw_preview_scene.refresh()
             if refimg_obj is not None:
@@ -525,17 +492,15 @@ def _wall_art_tab():
                 refimg_obj = None
             if preview_scene is not None:
                 if refimg_url.value:
-                    try:
-                        with preview_scene:
-                            coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
-                            pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
-                            opacity = refimg_opacity.parsed_value
-                            refimg_obj = preview_scene.texture(f"/image_proxy?url={refimg_url.value}",coords).move(*pos).material(opacity=opacity)
-                    except ParseInputError as pie:
-                        error(f"Error parsing reference image setting: {pie.input_id}", pie, data=pie.value)
+                    with preview_scene:
+                        coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
+                        pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
+                        opacity = refimg_opacity.parsed_value
+                        refimg_obj = preview_scene.texture(f"/image_proxy?url={refimg_url.value}",coords).move(*pos).material(opacity=opacity)
                 wall_data = synth_format.DataContainer(walls=walls)
                 preview_scene.render(wall_data, preview_settings)
 
+        @handle_errors
         def _on_click(e: events.SceneClickEventArguments):
             nonlocal is_dragging
             if is_dragging or e.alt:
@@ -561,18 +526,13 @@ def _wall_art_tab():
                 selection.end_drag((e.x, e.z, round((e.y / time_scale.parsed_value)/time_step.parsed_value)*time_step.parsed_value))
 
         @ui.refreshable
+        @handle_errors
         def draw_preview_scene():
             nonlocal preview_scene
-            try:
-                w = int(scene_width.parsed_value)
-                h = int(scene_height.parsed_value)
-                l = int(frame_length.parsed_value)
-                t = time_scale.parsed_value
-            except ParseInputError as pie:
-                error_str = f"Error parsing preview setting: {pie.input_id}"
-                ui.label(error_str).classes("bg-red")
-                error(error_str, pie, data=pie.value)
-                return
+            w = int(scene_width.parsed_value)
+            h = int(scene_height.parsed_value)
+            l = int(frame_length.parsed_value)
+            t = time_scale.parsed_value
             preview_scene = MapScene(width=w, height=h, frame_length=l, time_scale=t, on_click=_on_click, on_drag_start=_on_dstart, on_drag_end=_on_dend)
             preview_scene.move_camera(0,-t,0,0,0,0)
             _soft_refresh()
@@ -630,6 +590,7 @@ def _wall_art_tab():
                 with ui.button(icon="redo", color="positive", on_click=undo.redo).props("outline").style("width: 36px").bind_enabled_from(undo, "redo_stack", backward=bool):
                     ui.tooltip().bind_text_from(undo, "redo_stack", backward=lambda rs: f"Redo '{rs[-1][0]}' (CTRL+Y) [{len(rs)} steps]" if rs else "Redo (CTRL+Y)")
                 ui.separator()
+                @handle_errors
                 def _paste():
                     with safe_clipboard_data(use_original=False, write=False) as data:
                         undo.push_undo("paste from clipboad")
@@ -647,6 +608,7 @@ def _wall_art_tab():
                 with ui.button(icon="clear", color="negative", on_click=lambda _: (undo.reset(), walls.clear(), _soft_refresh())).props("outline").style("width: 36px"):
                     ui.tooltip("Clear everything (includes undo steps)")
                 ui.separator()
+                @handle_errors
                 def _compress():
                     undo.push_undo("compress")
                     new_sources = set()
@@ -672,24 +634,24 @@ def _wall_art_tab():
                         blend_pattern, "options", backward=lambda opts: "Detected: " + next(iter(opts.values())) if opts else ""
                     )
                     with ui.row():
-                        blend_interval = SMHInput("Interval", "1/2", "blend_interval", "Interval between blending steps", suffix="b")
+                        blend_interval = make_input("Interval", "1/2", "blend_interval", tooltip="Interval between blending steps", suffix="b")
                         def _do_blend():
                             nonlocal walls
                             wc, pc, pl = blend_pattern.value
                             if len(walls) != wc*pc:
-                                error(f"Wall count changed! Expected {pc*wc}, found {len(walls)}", data=walls)
+                                error(f"Wall count changed! Expected {pc*wc}, found {len(walls)}", data=[w.tolist() for w in walls])
                                 return
                             try:
                                 patterns = np.array([w[0] for _, w in sorted(walls.items())]).reshape((pc, wc, 5))
                                 interval = blend_interval.parsed_value
                             except ValueError as ve:
-                                error(f"Could not split up {len(walls)} walls into {pc} patterns with {wc} wall{'s'*(wc!=1)} each", ve, data=walls)
+                                error(f"Could not split up {len(walls)} walls into {pc} patterns with {wc} wall{'s'*(wc!=1)} each", ve, data=[w.tolist() for w in walls])
                                 return
                             pattern_deltas = np.diff(patterns[:,0,2])
                             if pattern_deltas.max() <= interval:
                                 error(
                                     f"Blend interval ({pretty_fraction(interval)}b) must be greater than largest pattern distance ({pretty_fraction(pattern_deltas.max())}b), else blending will do nothing.",
-                                    data=walls,
+                                    data=[w.tolist() for w in walls],
                                 )
                                 return
 
@@ -709,7 +671,7 @@ def _wall_art_tab():
                             try:
                                 walls |= pattern_generation.blend_walls_multiple(patterns, interval=interval)
                             except ValueError as ve:
-                                error("Error blending walls", ve, data=walls)
+                                error("Error blending walls", ve, data=[w.tolist() for w in walls])
                                 return
                             added = len(walls)//patterns.shape[1] - patterns.shape[0]
                             ui.notify(f"Created {added} additional pattern{'s'*(added!=1)} between the existing {patterns.shape[0]}", type="info")
@@ -719,13 +681,13 @@ def _wall_art_tab():
 
                 def _open_blend_dialog():
                     if len(walls) < 2:
-                        error("Need at least two walls to do blending", data=walls)
-                        returnc
+                        error("Need at least two walls to do blending", data=[w.tolist() for w in walls])
+                        return
                     # autodetect patterns
                     try:
                         detected_patterns = pattern_generation.find_wall_patterns(walls)
                     except ValueError as ve:
-                        error(f"Could not detect patterns in walls: {ve}", data=walls)
+                        error(f"Could not detect patterns in walls: {ve}", data=[w.tolist() for w in walls])
                         return
                     blend_dialog.open()
                     blend_pattern.set_options({
