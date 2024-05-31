@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from io import BytesIO
 import dataclasses
@@ -39,7 +40,6 @@ def _file_utils_tab():
             self.output_bpm = 0.0
             self.output_offset = 0.0
             self.merged_filenames = None
-            self.tick_audio = None
             self.bpm_scan_data = None
             self.wall_densities = None
             self.note_densities = None
@@ -155,23 +155,6 @@ def _file_utils_tab():
             self._wden_card.refresh()
             self._nden_card.refresh()
 
-        async def _add_clicks(self, e: events.ClickEventArguments):
-            bpm = self.output_bpm
-            offset = self.output_offset
-            if bpm is None or not bpm > 0:
-                error("BPM must be greater than 0", data=bpm)
-                return
-            if offset is None or offset < 0:
-                error("Offset must be 0 or greater", data=offset)
-                return
-            btn: ui.button = e.sender
-            btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
-            try:
-                _, self.tick_audio = await run.cpu_bound(analysis.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
-            except Exception as exc:
-                error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
-            btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
-
         @ui.refreshable
         def info_card(self):
             if self.data is None:
@@ -188,7 +171,7 @@ def _file_utils_tab():
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
             with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-full").add_slot("list"):
-                ui.audio("").bind_source_from(self, "tick_audio", backward=lambda ta: f"data:audio/{'ogg' if ta is None else 'wav'};base64,"+base64.b64encode(self.data.audio.raw_data if ta is None else ta).decode())
+                preview_audio = ui.audio("")
                 with ui.row():
                     with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm"):
                         ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
@@ -197,10 +180,28 @@ def _file_utils_tab():
                         self.output_bpm = self.data.bpm
                         self.output_offset = self.data.offset_ms
                     ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("my-auto").tooltip("Reset to original values")
-                    ui.button(icon="timer", on_click=self._add_clicks, color="positive").props("dense outline").classes("my-auto").tooltip("Add or update clicks in preview")
+
+                    async def _add_clicks(e: events.ClickEventArguments):
+                        bpm = self.output_bpm
+                        offset = self.output_offset
+                        if bpm is None or not bpm > 0:
+                            error("BPM must be greater than 0", data=bpm)
+                            return
+                        if offset is None or offset < 0:
+                            error("Offset must be 0 or greater", data=offset)
+                            return
+                        btn: ui.button = e.sender
+                        btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
+                        try:
+                            audio_type, data = await run.cpu_bound(analysis.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
+                        except Exception as exc:
+                            error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
+                        preview_audio.set_source(f"data:audio/{audio_type};base64,"+base64.b64encode(data).decode())
+                        btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
+                    ui.button(icon="timer", on_click=_add_clicks, color="positive").props("dense outline").classes("my-auto").tooltip("Add or update clicks in preview")
                     def _reset_audio():
-                        self.tick_audio = None
-                    ui.button(icon="timer_off", on_click=_reset_audio, color="negative").props("dense outline").classes("my-auto").tooltip("Remove clicks from preview").bind_enabled_from(self, "tick_audio", lambda s: s is not None)
+                        preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode())
+                    ui.button(icon="timer_off", on_click=_reset_audio, color="negative").props("dense outline").classes("my-auto").tooltip("Remove clicks from preview")
 
         async def _calc_bpm(self):
             self.bpm_scan_data["state"] = "Loading Audio"
@@ -215,23 +216,38 @@ def _file_utils_tab():
             self.bpm_scan_data["peak_bpms"] = peak_bpms
             self.bpm_scan_data["peak_values"] = peak_values
             self.bpm_scan_data["pulse"] = pulse
-            self.bpm_scan_data["detected_bpm"] = round(peak_bpms[peak_values.argmax()], 3)
-            self.bpm_scan_data["bpm"] = self.bpm_scan_data["detected_bpm"]
+            best_bpm, bpm_sections = analysis.group_bpm(peak_bpms, peak_values)
+            self.bpm_scan_data["bpm_sections"] = bpm_sections
+            self.bpm_scan_data["best_bpm"] = best_bpm
+            self.bpm_scan_data["bpm_override"] = None
             await self._calc_beats()
+
         async def _calc_beats(self):
             # have this seperate so it could be updated seperately later
-            self.bpm_scan_data["state"] = "Locating beats"
-            self._bpm_card.refresh()
             sr = self.bpm_scan_data["sr"]
-            bpm = self.bpm_scan_data["bpm"]
             onsets = self.bpm_scan_data["onsets"]
-            beats = await run.cpu_bound(analysis.locate_beats, onsets=onsets, sr=sr, bpm=bpm)
-            self.bpm_scan_data["beats"] = beats
+            bpm_override = self.bpm_scan_data["bpm_override"]
+            if bpm_override is None:
+                bpm_sections = self.bpm_scan_data["bpm_sections"]
+            else:
+                bpm_sections = [(0, onsets.shape[-1], bpm_override, 1)]
+            self.bpm_scan_data["state"] = f"Processing {len(bpm_sections)} sections"
+            self._bpm_card.refresh()
+            offset_sections = []
+            beat_results = await asyncio.gather(
+                *[
+                    run.cpu_bound(analysis.locate_beats, onsets=onsets[section_start:section_end], sr=sr, bpm=section_bpm)
+                    for section_start, section_end, section_bpm, _ in bpm_sections
+                ]
+            )
+            for i, ((section_start, section_end, section_bpm, _), beats) in enumerate(zip(bpm_sections, beat_results)):
+                beats = librosa.frames_to_time(beats + section_start)
+                beat_time = 60/section_bpm
+                offsets = beat_time - (beats % beat_time)
+                offset_ms = int(np.median(offsets)*1000)
+                offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms))
+            self.bpm_scan_data["offset_sections"] = offset_sections
             self.bpm_scan_data["state"] = "Done"
-            beat_time = 60/bpm
-            offsets = beat_time - (beats % beat_time)
-            offset_ms = int(offsets.mean()*1000)
-            self.bpm_scan_data["offset_ms"] = offset_ms
             self._bpm_card.refresh()
 
         @ui.refreshable
@@ -247,20 +263,41 @@ def _file_utils_tab():
             peak_values = self.bpm_scan_data["peak_values"]
             pulse = self.bpm_scan_data["pulse"]
             peak_bpms = self.bpm_scan_data["peak_bpms"]
-            bpm = self.bpm_scan_data["bpm"]
-            detected_bpm = self.bpm_scan_data["detected_bpm"]
-            beats = self.bpm_scan_data["beats"]
-            offset_ms = self.bpm_scan_data["offset_ms"]
+            best_bpm = self.bpm_scan_data["best_bpm"]
+            bpm_sections = self.bpm_scan_data["bpm_sections"]
+            offset_sections = self.bpm_scan_data["offset_sections"]
+            bpm_override = self.bpm_scan_data["bpm_override"]
+
             with ui.row():
-                ui.label(f"{'Detected' if (detected_bpm==bpm) else 'Overwritten'} BPM: {bpm}, Offset: {offset_ms} ms").classes("my-auto")
-                def _apply_bpm():
-                    self.output_bpm = bpm
-                    self.output_offset = offset_ms
-                ui.button("Apply", icon="auto_fix_high", on_click=_apply_bpm, color="positive").props("dense outline").tooltip("Apply detected BPM and offset")
+                async def _reset_bpm():
+                    self.bpm_scan_data["bpm_override"] = None
+                    await self._calc_beats()
+                if bpm_override is not None:
+                    ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("my-auto").tooltip("Reset back to detected BPM")
                 async def _override_bpm():
-                    self.bpm_scan_data["bpm"] = self.output_bpm
+                    self.bpm_scan_data["bpm_override"] = self.output_bpm
                     await self._calc_beats()
                 ui.button("BPM Override", icon="south", on_click=_override_bpm, color="warning").props("dense outline").tooltip("Override detected BPM with current BPM and recalculate beats and offset")
+                with ui.dropdown_button("Apply", auto_close=True, icon="auto_fix_high").props("dense outline").tooltip("Apply detected BPM and offset"):
+                    for i, (_, _, _, section_bpm, offset_ms) in enumerate(offset_sections):
+                        color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
+                        def _apply_bpm(bpm=section_bpm, offset_ms=offset_ms):
+                            self.output_bpm = bpm
+                            self.output_offset = offset_ms
+                        ui.item(f"Section {i+1}: {section_bpm} BPM, {offset_ms} ms", on_click=_apply_bpm).classes(f"text-{color}")
+                def _add_bookmarks():
+                    # clear existing bpm bookmarks
+                    for t, n in list(self.data.bookmarks.items()):
+                        if n.startswith("#smh_bpm"):
+                            del self.data.bookmarks[t]
+                    # add new
+                    self.data.bookmarks |= {
+                        librosa.frames_to_time(s, sr=sr): f"#smh_bpm: {s_bpm}"
+                        for (s, _, s_bpm, _) in bpm_sections
+                    }
+                    # update plots
+                    self.stats_card.refresh()
+                ui.button("Add bookmarks", icon="bookmark", on_click=_add_bookmarks, color="positive").props("dense outline").tooltip("Add bookmark on section starts")
 
             bpmfig = go.Figure(
                 layout=go.Layout(
@@ -274,7 +311,15 @@ def _file_utils_tab():
                 x=librosa.times_like(peak_bpms, sr=sr), y=peak_bpms,
                 name="BPM",
             )
-            bpmfig.add_hline(bpm, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Detected BPM", xanchor="left", yanchor="bottom"), annotation_position="left")
+            for i, (section_start, section_end, section_bpm, _) in enumerate(bpm_sections):
+                color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
+                bpmfig.add_vrect(
+                    librosa.frames_to_time(section_start, sr=sr),
+                    librosa.frames_to_time(section_end, sr=sr),
+                    line_width=0, fillcolor=color, opacity=0.1,
+                    annotation=go.layout.Annotation(text=f"{section_bpm:.3f}", yanchor="bottom", font=dict(color=color)),
+                    annotation_position="bottom",
+                )
             ui.plotly(bpmfig).classes("w-full h-96")
 
             onset_fig = go.Figure(
@@ -298,12 +343,25 @@ def _file_utils_tab():
                 name="Pulse curve",
                 visible="legendonly",  # hide by default
             )
-            onset_fig.add_scatter(
-                # just vertical lines
-                x=beats.repeat(3), y=[0,1,None]*len(beats),
-                name=f"Beats ({bpm} BPM)",
-                line=dict(dash="dot")
-            )
+            for i, (section_start, section_end, beats, section_bpm, section_offset) in enumerate(offset_sections):
+                color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
+                start_time, end_time = librosa.frames_to_time(section_start, sr=sr), librosa.frames_to_time(section_end, sr=sr)
+                onset_fig.add_vrect(
+                    start_time, end_time,
+                    line_width=0, fillcolor=color, opacity=0.1,
+                    annotation=go.layout.Annotation(text=f"{section_bpm} bpm<br>{section_offset} ms", yanchor="top", font=dict(color=color)),
+                    annotation_position="bottom",
+                )
+                beat_time = 60/section_bpm
+                actual_beats = np.arange(start_time-(offset_ms/1000)%beat_time+beat_time, end_time, beat_time)
+                onset_fig.add_scatter(
+                    # just vertical lines
+                    x=actual_beats.repeat(3), y=[0,1,None]*len(actual_beats),
+                    name=f"{section_bpm} BPM",
+                    line=dict(dash="dot", color=color),
+                    mode="lines",
+                    visible="legendonly",  # hide by default
+                )
             ui.plotly(onset_fig).classes("w-full h-96")
 
         def _calc_wden(self):

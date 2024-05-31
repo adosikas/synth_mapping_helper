@@ -118,31 +118,32 @@ def load_audio(raw_data: bytes) -> "numpy array (s,), int":
 def calculate_onsets(data: "numpy array (s,)", sr: int) -> "numpy array (m,)":
     return librosa.util.normalize(librosa.onset.onset_strength(y=data, sr=sr, aggregate=np.median, center=True))
 
-def find_bpm(onsets: "numpy array (m,)", sr: int) -> "numpy array (m,), numpy array (m,)":
-    # 193 bins from 0 to ~ 300 bpm
+def find_bpm(onsets: "numpy array (m,)", sr: int) -> "numpy array (m,), numpy array (m,), numpy array (m,)":
+    # bins between 0 and approximately 300 bpm (not sure why, but this formula works out)
     hop_len = 1<<(sr.bit_length()-4)
-    win_len = 384
+    # 50 % overlap
+    win_len = hop_len * 3 // 2
     # this is based on librosa.beat.plp
     ftgram = librosa.feature.fourier_tempogram(onset_envelope=onsets, sr=sr, hop_length=hop_len, win_length=win_len)
     tempo_frequencies = librosa.fourier_tempo_frequencies(sr=sr, hop_length=hop_len, win_length=win_len)
     ftgram[..., tempo_frequencies < 30, :] = 0
     ftgram[..., tempo_frequencies > 300, :] = 0
     ftmag = np.log1p(1e6 * np.abs(ftgram))
-    peak_idx = ftmag.argmax(axis=-2)
-    # Now we have a peak bin, estimate the binning error (±1/2) using
+    peak_freq_bins = ftmag.argmax(axis=-2)
+    # Now we have peak bins, estimate the binning error (±1/2) using
     # https://ccrma.stanford.edu/~jos/sasp/Quadratic_Interpolation_Spectral_Peaks.html
     # Then we can store BPM and peak value for every frame
     bpm_peaks = []
     bpm_peak_values = []
     bpm_multiplier = sr/(hop_len*win_len) * 60  # used to convert intermediate bin to bpm
-    for i, pb in enumerate(peak_idx):
-        if pb == 0 or pb == ftgram.shape[-1]:
+    for frame, freq_bin in enumerate(peak_freq_bins):
+        if freq_bin == 0 or freq_bin == ftgram.shape[-1]:
             bpm_peaks.append(0)
             bpm_peak_values.append(0)
         else:
-            a, b, c = np.abs(ftgram[..., pb-1:pb+2, i])
+            a, b, c = np.abs(ftgram[..., freq_bin-1:freq_bin+2, frame])
             p = 1/2 * (a-c) / (a-2*b+c)
-            bpm_peaks.append((pb+p)*bpm_multiplier)
+            bpm_peaks.append((freq_bin+p)*bpm_multiplier)
             bpm_peak_values.append(b-1/4*(a-c)*p)
     # back to plp
     peak_values = ftmag.max(axis=-2, keepdims=True)
@@ -153,8 +154,29 @@ def find_bpm(onsets: "numpy array (m,)", sr: int) -> "numpy array (m,), numpy ar
     # bpms, normalized bpm strength, pulse curve
     return np.array(bpm_peaks), librosa.util.normalize(np.array(bpm_peak_values)), librosa.util.normalize(pulse)
 
+def group_bpm(bpms: "numpy array (m,)", bpm_strengths: "numpy array (m,)", max_jump: float=0.1, min_len_ratio: float=0.01) -> list[tuple[int, int, float, float]]:
+    min_len = np.ceil(bpms.shape[-1] * min_len_ratio)
+    jumps = np.argwhere(np.abs(np.diff(bpms, prepend=bpms[0])) > max_jump)
+    jumps = [idx[0] for idx in jumps]
+
+    out: list[tuple[int, int, float, float]] = []
+    max_str = 0
+    best_bpm = 0
+    for start, end in zip([0, *jumps], [*jumps, bpms.shape[-1]]):
+        if (end - start) < min_len:
+            # ignore short sections
+            continue
+        bpm = round(bpms[start:end].mean(), 3)
+        str_sum = bpm_strengths[start:end].sum()
+        if str_sum > max_str:
+            max_str = str_sum
+            best_bpm = bpm
+        out.append((start, end, bpm, str_sum))
+    # normalize strength
+    return best_bpm, [(s,e,b,st/max_str) for s,e,b,st in out]
+
 def locate_beats(onsets: "numpy array (m,)", sr: int, bpm: float) -> "numpy array (t,)":
-    _, beats = librosa.beat.beat_track(onset_envelope=onsets, bpm=bpm, units="time", trim=False)
+    _, beats = librosa.beat.beat_track(onset_envelope=onsets, bpm=bpm, sr=sr, trim=False)
     return beats
 
 def audio_with_clicks(raw_audio_data: bytes, duration: float, bpm: float, offset_ms: int) -> tuple[str, bytes]:
