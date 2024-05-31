@@ -173,14 +173,12 @@ def _file_utils_tab():
             with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-full").add_slot("list"):
                 preview_audio = ui.audio("")
                 with ui.row():
-                    with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm"):
-                        ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
-                    ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset")
-                    def _reset_bpm():
-                        self.output_bpm = self.data.bpm
-                        self.output_offset = self.data.offset_ms
-                    ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("my-auto").tooltip("Reset to original values")
-
+                    ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm")
+                    def _multiply_bpm(mult: float) -> None:
+                        self.output_bpm = round(self.output_bpm*mult, 3)
+                    ui.button("2", on_click=lambda _: _multiply_bpm(2.0)).props("dense outline").classes("w-8 my-auto").tooltip("Double BPM")
+                    ui.button("½", on_click=lambda _: _multiply_bpm(0.5)).props("dense outline").classes("w-8 my-auto").tooltip("Halve BPM")
+                    ui.separator().props("vertical")
                     async def _add_clicks(e: events.ClickEventArguments):
                         bpm = self.output_bpm
                         offset = self.output_offset
@@ -198,11 +196,31 @@ def _file_utils_tab():
                             error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
                         preview_audio.set_source(f"data:audio/{audio_type};base64,"+base64.b64encode(data).decode())
                         btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
-                    ui.button(icon="timer", on_click=_add_clicks, color="positive").props("dense outline").classes("my-auto").tooltip("Add or update clicks in preview")
+                    ui.button(icon="timer", on_click=_add_clicks, color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add or update clicks in preview")
                     def _reset_audio():
                         preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode())
-                    ui.button(icon="timer_off", on_click=_reset_audio, color="negative").props("dense outline").classes("my-auto").tooltip("Remove clicks from preview")
-
+                    ui.button(icon="timer_off", on_click=_reset_audio, color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Remove clicks from preview")
+                with ui.row():
+                    with ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset"):
+                        ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
+                    def _minimize_offset() -> None:
+                        beat_time = 60/self.output_bpm
+                        self.output_offset = round(((self.output_offset/1000) % beat_time)*1000)
+                    ui.button("<<", on_click=_minimize_offset).props("dense outline").classes("w-8 my-auto").tooltip("Minimize offset")
+                    def _shift_offset(beats: float) -> None:
+                        beat_time = 60/self.output_bpm
+                        offset = round((self.output_offset/1000 + beats*beat_time)*1000)
+                        if offset >= 0:
+                            self.output_offset = offset
+                        else:
+                            ui.notify("Negative offset is not supported", type="warning")
+                    ui.button("<½", on_click=lambda _: _shift_offset(-0.5), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Subtract half a beat from offset")
+                    ui.button(">½", on_click=lambda _: _shift_offset(0.5), color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add half a beat to offset")
+                    ui.separator().props("vertical")
+                    def _reset_bpm():
+                        self.output_bpm = self.data.bpm
+                        self.output_offset = self.data.offset_ms
+                    ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("w-8 my-auto").tooltip("Reset BPM and Offset to original values")
         async def _calc_bpm(self):
             self.bpm_scan_data["state"] = "Loading Audio"
             data, sr = await run.cpu_bound(analysis.load_audio, raw_data=fi.data.audio.raw_data)
