@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import Optional
 import sys
 
-import plotly.graph_objects as go
+import librosa
 from nicegui import app, events, run, ui
 import numpy as np
-import librosa
+import plotly.graph_objects as go
+from scipy.stats import circmean
 
 from .utils import *
 from ..utils import pretty_list
@@ -171,9 +172,12 @@ def _file_utils_tab():
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
             with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-full").add_slot("list"):
-                preview_audio = ui.audio("")
+                default_source = "data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode()
+                preview_audio = ui.audio(default_source)
                 with ui.row():
-                    ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm")
+                    with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm"):
+                        ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
+
                     def _multiply_bpm(mult: float) -> None:
                         self.output_bpm = round(self.output_bpm*mult, 3)
                     ui.button("2", on_click=lambda _: _multiply_bpm(2.0)).props("dense outline").classes("w-8 my-auto").tooltip("Double BPM")
@@ -192,17 +196,19 @@ def _file_utils_tab():
                         btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
                         try:
                             audio_type, data = await run.cpu_bound(analysis.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
+                            preview_audio.set_source(f"data:audio/{audio_type};base64,"+base64.b64encode(data).decode())
                         except Exception as exc:
                             error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
-                        preview_audio.set_source(f"data:audio/{audio_type};base64,"+base64.b64encode(data).decode())
                         btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
                     ui.button(icon="timer", on_click=_add_clicks, color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add or update clicks in preview")
-                    def _reset_audio():
-                        preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode())
-                    ui.button(icon="timer_off", on_click=_reset_audio, color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Remove clicks from preview")
+                    ui.button(icon="timer_off", on_click=lambda _: preview_audio.set_source(default_source), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Remove clicks from preview")
                 with ui.row():
                     with ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset"):
-                        ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
+                        def _update_offset_tooltip(_) -> str:
+                            bpm = self.output_bpm
+                            offset = self.output_offset
+                            return f"-{round(60000/bpm-offset)} ms" if bpm and offset is not None else "Invalid"
+                        ui.tooltip("").bind_text_from(self, "output_bpm", backward=_update_offset_tooltip).bind_text_from(self, "output_offset", backward=_update_offset_tooltip)
                     def _minimize_offset() -> None:
                         beat_time = 60/self.output_bpm
                         self.output_offset = round(((self.output_offset/1000) % beat_time)*1000)
@@ -259,10 +265,14 @@ def _file_utils_tab():
                 ]
             )
             for i, ((section_start, section_end, section_bpm, _), beats) in enumerate(zip(bpm_sections, beat_results)):
-                beats = librosa.frames_to_time(beats + section_start)
+                if not beats.any():
+                    # ignore sections without detected beats
+                    continue
+                # not sure why, but a 22ms offset seems to be required...
+                beats = librosa.frames_to_time(beats + section_start, sr=sr) - 0.022
                 beat_time = 60/section_bpm
-                offsets = beat_time - (beats % beat_time)
-                offset_ms = int(np.median(offsets)*1000)
+                mean_offset = circmean(beats % beat_time, high=beat_time)
+                offset_ms = int((beat_time - mean_offset)*1000)  # the game offsets the audio, so negate offset
                 offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms))
             self.bpm_scan_data["offset_sections"] = offset_sections
             self.bpm_scan_data["state"] = "Done"
@@ -329,14 +339,17 @@ def _file_utils_tab():
                 x=librosa.times_like(peak_bpms, sr=sr), y=peak_bpms,
                 name="BPM",
             )
-            for i, (section_start, section_end, section_bpm, _) in enumerate(bpm_sections):
+            for i, (section_start, section_end, section_bpm, str_sum) in enumerate(bpm_sections):
                 color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
-                bpmfig.add_vrect(
-                    librosa.frames_to_time(section_start, sr=sr),
-                    librosa.frames_to_time(section_end, sr=sr),
-                    line_width=0, fillcolor=color, opacity=0.1,
-                    annotation=go.layout.Annotation(text=f"{section_bpm:.3f}", yanchor="bottom", font=dict(color=color)),
-                    annotation_position="bottom",
+                start_time, end_time = librosa.frames_to_time(section_start, sr=sr), librosa.frames_to_time(section_end, sr=sr)
+                bpmfig.add_shape(
+                    dict(type="rect", x0=librosa.frames_to_time(section_start, sr=sr), x1=librosa.frames_to_time(section_end, sr=sr), y0=0, y1=str_sum),
+                    line_width=0, fillcolor=color, opacity=0.1, yref="paper",
+                )
+                bpmfig.add_annotation(
+                    go.layout.Annotation(text=f"{section_bpm}", yanchor="bottom", font=dict(color=color)),
+                    yref="paper", showarrow=False,
+                    x=(start_time+end_time)/2, y=0,
                 )
             ui.plotly(bpmfig).classes("w-full h-96")
 
@@ -350,11 +363,11 @@ def _file_utils_tab():
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(onsets, sr=sr), y=onsets,
-                name="Onset strength",
+                name="Note onsets",
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(peak_values, sr=sr), y=peak_values,
-                name="BPM strength",
+                name="BPM confidence",
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(pulse, sr=sr), y=pulse,
@@ -367,15 +380,23 @@ def _file_utils_tab():
                 onset_fig.add_vrect(
                     start_time, end_time,
                     line_width=0, fillcolor=color, opacity=0.1,
-                    annotation=go.layout.Annotation(text=f"{section_bpm} bpm<br>{section_offset} ms", yanchor="top", font=dict(color=color)),
+                    annotation=go.layout.Annotation(text=f"Section {i+1}<br>{section_bpm} bpm<br>{section_offset} ms", yanchor="bottom", yref="paper", font=dict(color=color), bgcolor="white"),
                     annotation_position="bottom",
                 )
-                beat_time = 60/section_bpm
-                actual_beats = np.arange(start_time-(offset_ms/1000)%beat_time+beat_time, end_time, beat_time)
                 onset_fig.add_scatter(
                     # just vertical lines
-                    x=actual_beats.repeat(3), y=[0,1,None]*len(actual_beats),
-                    name=f"{section_bpm} BPM",
+                    x=beats.repeat(3), y=[0,1,None]*len(beats),
+                    name=f"Beats {i+1}",
+                    line=dict(dash="dash", color=color),
+                    mode="lines",
+                    visible="legendonly",  # hide by default
+                )
+                beat_time = 60/section_bpm
+                stable_beats = np.arange(start_time-(offset_ms/1000)%beat_time+beat_time, end_time, beat_time)
+                onset_fig.add_scatter(
+                    # just vertical lines
+                    x=stable_beats.repeat(3), y=[0,1,None]*len(stable_beats),
+                    name=f"Stable {i+1}",
                     line=dict(dash="dot", color=color),
                     mode="lines",
                     visible="legendonly",  # hide by default

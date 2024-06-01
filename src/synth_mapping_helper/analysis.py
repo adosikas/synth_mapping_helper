@@ -121,13 +121,16 @@ def calculate_onsets(data: "numpy array (s,)", sr: int) -> "numpy array (m,)":
 def find_bpm(onsets: "numpy array (m,)", sr: int) -> "numpy array (m,), numpy array (m,), numpy array (m,)":
     # bins between 0 and approximately 300 bpm (not sure why, but this formula works out)
     hop_len = 1<<(sr.bit_length()-4)
+    # decrease hop for shorter signals
+    while hop_len * 3 // 2 > onsets.shape[-1]:
+        hop_len //= 2
     # 50 % overlap
     win_len = hop_len * 3 // 2
     # this is based on librosa.beat.plp
     ftgram = librosa.feature.fourier_tempogram(onset_envelope=onsets, sr=sr, hop_length=hop_len, win_length=win_len)
     tempo_frequencies = librosa.fourier_tempo_frequencies(sr=sr, hop_length=hop_len, win_length=win_len)
-    ftgram[..., tempo_frequencies < 30, :] = 0
-    ftgram[..., tempo_frequencies > 300, :] = 0
+    ftgram[..., tempo_frequencies < 60, :] = 0
+    ftgram[..., tempo_frequencies > 240, :] = 0
     ftmag = np.log1p(1e6 * np.abs(ftgram))
     peak_freq_bins = ftmag.argmax(axis=-2)
     # Now we have peak bins, estimate the binning error (±1/2) using
@@ -166,7 +169,7 @@ def group_bpm(bpms: "numpy array (m,)", bpm_strengths: "numpy array (m,)", max_j
         if (end - start) < min_len:
             # ignore short sections
             continue
-        bpm = round(bpms[start:end].mean(), 3)
+        bpm = round(bpms[start:end].mean(), 1)  # round output to 1 decimal
         str_sum = bpm_strengths[start:end].sum()
         if str_sum > max_str:
             max_str = str_sum
@@ -182,5 +185,5 @@ def locate_beats(onsets: "numpy array (m,)", sr: int, bpm: float) -> "numpy arra
 def audio_with_clicks(raw_audio_data: bytes, duration: float, bpm: float, offset_ms: int) -> tuple[str, bytes]:
     beat_time = 60/bpm
     data, sr = librosa.load(BytesIO(raw_audio_data))
-    clicks = librosa.clicks(times=np.arange(beat_time-offset_ms/1000, duration, beat_time), length=len(data), sr=sr)
+    clicks = librosa.clicks(times=np.arange(beat_time-(offset_ms/1000)%beat_time, duration, beat_time), length=len(data), sr=sr)
     return "wav", export_wav(data+clicks)
