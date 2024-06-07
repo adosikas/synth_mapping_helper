@@ -566,7 +566,7 @@ def _file_utils_tab():
     
     with ui.row().classes("mb-4"):
         with ui.card().classes("mb-4"):
-            with ui.upload(label="Select a .synth or .ogg file ->", auto_upload=True, on_upload=fi.upload).classes("w-full").add_slot("list"):
+            with ui.upload(label="Select a .synth or .ogg file ->", auto_upload=True, on_upload=fi.upload).props('accept=".synth,audio/ogg,*"').classes("w-full").add_slot("list"):
                 ui.tooltip("Select a file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
                 ui.input("Output Filename").props("dense").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
                 with ui.switch("Finalize Walls").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid").classes("my-auto"):
@@ -580,7 +580,7 @@ def _file_utils_tab():
         with ui.card().bind_visibility(fi, "is_valid"):
             ui.markdown("**Merge files into base**")
             merge_bookmarks = ui.switch("Merge Bookmarks", value=True).classes("w-full").bind_value(app.storage.user, "merge_bookmarks").tooltip("Disable this if you merge maps that contain the same bookmarks")
-            with ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive"').classes("w-full").add_slot("list"):
+            with ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive" accept=".synth,*"').classes("w-full").add_slot("list"):
                 ui.markdown("""
                     Should have the same audio file as the base.  
                     BPM & Offset will be matched automatically.
