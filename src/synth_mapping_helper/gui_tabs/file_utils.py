@@ -10,12 +10,26 @@ import librosa
 from nicegui import app, events, run, ui
 import numpy as np
 import plotly.graph_objects as go
-from scipy.stats import circmean
 
 from .utils import *
 from ..utils import pretty_list
 from .. import synth_format, movement, analysis, __version__
 
+def circmedian(values: "numpy array (n,)", high: float) -> float:
+    # doing statistics on "circular data" (ie 0-beat_time) is hard, but we can treat each value as "angle" (0-2pi, ie 0-360 deg)
+    # see also: scipy.stats.circmean
+    # via median of sine and cosine, we get the "median angle" and transform that back
+    # we get the median instead of mean, to avoid outliers influencing the result
+    scaling = 2*np.pi/high
+    sines = np.sin(values*scaling)
+    cosines = np.cos(values*scaling)
+    return (np.arctan2(np.median(sines), np.median(cosines)) / scaling + high)%high
+
+def circerror(values: "numpy array (n,)", target: float, high: float) -> "numpy array (n,)":
+    # shift the delta such that equal -> h/2  and opposite -> 0 or h
+    shifted_delta = (values - target + high*1.5) % high
+    # now get the delta from high/2, and transform into 0 (equal) to 1 (opposite)
+    return np.abs(shifted_delta-high/2) / (high/2)
 
 def _file_utils_tab():
     @dataclasses.dataclass
@@ -271,9 +285,10 @@ def _file_utils_tab():
                 # not sure why, but a 22ms offset seems to be required...
                 beats = librosa.frames_to_time(beats + section_start, sr=sr) - 0.022
                 beat_time = 60/section_bpm
-                mean_offset = circmean(beats % beat_time, high=beat_time)
-                offset_ms = int((beat_time - mean_offset)*1000)  # the game offsets the audio, so negate offset
-                offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms))
+                median_offset = circmedian(beats % beat_time, high=beat_time)
+                offset_error = circerror(beats % beat_time, median_offset, high=beat_time)
+                offset_ms = int((beat_time - median_offset)*1000)  # the game offsets the audio, so negate offset
+                offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms, offset_error))
             self.bpm_scan_data["offset_sections"] = offset_sections
             self.bpm_scan_data["state"] = "Done"
             self._bpm_card.refresh()
@@ -307,7 +322,7 @@ def _file_utils_tab():
                     await self._calc_beats()
                 ui.button("BPM Override", icon="south", on_click=_override_bpm, color="warning").props("dense outline").tooltip("Override detected BPM with current BPM and recalculate beats and offset")
                 with ui.dropdown_button("Apply", auto_close=True, icon="auto_fix_high").props("dense outline").tooltip("Apply detected BPM and offset"):
-                    for i, (_, _, _, section_bpm, offset_ms) in enumerate(offset_sections):
+                    for i, (_, _, _, section_bpm, offset_ms, _) in enumerate(offset_sections):
                         color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
                         def _apply_bpm(bpm=section_bpm, offset_ms=offset_ms):
                             self.output_bpm = bpm
@@ -364,17 +379,21 @@ def _file_utils_tab():
             onset_fig.add_scatter(
                 x=librosa.times_like(onsets, sr=sr), y=onsets,
                 name="Note onsets",
+                legendgroup="common",
+                legendgrouptitle=dict(text="Common"),
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(peak_values, sr=sr), y=peak_values,
                 name="BPM confidence",
+                legendgroup="common",
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(pulse, sr=sr), y=pulse,
                 name="Pulse curve",
                 visible="legendonly",  # hide by default
+                legendgroup="common",
             )
-            for i, (section_start, section_end, beats, section_bpm, section_offset) in enumerate(offset_sections):
+            for i, (section_start, section_end, beats, section_bpm, section_offset, offset_error) in enumerate(offset_sections):
                 color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
                 start_time, end_time = librosa.frames_to_time(section_start, sr=sr), librosa.frames_to_time(section_end, sr=sr)
                 onset_fig.add_vrect(
@@ -386,20 +405,31 @@ def _file_utils_tab():
                 onset_fig.add_scatter(
                     # just vertical lines
                     x=beats.repeat(3), y=[0,1,None]*len(beats),
-                    name=f"Beats {i+1}",
+                    name="Beats",
                     line=dict(dash="dash", color=color),
                     mode="lines",
                     visible="legendonly",  # hide by default
+                    legendgroup=f"sec_{i+1}",
+                    legendgrouptitle=dict(text=f"Section {i+1}", font=dict(color=color))
                 )
                 beat_time = 60/section_bpm
                 stable_beats = np.arange(start_time-(offset_ms/1000)%beat_time+beat_time, end_time, beat_time)
                 onset_fig.add_scatter(
                     # just vertical lines
                     x=stable_beats.repeat(3), y=[0,1,None]*len(stable_beats),
-                    name=f"Stable {i+1}",
+                    name="Stable BPM",
                     line=dict(dash="dot", color=color),
                     mode="lines",
                     visible="legendonly",  # hide by default
+                    legendgroup=f"sec_{i+1}",
+                )
+                onset_fig.add_scatter(
+                    x=beats,
+                    y=offset_error,
+                    name="Offset Error",
+                    line=dict(color=color),
+                    mode="lines",
+                    legendgroup=f"sec_{i+1}",
                 )
             ui.plotly(onset_fig).classes("w-full h-96")
 
