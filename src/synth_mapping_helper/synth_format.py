@@ -5,8 +5,10 @@ import codecs
 from contextlib import contextmanager
 import dataclasses
 import datetime
+from hashlib import sha256
 import json
 from pathlib import Path
+import re
 import time
 from typing import Any, Generator, Union
 import zipfile
@@ -432,12 +434,24 @@ class SynthFileMeta:
     name: str
     artist: str
     mapper: str
-    audio_name: str  # without .ogg
+    audio_name: str
     explicit: bool = False
-    cover_name: str = "No cover"  # without .png
+    cover_name: str = "No cover"
     cover_data: bytes = b""  # from base64 in json, overwrites separate file
     custom_difficulty_name: str = "Custom"
     custom_difficulty_speed: float = 1.0
+
+    def get_safe_name(self, audio_data: bytes) -> str:
+        # editor tracks spectrum data by filename, so just append sha256 of content to filename
+        sha256_hash = sha256(audio_data).hexdigest()
+        # <name>_<hash:32 hexdigits>.<ext> or <name>.<ext>
+        m = re.match(r"(.*?)(?:_[0-9a-fA-F]{32})?\.([^.]*)$", self.audio_name)
+        if m:
+            name, ext = m[1], m[2]
+        else:  # should only happen if there is no dot in the filename
+            name = self.audio_name
+            ext = "ogg"
+        return f"{name}_{sha256_hash}.{ext}"
 
 @dataclasses.dataclass
 class SynthFile:
@@ -592,13 +606,14 @@ class SynthFile:
             {"time": round_tick_for_json(t * 64), "name": n}
             for t, n in sorted(self.bookmarks.items())
         ]
+        safe_audio_name = self.meta.get_safe_name(self.audio.raw_data)
         now = datetime.datetime.now(datetime.timezone.utc)
         out_beatmap = {
             "Name": self.meta.name,
             "Author": self.meta.artist,
             "Artwork": self.meta.cover_name,
             "ArtworkBytes": base64.b64encode(self.meta.cover_data).decode(),
-            "AudioName": self.meta.audio_name,
+            "AudioName": safe_audio_name,
             "AudioData": None,
             "AudioFrecuency": self.audio.sample_rate,
             "AudioChannels": self.audio.channels,
@@ -669,7 +684,7 @@ class SynthFile:
             "artist": self.meta.artist,
             "duration": f"{self.audio.duration//60:.0f}:{self.audio.duration%60:02.0f}",
             "coverImage": self.meta.cover_name,
-            "audioFile": self.meta.audio_name,
+            "audioFile": safe_audio_name,
             "supportedDifficulties": [
                 d if self.difficulties.get(d, False) else "" for d in DIFFICULTIES
             ],
@@ -693,7 +708,7 @@ class SynthFile:
                 return info
             
             outzip.writestr(make_fileinfo(BEATMAP_JSON_FILE), codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
-            outzip.writestr(make_fileinfo(self.meta.audio_name), self.audio.raw_data)
+            outzip.writestr(make_fileinfo(safe_audio_name), self.audio.raw_data)
             outzip.writestr(make_fileinfo(self.meta.cover_name), self.meta.cover_data)
             outzip.writestr(make_fileinfo(METADATA_JSON_FILE), codecs.BOM_UTF8 + meta_json.encode("utf-8").replace(b"\n", b"\r\n"))
         # write output zip
@@ -723,9 +738,9 @@ class SynthFile:
                 c.bpm = bpm
     def change_offset(self, offset_ms: int) -> None:
         if not offset_ms > 0:
-            raise ValueError("BPM must be greater than 0")
+            raise ValueError("Offset must be greater than 0")
         if self.offset_ms != offset_ms:
-            delta = second_to_beat((offset_ms - self.offset_ms)*1000, self.bpm)
+            delta = second_to_beat((offset_ms - self.offset_ms)/1000, self.bpm)
             self.bookmarks = {
                 time + delta: name
                 for time, name in self.bookmarks.items()
