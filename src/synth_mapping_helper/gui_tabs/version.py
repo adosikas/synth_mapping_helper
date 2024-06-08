@@ -39,7 +39,7 @@ def _version_tab():
                             ui.label("Github link:")
                             ui.link(url, target=url, new_tab=True) 
                         with ui.card().props("bordered"):
-                            ui.markdown()
+                            ui.markdown(r["body"])
         elif releases is not None:
             with ui.row():
                 ui.spinner()
