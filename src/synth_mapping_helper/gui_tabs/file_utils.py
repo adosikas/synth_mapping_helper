@@ -322,12 +322,12 @@ def _file_utils_tab():
                     await self._calc_beats()
                 ui.button("BPM Override", icon="south", on_click=_override_bpm, color="warning").props("dense outline").tooltip("Override detected BPM with current BPM and recalculate beats and offset")
                 with ui.dropdown_button("Apply", auto_close=True, icon="auto_fix_high").props("dense outline").tooltip("Apply detected BPM and offset"):
-                    for i, (_, _, _, section_bpm, offset_ms, _) in enumerate(offset_sections):
+                    for i, (_, _, _, section_bpm, section_offset, _) in enumerate(offset_sections):
                         color = "green" if section_bpm==best_bpm else ("blue", "red")[i%2]
-                        def _apply_bpm(bpm=section_bpm, offset_ms=offset_ms):
+                        def _apply_bpm(bpm=section_bpm, offset_ms=section_offset):
                             self.output_bpm = bpm
                             self.output_offset = offset_ms
-                        ui.item(f"Section {i+1}: {section_bpm} BPM, {offset_ms} ms", on_click=_apply_bpm).classes(f"text-{color}")
+                        ui.item(f"Section {i+1}: {section_bpm} BPM, {section_offset} ms", on_click=_apply_bpm).classes(f"text-{color}")
                 def _add_bookmarks():
                     # clear existing bpm bookmarks
                     for t, n in list(self.data.bookmarks.items()):
@@ -341,6 +341,11 @@ def _file_utils_tab():
                     # update plots
                     self.stats_card.refresh()
                 ui.button("Add bookmarks", icon="bookmark", on_click=_add_bookmarks, color="positive").props("dense outline").tooltip("Add bookmark on section starts")
+            ui.markdown("""
+                Note: This may not be accurate. Double check below if the *Error* plot below for the section stays low (meaning *Actual Beats* and *Stable BPM* align), and this matches up with the *Note onsets* plot.
+
+                You can zoom the plots by dragging the axis or selecting a rectangle. Use the "Reset Axis" button (home icon) in the top right of each plot to reset. You can also switch to "Pan" mode there. 
+            """)
 
             bpmfig = go.Figure(
                 layout=go.Layout(
@@ -372,7 +377,7 @@ def _file_utils_tab():
                 layout=go.Layout(
                     xaxis=go.layout.XAxis(title="Time"),
                     yaxis=go.layout.YAxis(title=" "),
-                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem"),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem", bgcolor="rgba(255,255,255,0.3)", borderwidth=1),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
                 ),
             )
@@ -380,7 +385,7 @@ def _file_utils_tab():
                 x=librosa.times_like(onsets, sr=sr), y=onsets,
                 name="Note onsets",
                 legendgroup="common",
-                legendgrouptitle=dict(text="Common"),
+                legendgrouptitle=dict(text="Click to toggle:"),
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(peak_values, sr=sr), y=peak_values,
@@ -405,7 +410,7 @@ def _file_utils_tab():
                 onset_fig.add_scatter(
                     # just vertical lines
                     x=beats.repeat(3), y=[0,1,None]*len(beats),
-                    name="Beats",
+                    name="Actual Beats",
                     line=dict(dash="dash", color=color),
                     mode="lines",
                     visible="legendonly",  # hide by default
@@ -413,7 +418,7 @@ def _file_utils_tab():
                     legendgrouptitle=dict(text=f"Section {i+1}", font=dict(color=color))
                 )
                 beat_time = 60/section_bpm
-                stable_beats = np.arange(start_time-(offset_ms/1000)%beat_time+beat_time, end_time, beat_time)
+                stable_beats = np.arange((start_time-start_time%beat_time)-(section_offset/1000)%beat_time+beat_time, end_time, beat_time)
                 onset_fig.add_scatter(
                     # just vertical lines
                     x=stable_beats.repeat(3), y=[0,1,None]*len(stable_beats),
