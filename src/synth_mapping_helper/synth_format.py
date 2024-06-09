@@ -17,8 +17,9 @@ import numpy as np
 import pyperclip
 import soundfile
 
-from . import movement, __version__
-from .utils import second_to_beat, beat_to_second
+from synth_mapping_helper import movement, __version__
+from synth_mapping_helper.audio_format import AudioData
+from synth_mapping_helper.utils import second_to_beat, beat_to_second
 
 # For simplicity, we exclusively use grid coordinates (x, y) and use measures for time (z)
 # These values are only needed to convert to / from the format the game uses
@@ -405,30 +406,6 @@ class ClipboardDataContainer(DataContainer):
             original_json=original_json, selection_length=second_to_beat(clipboard["lenght"]/1000, bpm),
         )
 
-
-@dataclasses.dataclass
-class AudioData:
-    raw_data: bytes
-    sample_rate: int
-    channels: int
-    duration: float
-    cache: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-    @staticmethod
-    def from_raw(raw_data: bytes, *, convert_to_ogg: bool = False) -> "AudioData":
-        try:
-            info = soundfile.info(BytesIO(raw_data))
-        except soundfile.SoundFileError as sfe:
-            raise ValueError(f"Could not parse audio file: {sfe!r}")
-        if info.format != "OGG":
-            raise ValueError("Audio format is not OGG")
-        return AudioData(
-            raw_data=raw_data,
-            sample_rate=info.samplerate,
-            channels=info.channels,
-            duration=info.duration,
-        )
-
 @dataclasses.dataclass
 class SynthFileMeta:
     name: str
@@ -466,22 +443,24 @@ class SynthFile:
     @staticmethod
     def empty_from_audio(audio_file: Union[Path, BytesIO], *, filename: str = None, name: str = None, artist: str = "unknown artist", mapper: str = "your name here") -> "SynthFile":
         raw_data = audio_file.read_bytes() if isinstance(audio_file, Path) else audio_file.read()
-        audio = AudioData.from_raw(raw_data, convert_to_ogg=True)
+        audio = AudioData.from_raw(raw_data, allow_conversion=True)
         if filename is None:
             if isinstance(audio_file, Path):
-                filename = audio_file.name
+                filename = audio_file.stem
             elif name is not None:
-                filename = name + ".ogg"
+                filename = name
             else:
-                filename = "unnamed.ogg"
+                filename = "unnamed"
+        elif "." in filename:
+            filename = filename.rsplit(".", 1)[0]
         if name is None:
-            name = filename.removesuffix(".ogg")
+            name = filename
         return SynthFile(
             meta=SynthFileMeta(
                 name=name,
                 artist=artist,
                 mapper=mapper,
-                audio_name=filename,
+                audio_name=filename + ".ogg",
             ),
             audio=audio,
             bookmarks={},
@@ -736,17 +715,25 @@ class SynthFile:
             for c in self.difficulties.values():
                 c.apply_for_all(movement.scale, [1,1,ratio])
                 c.bpm = bpm
-    def change_offset(self, offset_ms: int) -> None:
-        if not offset_ms > 0:
-            raise ValueError("Offset must be greater than 0")
-        if self.offset_ms != offset_ms:
-            delta = second_to_beat((offset_ms - self.offset_ms)/1000, self.bpm)
+
+    def offset_everything(self, delta_s: float = None, delta_b: float = None) -> None:
+        if delta_s is not None == delta_b is not None:
+            raise ValueError("Specify either delta_s or delta_b")
+        if delta_b is None:
+            delta_b = second_to_beat(delta_s, self.bpm)
+        if delta_b:
             self.bookmarks = {
-                time + delta: name
+                time + delta_b: name
                 for time, name in self.bookmarks.items()
             }
             for c in self.difficulties.values():
-                c.apply_for_all(movement.offset, [0,0,delta])
+                c.apply_for_all(movement.offset, [0,0,delta_b])
+
+    def change_offset(self, offset_ms: int) -> None:
+        if offset_ms < 0:
+            raise ValueError("Offset must be greater than 0")
+        if self.offset_ms != offset_ms:
+            self.offset_everything(delta_s=(offset_ms-self.offset_ms)/1000)
             self.offset_ms = offset_ms
 
     def merge(self, other: "SynthFile", adjust_bpm: bool = True, merge_bookmarks: bool = True) -> None:
@@ -766,6 +753,16 @@ class SynthFile:
                 self.errors[d].extend(e)
             else:
                 self.errors[d] = e
+
+    def add_silence(self, *, before_start_ms: int = 0, after_end_ms: int = 0) -> None:
+        self.audio.add_silence(before_start_s=before_start_ms/1000, after_end_s=after_end_ms/1000)
+        if before_start_ms:
+            new_offset = self.offset_ms - before_start_ms
+            if new_offset < 0:
+                # if offset would go negative, shift everything forward such that offset is 0
+                self.offset_everything(delta_s=-new_offset/1000)
+                new_offset = 0
+            self.offset_ms = new_offset
 
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":

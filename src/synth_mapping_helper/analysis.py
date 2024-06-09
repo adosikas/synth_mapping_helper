@@ -106,15 +106,6 @@ def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
     out["combined"] = density(times=list(data.walls), window=window_b)
     return out
 
-def export_wav(data: "numpy array", samplerate: int = 22050) -> bytes:
-    bio = BytesIO()
-    soundfile.write(file=bio, data=data, samplerate=samplerate, format="wav")
-    return bio.getvalue()
-
-def load_audio(raw_data: bytes) -> "numpy array (s,), int":
-    data, sr = librosa.load(BytesIO(raw_data))  # load with default samplerate and as mono
-    return data, sr
-
 def calculate_onsets(data: "numpy array (s,)", sr: int) -> "numpy array (m,)":
     return librosa.util.normalize(librosa.onset.onset_strength(y=data, sr=sr, aggregate=np.median, center=True))
 
@@ -181,9 +172,3 @@ def group_bpm(bpms: "numpy array (m,)", bpm_strengths: "numpy array (m,)", max_j
 def locate_beats(onsets: "numpy array (m,)", sr: int, bpm: float) -> "numpy array (t,)":
     _, beats = librosa.beat.beat_track(onset_envelope=onsets, bpm=bpm, sr=sr, trim=False)
     return beats
-
-def audio_with_clicks(raw_audio_data: bytes, duration: float, bpm: float, offset_ms: int) -> tuple[str, bytes]:
-    beat_time = 60/bpm
-    data, sr = librosa.load(BytesIO(raw_audio_data))
-    clicks = librosa.clicks(times=np.arange(beat_time-(offset_ms/1000)%beat_time, duration, beat_time), length=len(data), sr=sr)
-    return "wav", export_wav(data+clicks)

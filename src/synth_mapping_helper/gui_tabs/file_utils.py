@@ -11,9 +11,9 @@ from nicegui import app, events, run, ui
 import numpy as np
 import plotly.graph_objects as go
 
-from .utils import *
-from ..utils import pretty_list
-from .. import synth_format, movement, analysis, __version__
+from synth_mapping_helper.gui_tabs.utils import *
+from synth_mapping_helper.utils import pretty_list
+from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__
 
 def circmedian(values: "numpy array (n,)", high: float) -> float:
     # doing statistics on "circular data" (ie 0-beat_time) is hard, but we can treat each value as "angle" (0-2pi, ie 0-360 deg)
@@ -60,6 +60,7 @@ def _file_utils_tab():
             self.note_densities = None
             self.refresh()
 
+        @handle_errors
         async def upload(self, e: events.UploadEventArguments) -> None:
             e.sender.reset()
             self.clear()
@@ -86,6 +87,7 @@ def _file_utils_tab():
 
             self.refresh()
 
+        @handle_errors
         def upload_merge(self, e: events.UploadEventArguments) -> None:
             e.sender.reset()
             merge = try_load_synth_file(e)
@@ -108,15 +110,20 @@ def _file_utils_tab():
             ui.notify(f"Changed cover image to {e.name}", type="info")
             self.refresh()
 
-        def upload_audio(self, e: events.UploadEventArguments) -> None:
+        @handle_errors
+        async def upload_audio(self, e: events.UploadEventArguments) -> None:
             e.sender.reset()
-            if not e.name.lower().endswith(".ogg"):
-                error("Audio file must be .ogg")
-                return
             try:
-                new_audio = synth_format.AudioData.from_raw(e.content.read())
+                raw_data = e.content.read()
+                try:
+                    # spinning up another process is slow, so lets attempt without conversion first
+                    new_audio = audio_format.AudioData.from_raw(raw_data)
+                except audio_format.AudioNotOggError as anoe:
+                    ui.notify(f"Audio not ogg ({anoe.detected_format}), attempting conversion...", type="info")
+                    # conversion takes a while, so offload that to another process
+                    new_audio = await run.cpu_bound(audio_format.AudioData.from_raw, raw_data=raw_data, allow_conversion=True)
             except ValueError as ve:
-                error("Audio file rejected", exc=ve, data=e.name)
+                error("Error reading audio file", exc=ve, data=e.name)
             else:
                 self.data.audio = new_audio
                 self.data.meta.audio_name = e.name
@@ -129,6 +136,7 @@ def _file_utils_tab():
                 self._bpm_card.refresh()
                 ui.timer(0.1, self._calc_bpm, once=True)
 
+        @handle_errors
         def save(self) -> None:
             if self.output_bpm is None or not self.output_bpm > 0:
                 error("BPM must be greater than 0", data=bpm)
@@ -184,11 +192,52 @@ def _file_utils_tab():
             with ui.row():
                 with ui.number("BPM", min=1.0, max=600.0, step=0.1).props("dense").classes("w-20").bind_value(self, "output_bpm"):
                     ui.tooltip("").bind_text_from(self, "output_bpm", backward=lambda bpm: f"{round(60000/bpm)} ms/b" if bpm is not None else "Invalid")
-
                 def _multiply_bpm(mult: float) -> None:
                     self.output_bpm = round(self.output_bpm*mult, 3)
-                ui.button("2", on_click=lambda _: _multiply_bpm(2.0)).props("dense outline").classes("w-8 my-auto").tooltip("Double BPM")
-                ui.button("½", on_click=lambda _: _multiply_bpm(0.5)).props("dense outline").classes("w-8 my-auto").tooltip("Halve BPM")
+                ui.button("½", on_click=lambda _: _multiply_bpm(1/2), color="secondary").props("dense outline").classes("w-8 my-auto").tooltip("Divide BPM by 2")
+                ui.button("2", on_click=lambda _: _multiply_bpm(2)).props("dense outline").classes("w-8 my-auto").tooltip("Double BPM")
+                ui.separator().props("vertical")
+                ui.button("⅓", on_click=lambda _: _multiply_bpm(1/3), color="secondary").props("dense outline").classes("w-8 my-auto").tooltip("Divide BPM by 3")
+                ui.button("3", on_click=lambda _: _multiply_bpm(3)).props("dense outline").classes("w-8 my-auto").tooltip("Triple BPM")
+            with ui.row():
+                with ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset"):
+                    def _update_offset_tooltip(_) -> str:
+                        bpm = self.output_bpm
+                        offset = self.output_offset
+                        return f"-{round(60000/bpm-offset)} ms" if bpm and offset is not None else "Invalid"
+                    ui.tooltip("").bind_text_from(self, "output_bpm", backward=_update_offset_tooltip).bind_text_from(self, "output_offset", backward=_update_offset_tooltip)
+                def _shift_offset(beats: float) -> None:
+                    beat_time = 60/self.output_bpm
+                    offset = round((self.output_offset/1000 + beats*beat_time)*1000)
+                    if offset >= 0:
+                        self.output_offset = offset
+                    else:
+                        ui.notify("Negative offset is not supported", type="warning")
+                ui.button(icon="chevron_left", on_click=lambda _: _shift_offset(-1), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Subtract a beat from offset")
+                ui.button(icon="chevron_right", on_click=lambda _: _shift_offset(1), color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add a beat to offset")
+                ui.separator().props("vertical")
+                ui.button("<½", on_click=lambda _: _shift_offset(-0.5), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Subtract half a beat from offset")
+                ui.button(">½", on_click=lambda _: _shift_offset(0.5), color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add half a beat to offset")
+            with ui.row().classes("pt-2"):
+                def _reset_bpm():
+                    self.output_bpm = self.data.bpm
+                    self.output_offset = self.data.offset_ms
+                reset_button = ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("w-8 my-auto").tooltip("Reset BPM and Offset to original values")
+                ui.separator().props("vertical")
+
+                async def _pad_offset() -> None:
+                    offset_ms = int(self.output_offset)
+                    ui.notify(f"Adding {offset_ms} ms of silence. This may take a few seconds.", type="info")
+                    self.output_offset = 0
+                    # note: this edits the object, so it cannot easily be offloaded to another process
+                    await run.io_bound(self.data.add_silence, before_start_ms=offset_ms)
+                    self._audio_info.refresh()
+                    self.bpm_scan_data = {"state": "Waiting"}
+                    self.stats_card.refresh()
+                    ui.timer(0.01, self._calc_bpm, once=True)
+                pad_button = ui.button(icon="keyboard_tab", on_click=_pad_offset, color="positive").props("dense").classes("w-8 my-auto").bind_enabled_from(self, "output_offset")
+                with pad_button:
+                    ui.tooltip().bind_text_from(self, "output_offset", lambda o: f"Add {int(o) if o else '<offset>'} ms of silence before the audio")
                 ui.separator().props("vertical")
                 async def _add_clicks(e: events.ClickEventArguments):
                     bpm = self.output_bpm
@@ -202,39 +251,13 @@ def _file_utils_tab():
                     btn: ui.button = e.sender
                     btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
                     try:
-                        audio_type, data = await run.cpu_bound(analysis.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
-                        preview_audio.set_source(f"data:audio/{audio_type};base64,"+base64.b64encode(data).decode())
+                        data = await run.cpu_bound(audio_format.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
+                        preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(data).decode())
                     except Exception as exc:
                         error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
                     btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
                 ui.button(icon="timer", on_click=_add_clicks, color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add or update clicks in preview")
                 ui.button(icon="timer_off", on_click=lambda _: preview_audio.set_source(default_source), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Remove clicks from preview")
-            with ui.row():
-                with ui.number("Offset", min=0, step=1, suffix="ms").props("dense").classes("w-20").bind_value(self, "output_offset"):
-                    def _update_offset_tooltip(_) -> str:
-                        bpm = self.output_bpm
-                        offset = self.output_offset
-                        return f"-{round(60000/bpm-offset)} ms" if bpm and offset is not None else "Invalid"
-                    ui.tooltip("").bind_text_from(self, "output_bpm", backward=_update_offset_tooltip).bind_text_from(self, "output_offset", backward=_update_offset_tooltip)
-                def _minimize_offset() -> None:
-                    beat_time = 60/self.output_bpm
-                    self.output_offset = round(((self.output_offset/1000) % beat_time)*1000)
-                ui.button("<<", on_click=_minimize_offset).props("dense outline").classes("w-8 my-auto").tooltip("Minimize offset")
-                def _shift_offset(beats: float) -> None:
-                    beat_time = 60/self.output_bpm
-                    offset = round((self.output_offset/1000 + beats*beat_time)*1000)
-                    if offset >= 0:
-                        self.output_offset = offset
-                    else:
-                        ui.notify("Negative offset is not supported", type="warning")
-                ui.button("<½", on_click=lambda _: _shift_offset(-0.5), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Subtract half a beat from offset")
-                ui.button(">½", on_click=lambda _: _shift_offset(0.5), color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add half a beat to offset")
-                ui.separator().props("vertical")
-                def _reset_bpm():
-                    self.output_bpm = self.data.bpm
-                    self.output_offset = self.data.offset_ms
-                ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("w-8 my-auto").tooltip("Reset BPM and Offset to original values")
-
         @ui.refreshable
         def info_card(self):
             if self.data is None:
@@ -243,7 +266,7 @@ def _file_utils_tab():
             ui.markdown("**Edit metadata**")
             meta = self.data.meta
             with ui.row():
-                with ui.upload(label="Replace Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
+                with ui.upload(label="Replace Cover" if meta.cover_data else "Set Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
                     ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).tooltip(meta.cover_name)
                 with ui.column():
                     ui.input("Name").props("dense").classes("h-8").bind_value(meta, "name")
@@ -255,7 +278,7 @@ def _file_utils_tab():
 
         async def _calc_bpm(self):
             self.bpm_scan_data["state"] = "Loading Audio"
-            data, sr = await run.cpu_bound(analysis.load_audio, raw_data=fi.data.audio.raw_data)
+            data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=fi.data.audio.raw_data)
             self.bpm_scan_data["data"] = data
             self.bpm_scan_data["sr"] = sr
             self.bpm_scan_data["state"] = "Detecting Onsets"
@@ -599,27 +622,34 @@ def _file_utils_tab():
 
             The following features are supported:
 
-            * Create new .synth files from .ogg files
+            * Create new .synth files from audio files
+                * many common formats (including `.mp3`) will be converted to `.ogg` via [libsndfile](http://www.mega-nerd.com/libsndfile)
             * Detect and edit BPM/Offset (without changing timing of existing objects)
+                * Advanced audio processing to detect sections with different BPM via [librosa](https://librosa.org/)
+                * Graphical representation of intermediate data (via [plotly](https://plotly.com/python/))
+                * Manual BPM override
+                * Shift offset by half beats for easy alignment
+            * Replace audio file
             * View and edit metadata:
-                * audio file
-                * cover image
                 * name, artist and mapper
-            * Detect and correct certain types of file corruption (NaN value, duplicate notes)
-            * Merge files, including different BPM
+                * cover image
+            * Detect and correct certain types of file corruption or errors (NaN values, duplicate notes)
+            * Merge files, including different BPM and Offset
             * Show stats
                 * Object counts per difficulty
                 * Density plot for Walls (including checks for PC or Quest limitations)
                 * Density plot for Notes and Rails
 
-            To start, just open a .synth file by clciking the plus button below.  
+            To start, just open a .synth file by clicking the plus button below.  
             You can also drag files directly onto these file selectors.
+
+            Note: Sometimes the file upload gets stuck. In that case just press the button twice more (first time it will be an "X", the second time a upload-cloud icon)
         """)
     ui.button("What can I do here?", icon="help", color="info", on_click=help_dialog.open)
     
     with ui.row().classes("mb-4"):
         with ui.card().classes("mb-4"):
-            with ui.upload(label="Select a .synth or .ogg file ->", auto_upload=True, on_upload=fi.upload).props('accept=".synth,audio/ogg,*"').classes("w-full").add_slot("list"):
+            with ui.upload(label="Select a .synth or audio file ->", auto_upload=True, on_upload=fi.upload).props('accept=".synth,audio/*,*"').classes("w-full").add_slot("list"):
                 ui.tooltip("Select a file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
                 ui.input("Output Filename").props("dense").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
                 with ui.switch("Finalize Walls").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid").classes("my-auto"):
