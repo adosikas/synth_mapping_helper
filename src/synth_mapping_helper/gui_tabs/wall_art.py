@@ -11,7 +11,7 @@ import pyperclip
 import requests
 
 from .map_render import MapScene, SettingsPanel
-from .utils import GUITab, SMHInput, ParseInputError, handle_errors, info, error, safe_clipboard_data
+from .utils import GUITab, SMHInput, ParseInputError, PreventDefaultKeyboard, handle_errors, info, error, safe_clipboard_data
 from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
@@ -20,8 +20,8 @@ def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHIn
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 class LargeSwitch(ui.switch):
-    def __init__(self, value: bool|None, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None):
-        super().__init__()
+    def __init__(self, value: bool|None, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None, **kwargs):
+        super().__init__(value=value, **kwargs)
         self.bind_value(app.storage.user, f"wall_art_{storage_id}")
         self.classes("my-auto")
         self.props(f'dense size="xl" color="{color}" keep-color' + (f' unchecked-icon="{icon_unchecked}"' if icon_unchecked is not None else '') + (f' checked-icon="{icon_checked}"' if icon_checked is not None else ''))
@@ -149,7 +149,8 @@ def _wall_art_tab():
             if not self.sources:
                 return
             first = min(self.sources)
-            copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if self.copy else 0.0
+            copy_mode = self.copy ^ invert_copy.value
+            copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if copy_mode else 0.0
             if self.drag_time is None:
                 # re-create cursors
                 for c in self.cursors.values():
@@ -168,7 +169,7 @@ def _wall_art_tab():
                         w = movement.scale(w, scale_3d=scale_3d, pivot=pivot_3d)
                         w = movement.offset(w, self.offset)
                         e = preview_scene.wall_extrusion(w, preview_settings.wall.size * time_scale.parsed_value).draggable()
-                        if self.copy:
+                        if copy_mode:
                             e.material(copy_color.value, copy_opacity.parsed_value)
                         else:
                             e.material(move_color.value, move_opacity.parsed_value)
@@ -195,7 +196,7 @@ def _wall_art_tab():
                     preview_scene.props(f'drag_constraints="y={scene_pos[1]}"')
             
             for c in self.cursors.values():
-                if self.copy:
+                if copy_mode:
                     c.material(copy_color.value, copy_opacity.parsed_value)
                 else:
                     c.material(move_color.value, move_opacity.parsed_value)
@@ -215,22 +216,24 @@ def _wall_art_tab():
             self._update_cursors()
 
         def set_copy(self, copy: bool):
-            self.copy = copy
-            self._update_cursors()
+            if copy != self.copy:
+                self.copy = copy
+                self._update_cursors()
 
         @handle_errors
         def apply(self):
             nonlocal walls
-            ops = [l for v, l in [(self.copy, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
+            copy_mode = self.copy ^ invert_copy.value
+            ops = [l for v, l in [(copy_mode, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
             undo.push_undo(f"{pretty_list(ops)} {len(self.sources)} walls")
             first = min(self.sources)
-            copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if self.copy else 0.0
+            copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if copy_mode else 0.0
             pivot_3d = walls[self.drag_time if self.drag_time is not None else first][0,:3]
             scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
             new_sources = set()
             new_walls = {}
             for t in sorted(self.sources):
-                w = walls[t]+copy_offset if self.copy else walls.pop(t)
+                w = walls[t]+copy_offset if copy_mode else walls.pop(t)
                 w = movement.rotate(w, angle=self.rotation, pivot=pivot_3d)
                 w = movement.scale(w, scale_3d=scale_3d, pivot=pivot_3d)
                 w = movement.offset(w, self.offset)
@@ -289,11 +292,23 @@ def _wall_art_tab():
             self.apply()
 
     selection = Selection()
-
+    last_ctrl_press = None
     @handle_errors
     def _on_key(e: events.KeyEventArguments) -> None:
+        nonlocal last_ctrl_press
         if e.key.control:
+            if e.action.keydown:
+                # on CTRL double-tap, toggle invert_copy value
+                if last_ctrl_press is not None and time() - last_ctrl_press < 0.5:
+                    invert_copy.set_value(not invert_copy.value)
+                    last_ctrl_press = None
+                    return
+                else:
+                    last_ctrl_press = time()
             selection.set_copy(e.action.keydown)
+        else:
+            # if any other key is pressed/release clear double-tap
+            last_ctrl_press = None
         if not e.action.keydown:
             return
         try:
@@ -303,8 +318,6 @@ def _wall_art_tab():
             if e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
                 wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number-1]
                 _spawn_wall(wall_type=wall_type, change_selection=e.modifiers.ctrl, extend_selection=e.modifiers.shift)
-            elif e.key.is_cursorkey:
-                selection.move(np.array([(e.key.arrow_right-e.key.arrow_left),(e.key.arrow_up-e.key.arrow_down),0.0])*offset_step.parsed_value)
             elif e.key.page_up or e.key.page_down:
                 selection.move(np.array([0.0,0.0,(e.key.page_up-e.key.page_down)*time_step.parsed_value])*offset_step.parsed_value)
             elif e.key.enter or e.key.space:
@@ -371,23 +384,22 @@ def _wall_art_tab():
                 return
             elif e.key.delete or e.key.backspace:
                 selection.delete()
-            elif key_name == "D":
-                selection.rotate(-(angle_step.parsed_value if not e.modifiers.shift else 90.0))
-            elif key_name == "A":
-                selection.rotate(angle_step.parsed_value if not e.modifiers.shift else 90.0)
+            elif key_name in "AD":
+                selection.rotate((angle_step.parsed_value if not e.modifiers.shift else 90.0) * (-1 if key_name == "D" else 1))
             elif key_name in "WS":
                 selection.mirror(horizontal=(key_name=="S"))
+            elif e.key.is_cursorkey:
+                selection.move(np.array([(e.key.arrow_right-e.key.arrow_left),(e.key.arrow_up-e.key.arrow_down),0.0])*offset_step.parsed_value)
         except ParseInputError as pie:
             error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
             return
-    keyboard = ui.keyboard(on_key=_on_key, ignore=['input', 'select', 'button', 'textarea', "switch"])
-    # dummy checkbox to bind keyboard enable state
-    kb_enable = ui.checkbox(value=False).style("display:none").bind_enabled_to(keyboard, "active").bind_value_from(app.storage.user, "active_tab", backward=lambda v: v=="Wall Art")
+    PreventDefaultKeyboard(on_key=_on_key, ignore=['input', 'select', 'button', 'textarea', "switch"]).bind_active_from(app.storage.user, "active_tab", backward=lambda v: v=="wall_art")
     with ui.card():
         with ui.row():
             with ui.row():
                 axis_z = LargeSwitch(False, "axis", "(T) Change movement axis between X/Y and Time", color="info", icon_unchecked="open_with", icon_checked="schedule")
                 displace = LargeSwitch(False, "displace", "Displace existing walls when moving in time instead of replacing them.", color="warning", icon_unchecked="cancel", icon_checked="move_up")
+                invert_copy = LargeSwitch(False, "invert_copy", "(Double-tap CTRL) Switch default drag behavior between move and copy (inverts with CTRL held).", color="positive", icon_unchecked="start", icon_checked="call_split", on_change=selection._update_cursors)
                 time_step = make_input("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
                 offset_step = make_input("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
                 angle_step = make_input("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
@@ -555,7 +567,7 @@ def _wall_art_tab():
                         To turn the camera *without* deselecting, hold down ALT.
 
                         Click on a wall to select it. Multiple walls can be selected by CTRL-Click (to add), or SHIFT-Click (expand selection to clicked wall).
-                        Then drag it around using left mouse and/or use one of the edit keys below. Holding CTRL copies to the next free slot instead of moving.
+                        Then drag it around using left mouse and/or use one of the edit keys below. Holding CTRL creates a (modified) copy in the next free slot instead of moving.
 
                         ## General
                         |Key|Function|
@@ -567,6 +579,7 @@ def _wall_art_tab():
                         |CTRL+🇻|Add walls from clipboard (overrides existing)|
                         |CTRL+🇿|Undo last operation|
                         |CTRL+🇾|Redo last operation|
+                        |Tap CTRL twice|Toggle drag behavior between move and copy| 
                         |🇶/🇪|Select previous/next Wall (SHIFT: Expand selection)|
                         |🇹|Change Axis between X/Y and Time|
                         |🇷|Compress all walls to timestep|
@@ -574,6 +587,10 @@ def _wall_art_tab():
 
                         ## Edit
                         If you use keyboard shortcuts instead of dragging, press enter, space or click the shadow to apply.
+
+                        Note: If you hold down CTRL to copy, most of these will not work.  
+                        Either let down of CTRL to use them (and then press it again), or toggle the copy mode via CTRL double-tap.  
+                        You have to move the mouse around slightly to correct the drag position after switching CTRL state.
 
                         |Key|Function|
                         |-|-|

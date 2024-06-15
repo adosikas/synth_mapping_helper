@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from nicegui import app, ui, elements
+from nicegui import app, elements, events, ui
 import numpy as np
 
 from .utils import SMHInput
@@ -101,6 +101,11 @@ class MapScene(ui.scene):
                     self.box(16, self.time_scale, 12, wireframe=True).material("#008", 0.2)
                     self.box(0.1, self.time_scale, 12, wireframe=True).material("#080", 0.1)
                     self.box(16, self.time_scale, 0.1, wireframe=True).material("#800", 0.1)
+    def _handle_drag(self, e: events.GenericEventArguments) -> None:
+        # avoid KeyError when deleting object that is being dragged
+        if e.args["object_id"] not in self.objects:
+            return
+        super()._handle_drag(e)
     def to_scene(self, xyt: "numpy array (3+)") -> tuple[float, float, float]:
         return (xyt[0], xyt[2]*self.time_scale, xyt[1])
     def _sphere(self, xyt: "numpy array (3+)", obj_settings: ObjectSettings, color: str) -> elements.scene_objects.Sphere:
