@@ -6,6 +6,7 @@ from io import BytesIO
 import json
 import math
 import logging
+import traceback
 from typing import Any, Callable, Generator, Optional
 
 from fastapi import Response
@@ -148,6 +149,7 @@ def error_report():
             out["exception"] = repr(exc)
             if exc.__cause__ is not None:
                 out["exception_cause"] = repr(exc.__cause__)
+            out["traceback"] = [l for tb in traceback.format_exception(exc, chain=True) for l in tb.splitlines()]
         if context is not None:
             out["context"] = context
         if data is not None:
@@ -157,7 +159,7 @@ def error_report():
 def error(msg: str, exc: Optional[Exception]=None, context: Any = None, data: Any=None) -> None:
     global last_error
     last_error = (msg, exc, context, data, datetime.datetime.now(datetime.timezone.utc))
-    logger.error(msg)
+    logger.error(msg+(" " + repr(exc) if exc is not None else ""))
     if exc is not None:
         logger.debug("Stacktrace:", exc_info=exc)
     ui.notify(msg, type="negative", progress=True, group=False, caption=repr(exc) if exc is not None else None)
@@ -258,8 +260,8 @@ def safe_clipboard_data(use_original: bool = False, realign_start: bool = True, 
         raise PrettyError(msg="Clipboard does not contain JSON data")
     try:
         data = synth_format.ClipboardDataContainer.from_json(clipboard_in, use_original=use_original)
-    except ValueError as ve:
-        raise PrettyError(msg=f"Error reading data in clipboard", exc=ve, data=clipboard_in)
+    except (KeyError, ValueError) as fje:
+        raise PrettyError(msg="Error reading data in clipboard", exc=fje, data=clipboard_in)
 
     # don't catch any errors here, so clipboard is not written to on error
     yield data

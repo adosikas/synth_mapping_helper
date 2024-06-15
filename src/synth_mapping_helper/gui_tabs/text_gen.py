@@ -37,11 +37,11 @@ def generate_text(
         letter_rotation_start -= letter_rotation * mult
         if mult % 1:
             ratio = mult % 1
-            pos = movement.rotate_around(pos, -rotation*ratio, pivot)
+            pos = movement.rotate(pos, angle=-rotation*ratio, pivot=pivot)
             pos -= offset * ratio
             mult -= ratio
         for _ in range(int(mult)):
-            pos = movement.rotate_around(pos, -rotation, pivot)
+            pos = movement.rotate(pos, angle=-rotation, pivot=pivot)
             pos -= offset
 
     p = pos * [1,1,0]
@@ -57,7 +57,7 @@ def generate_text(
                 data.walls[w[0,2]] = w  # add wall to output
 
         p += offset  # offset positon
-        p = movement.rotate_around(p, rotation, pivot)  # rotate position
+        p = movement.rotate(p, angle=rotation, pivot=pivot)  # rotate position
         lr += letter_rotation
 
 def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:

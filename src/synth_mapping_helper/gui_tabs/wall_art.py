@@ -164,8 +164,8 @@ def _wall_art_tab():
                     scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
                     for t in self.sources:
                         w = walls[t] + copy_offset
-                        w = movement.rotate_around(w, self.rotation, pivot_3d)
-                        w = movement.scale_from(w, scale_3d, pivot_3d)
+                        w = movement.rotate(w, angle=self.rotation, pivot=pivot_3d)
+                        w = movement.scale(w, scale_3d=scale_3d, pivot=pivot_3d)
                         w = movement.offset(w, self.offset)
                         e = preview_scene.wall_extrusion(w, preview_settings.wall.size * time_scale.parsed_value).draggable()
                         if self.copy:
@@ -231,8 +231,8 @@ def _wall_art_tab():
             new_walls = {}
             for t in sorted(self.sources):
                 w = walls[t]+copy_offset if self.copy else walls.pop(t)
-                w = movement.rotate_around(w, self.rotation, pivot_3d)
-                w = movement.scale_from(w, scale_3d, pivot_3d)
+                w = movement.rotate(w, angle=self.rotation, pivot=pivot_3d)
+                w = movement.scale(w, scale_3d=scale_3d, pivot=pivot_3d)
                 w = movement.offset(w, self.offset)
                 new_walls[w[0,2]] = w
                 new_sources |= {w[0,2]}

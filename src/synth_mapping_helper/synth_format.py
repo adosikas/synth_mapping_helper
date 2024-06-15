@@ -345,6 +345,14 @@ class DataContainer:
         clipboard["lenght"] = beat_to_second(last - first, self.bpm) * 1000
         return json.dumps(clipboard)
 
+    def change_bpm(self, bpm: float) -> None:
+        if not bpm > 0:
+            raise ValueError("BPM must be greater than 0")
+        if self.bpm != bpm:
+            ratio = bpm/self.bpm
+            self.apply_for_all(movement.scale, [1,1,ratio])
+            self.bpm = bpm
+
 @dataclasses.dataclass
 class ClipboardDataContainer(DataContainer):
     original_json: str = ""
@@ -713,8 +721,7 @@ class SynthFile:
                 for time, name in self.bookmarks.items()
             }
             for c in self.difficulties.values():
-                c.apply_for_all(movement.scale, [1,1,ratio])
-                c.bpm = bpm
+                c.change_bpm(bpm)
 
     def offset_everything(self, delta_s: float = None, delta_b: float = None) -> None:
         if delta_s is not None == delta_b is not None:

@@ -8,15 +8,6 @@ from .utils import *
 from .. import movement, pattern_generation, rails, synth_format
 from ..utils import parse_number, pretty_list
 
-def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_func, relative_func, pivot_func, relative: bool, pivot: Optional[list[int]], *args, **kwargs) -> None:
-    """pick the right function depending on relative or pivot being set"""
-    if relative:
-        data.apply_for_all(relative_func, *args, mirror_left=mirror_left, **kwargs)
-    elif pivot is not None:
-        data.apply_for_all(pivot_func, *args, mirror_left=mirror_left, pivot_3d=pivot, **kwargs)
-    else:
-        data.apply_for_all(base_func, *args, mirror_left=mirror_left, **kwargs)
-
 def _safe_inverse(v: float) -> float:
     return 0.0 if v == 0 else 1/v
 
@@ -60,10 +51,7 @@ def offset_card(action_btn_cls: type[ui.button]) -> ui.card:
                         action_btn_cls(
                             tooltip=f'Offset {("down", "", "up")[y+1]}{" and " if x and y else ""}{("left", "", "right")[x+1]}',
                             icon=f'{("south", "", "north")[y+1]}{"_" if x and y else ""}{("west", "", "east")[x+1]}',
-                            func=lambda x=x, y=y, **kwargs: _movement_helper(**kwargs,
-                                base_func=movement.offset, relative_func=movement.offset_relative, pivot_func=movement.offset,
-                                offset_3d=np.array([x,y,0])*offset_xy.parsed_value,
-                            ),
+                            func=lambda data, x=x, y=y, **kwargs: data.apply_for_all(movement.offset, offset_3d=np.array([x,y,0])*offset_xy.parsed_value, **kwargs),
                         )
                     else:
                         offset_xy = make_input("X/Y", 1, "offset_xy", suffix="sq")
@@ -72,20 +60,14 @@ def offset_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Offset earlier in time",
                 icon="remove",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.offset, relative_func=movement.offset_relative, pivot_func=movement.offset,
-                    offset_3d=np.array([0,0,-offset_t.parsed_value]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.offset, offset_3d=np.array([0,0,-offset_t.parsed_value]), **kwargs),
                 color="secondary",
             )
             offset_t = make_input("Time", 1, "dashboard_offset_t", suffix="b")
             action_btn_cls(
                 tooltip="Offset later in time",
                 icon="add",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.offset, relative_func=movement.offset_relative, pivot_func=movement.offset,
-                    offset_3d=np.array([0,0,offset_t.parsed_value]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.offset, offset_3d=np.array([0,0,offset_t.parsed_value]), **kwargs),
             )
 
 def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
@@ -97,53 +79,35 @@ def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Scale Y up (taller)",
                 icon="unfold_more",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,scale_xy.parsed_value,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,scale_xy.parsed_value,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Scale XY up (larger)",
                 icon="zoom_out_map",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([scale_xy.parsed_value,scale_xy.parsed_value,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([scale_xy.parsed_value,scale_xy.parsed_value,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Scale X down (less wide)",
                 icon="unfold_less", icon_angle=90,
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),1,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),1,1]), **kwargs),
                 color="secondary",
             )
             scale_xy = make_input("X/Y", "110%", "scale_xy", tooltip="Can be given as % or ratio. If less than 1 (100%), scale up/down are inverted")
             action_btn_cls(
                 tooltip="Scale X up (wider)",
                 icon="unfold_more", icon_angle=90,
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([scale_xy.parsed_value,1,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([scale_xy.parsed_value,1,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Scale XY down (smaller)",
                 icon="zoom_in_map",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),_safe_inverse(scale_xy.parsed_value),1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),_safe_inverse(scale_xy.parsed_value),1]), **kwargs),
                 color="secondary",
             )
             action_btn_cls(
                 tooltip="Scale Y down (less tall)",
                 icon="unfold_less",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,_safe_inverse(scale_xy.parsed_value),1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,_safe_inverse(scale_xy.parsed_value),1]), **kwargs),
                 color="secondary",
             )
             with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_inverse(_safe_parse_number(v)):.1%}"):
@@ -154,20 +118,14 @@ def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Scale time down (shorter)",
                 icon="compress",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,1,_safe_inverse(scale_t.parsed_value)]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,1,_safe_inverse(scale_t.parsed_value)]), **kwargs),
                 color="secondary",
             )
             scale_t = make_input("Time", 2, "scale_t", tooltip="Can be given as % or ratio. If less than 1 (100%), scale up/down are inverted")
             action_btn_cls(
                 tooltip="Scale time up (longer)",
                 icon="expand",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,1,scale_t.parsed_value]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,1,scale_t.parsed_value]), **kwargs),
             )
             
             action_btn_cls(
@@ -179,13 +137,7 @@ def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Change BPM of clipboard (keeps timing)",
                 icon="straighten",
-                func=lambda data, **kwargs: (
-                    _movement_helper(data, **kwargs,
-                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,1,scale_bpm.parsed_value / data.bpm])
-                    ),
-                    setattr(data, "bpm", scale_bpm.parsed_value),
-                ),
+                func=lambda data, **kwargs: data.change_bpm(scale_bpm.parsed_value),
                 wiki_ref="Pre--and-Post-Processing-Options#change-bpm",
             )
 
@@ -196,26 +148,17 @@ def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Flatten to Y axis (X=0)",
                 icon="vertical_align_center", icon_angle=90,
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([0,1,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([0,1,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Flatten to X axis (Y=0)",
                 icon="vertical_align_center",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,0,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,0,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Move to pivot (X=Y=0)",
                 icon="adjust",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([0,0,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([0,0,1]), **kwargs),
             )
         ui.separator()
         ui.label("Mirror").tooltip("Just scaling, but with -1")
@@ -223,46 +166,28 @@ def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Mirror X (left<->right)",
                 icon="align_horizontal_center",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([-1,1,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([-1,1,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Mirror Y (up<->down)",
                 icon="align_vertical_center",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,-1,1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,-1,1]), **kwargs),
             )
             action_btn_cls(
                 tooltip="Mirror time (reverse)",
                 icon="fast_rewind",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                    scale_3d=np.array([1,1,-1]),
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,1,-1]), **kwargs),
             )
         ui.separator()
         with ui.grid(columns=3):
-            mirror_angle = make_input("Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0=horizontal, ±90=vertical, +45=/, -45=\\")
+            mirror_angle = make_input("Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0=-, ±90=|, +45=/, -45=\\")
             def _do_mirror(data: synth_format.DataContainer, **kwargs):
                     # work on copy when stacking, else directly on data
                     tmp = data.filtered() if mirror_stack.parsed_value else data
                     # subtract rotation, mirror, add back rotation
-                    _movement_helper(tmp, **kwargs,
-                        base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                        angle=-mirror_angle.parsed_value,
-                    )
-                    _movement_helper(tmp, **kwargs,
-                        base_func=movement.scale, relative_func=movement.scale_relative, pivot_func=movement.scale_from,
-                        scale_3d=np.array([1,-1,1]),
-                    )
-                    _movement_helper(tmp, **kwargs,
-                        base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                        angle=mirror_angle.parsed_value,
-                    )
+                    tmp.apply_for_all(movement.rotate, angle=-mirror_angle.parsed_value, **kwargs)
+                    tmp.apply_for_all(movement.scale, scale_3d=np.array([1,-1,1]), **kwargs)
+                    tmp.apply_for_all(movement.rotate, angle=mirror_angle.parsed_value, **kwargs)
                     if mirror_stack.parsed_value:
                         tmp.apply_for_all(movement.offset, [0,0,mirror_stack.parsed_value])
                         data.merge(tmp)
@@ -270,7 +195,7 @@ def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
             with action_btn_cls(
                 tooltip="Mirror with custom angle. Depending on coordinate mode, the mirror line passes through grid center, object center or pivot",
                 icon="",
-                func=_do_mirror
+                func=_do_mirror,
             ):
                 mirror_icon = ui.icon("flip").style(f"rotate: {90-mirror_angle.parsed_value}deg")
             mirror_angle.on_parsed_value_change = lambda v: mirror_icon.style(f"rotate: {90-v}deg")
@@ -284,19 +209,13 @@ def rotate_outset_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Rotate counterclockwise",
                 icon="rotate_left",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                    angle=rotate_angle.parsed_value,
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.rotate, angle=rotate_angle.parsed_value, **kwargs),
             )
             rotate_angle = make_input("Angle", 45, "angle", suffix="°")
             action_btn_cls(
                 tooltip="Rotate clockwise",
                 icon="rotate_right",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.rotate, relative_func=movement.rotate_relative, pivot_func=movement.rotate_around,
-                    angle=-rotate_angle.parsed_value,
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.rotate, angle=-rotate_angle.parsed_value, **kwargs),
             )
         ui.separator()
 
@@ -306,20 +225,14 @@ def rotate_outset_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Inset (towards center/pivot)",
                 icon="close_fullscreen",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.outset, relative_func=movement.outset_relative, pivot_func=movement.outset_from,
-                    outset_scalar=-outset_amount.parsed_value,
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.outset, outset_scalar=-outset_amount.parsed_value, **kwargs),
                 color="secondary",
             )
             outset_amount = make_input("Amount", 1, "outset", suffix="sq")
             action_btn_cls(
                 tooltip="Outset (away from center/pivot)",
                 icon="open_in_full",
-                func=lambda **kwargs: _movement_helper(**kwargs,
-                    base_func=movement.outset, relative_func=movement.outset_relative, pivot_func=movement.outset_from,
-                    outset_scalar=outset_amount.parsed_value,
-                ),
+                func=lambda data, **kwargs: data.apply_for_all(movement.outset, outset_scalar=outset_amount.parsed_value, **kwargs),
             )
 
         ui.separator()
@@ -624,7 +537,7 @@ def _dashboard_tab():
                         types=synth_format.ALL_TYPES,  # placeholder
                         mirror_left=sw_mirror_left.value,
                         relative=(coordinate_mode.value == "relative"),
-                        pivot=[pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value] if (coordinate_mode.value=="pivot") else None
+                        pivot=np.array([pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value]) if (coordinate_mode.value=="pivot") else None
                     )
             except (PrettyError, ParseInputError):
                 raise

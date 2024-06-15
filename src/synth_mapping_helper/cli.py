@@ -23,16 +23,17 @@ def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_f
         data.apply_for_all(base_func, *args, mirror_left=mirror_left, **kwargs)
 
 def do_movement(options, data: synth_format.DataContainer, filter_types: list = synth_format.ALL_TYPES) -> None:
+    common_args = dict(relative=options.relative, pivot=np.array(options.pivot), mirror_left=options.mirror_left, types=filter_types)
     if options.scale is not None:
-        _movement_helper(data, options.mirror_left, movement.scale, movement.scale_relative, movement.scale_from, options.relative, options.pivot, options.scale, types=filter_types)
+        data.apply_for_all(movement.scale, scale_3d=options.scale, **common_args)
     if options.rotate is not None:
-        _movement_helper(data, options.mirror_left, movement.rotate, movement.rotate_relative, movement.rotate_around, options.relative, options.pivot, options.rotate, types=filter_types)
+        data.apply_for_all(movement.rotate, angle=options.rotate, **common_args)
     if options.wall_rotate is not None:
-        data.apply_for_walls(movement.rotate_relative, options.wall_rotate, mirror_left=options.mirror_left, types=filter_types)
+        data.apply_for_walls(movement.rotate, angle=options.wall_rotate, relative=True, mirror_left=options.mirror_left, types=filter_types)
     if options.offset is not None:
-        _movement_helper(data, options.mirror_left, movement.offset, movement.offset_relative, movement.offset, options.relative, options.pivot, options.offset, types=filter_types)
+        data.apply_for_all(movement.offset, offset_3d=options.offset, **common_args)
     if options.outset is not None:
-        _movement_helper(data, options.mirror_left, movement.outset, movement.outset_relative, movement.outset_from, options.relative, options.pivot, options.outset, types=filter_types)
+        data.apply_for_all(movement.outset, outset_scalar=options.outset, **common_args)
 
 def do_random_movement(options, data: synth_format.DataContainer, filter_types: list = synth_format.ALL_TYPES) -> None:
     if options.rotate_random is not None:
@@ -45,7 +46,7 @@ def do_random_movement(options, data: synth_format.DataContainer, filter_types: 
             ])
             area = options.rotate_random[np.random.choice(len(areas), p=areas/sum(areas))]
         random_angle = np.random.random_sample() * (area[1]-area[0]) + area[0]
-        _movement_helper(data, options.mirror_left, movement.rotate, movement.rotate_relative, movement.rotate_around, options.relative, options.pivot, random_angle, types=filter_types)
+        data.apply_for_all(movement.rotate, angle=random_angle, relative=options.relative, pivot=np.array(options.pivot), mirror_left=options.mirror_left, types=filter_types)
 
     if options.offset_random is not None:
         if len(options.offset_random) == 1:
@@ -393,13 +394,10 @@ def main(options):
                     cur_pos -= options.pivot[:2]
                 angle_diff = np.degrees(np.arctan2(start_pos[0], start_pos[1])) - np.degrees(np.arctan2(cur_pos[0], cur_pos[1]))
                 distance_diff = np.sqrt(cur_pos.dot(cur_pos)) - np.sqrt(start_pos.dot(start_pos))
+                tmp.apply_for_all(movement.rotate, angle=angle_diff, pivot=np.array(options.pivot), mirror_left=options.mirror_left)
                 # outset all objects together by precalculating the offset based on rail position
-                group_outset = [cur_pos[0], cur_pos[1], 0] / np.sqrt(cur_pos.dot(cur_pos)) * distance_diff
-                if options.pivot is not None:
-                    tmp.apply_for_all(movement.rotate_around, angle_diff, pivot_3d=options.pivot, mirror_left=options.mirror_left)
-                else:
-                    tmp.apply_for_all(movement.rotate, angle_diff, mirror_left=options.mirror_left)
-                tmp.apply_for_all(movement.offset, group_outset)
+                group_outset_offset = [cur_pos[0], cur_pos[1], 0] / np.sqrt(cur_pos.dot(cur_pos)) * distance_diff
+                tmp.apply_for_all(movement.offset, offset_3d=group_outset_offset) 
             do_random_movement(options, tmp)
             data.merge(tmp)
     else:

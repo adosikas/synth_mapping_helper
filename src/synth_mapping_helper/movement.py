@@ -1,32 +1,44 @@
+from functools import wraps
 import numpy as np
 
-from .synth_format import WALL_MIRROR_ID
+from .synth_format import WALL_MIRROR_ID, WALL_TYPES
 
 # Note: None of these functions are allowed to *modify* the input array instance. Returning the same array (if nothing needed to be changed) is allowed.
 
-MIRROR_VEC_2D = np.array([-1, 1])
 MIRROR_VEC_3D = np.array([-1, 1, 1])
 
+def add_basic_pivot_wrapper(func):
+    @wraps(func)
+    def _pivot_wrapper(
+        data: "numpy array (n, 3+)",
+        *args,
+        relative: bool = False,
+        pivot: "optional numpy array (2+)"=None,
+        **kwargs
+    ) ->  "numpy array (n, 3+)":
+        if relative:
+            pivot = data[0,:3]
+        if pivot is not None and pivot.any():
+            pivot_nd = np.zeros(data.shape[-1])
+            pivot_nd[:pivot.shape[0]] = pivot
+            return func(data-pivot_nd, *args, **kwargs) + pivot_nd
+        return func(data, *args, **kwargs)
+    return _pivot_wrapper
+
 # movement
-def offset(
-    data: "numpy array (n, m)",
-    offset_3d: "numpy array (3)",
-    pivot_3d: None = None,
-    direction: int = 1,
-) -> "numpy array (n, 3+)":
+def _offset(data: "numpy array (n, m)", offset_3d: "numpy array (3)", direction: int = 1) -> "numpy array (n, 3+)":
     """translate positions"""
-    # pivot is ignored, but exists so this can be used as pivot func aswell
     offset_nd = np.zeros((data.shape[-1]))
     offset_nd[..., :3] = offset_3d if direction == 1 else offset_3d * MIRROR_VEC_3D
     return data + offset_nd
 
 
-def offset_relative(
+def _offset_relative(
     data: "numpy array (n, m)", offset_3d: "numpy array (3)", direction: int = 1
 ) -> "numpy array (n, 3+)":
     """translate positions, use relative coordinates for walls"""
     if data.shape[-1] == 3:
-        return offset(data, offset_3d, direction=direction)
+        return _offset(data, offset_3d, direction=direction)
     # calculate rot matrix for angle of every wall
     rad_ang = np.radians(np.atleast_1d(data[:, 4]))
     rot_matrix = np.rollaxis(
@@ -47,7 +59,19 @@ def offset_relative(
     offset_nd[..., 2] = offset_3d[2]  # t stays as-is
     return data + offset_nd
 
+def offset(
+    data: "numpy array (n, 3+)",
+    offset_3d: "numpy array (3)",
+    pivot: None = None,  # ignored, for compatibility with other movement funcs
+    relative: bool = False,
+    direction: int = 1,
+) -> "numpy array (n, 3+)":
+    if relative:
+        return _offset_relative(data, offset_3d=offset_3d, direction=direction)
+    else:
+        return _offset(data, offset_3d=offset_3d, direction=direction)
 
+@add_basic_pivot_wrapper
 def outset(
     data: "numpy array (n, m)", outset_scalar: float, direction: int = 1
 ) -> "numpy array (n, 3+)":
@@ -59,29 +83,7 @@ def outset(
     normalized[~zero_mask, 1] = np.sin(angles)
     return data + normalized * outset_scalar
 
-
-def outset_from(
-    data: "numpy array (n, m)",
-    outset_scalar: float,
-    pivot_3d: "numpy array (3)",
-    direction: int = 1,
-) -> "numpy array (n, 3+)":
-    """move positions away from pivot"""
-    pivot_nd = np.zeros((data.shape[-1]))
-    pivot_nd[..., :3] = pivot_3d
-    return outset(data - pivot_nd, outset_scalar, direction=direction) + pivot_nd
-
-
-def outset_relative(
-    data: "numpy array (n, m)", outset_scalar: float, direction: int = 1
-) -> "numpy array (n, 3+)":
-    """move positions away from pivot"""
-    if data.shape[0] == 1:
-        # no effect on single notes / walls
-        return data
-    return outset(data - data[0], outset_scalar, direction=direction) + data[0]
-
-
+@add_basic_pivot_wrapper
 def scale(
     data: "numpy array (n, 3+)", scale_3d: "numpy array (3)", direction: int = 1
 ) -> "numpy array (n, 3+)":
@@ -103,28 +105,7 @@ def scale(
     return output
 
 
-def scale_from(
-    data: "numpy array (n, 3+)",
-    scale_3d: "numpy array (3)",
-    pivot_3d: "numpy array (3)",
-    direction: int = 1,
-) -> "numpy array (n, 3+)":
-    """scale positions relative to pivot"""
-    pivot_nd = np.zeros((data.shape[-1]))
-    pivot_nd[..., :3] = pivot_3d
-    return scale(data - pivot_nd, scale_3d, direction=direction) + pivot_nd
-
-
-def scale_relative(
-    data: "numpy array (n, 3+)", scale_3d: "numpy array (3)", direction: int = 1
-) -> "numpy array (n, 3+)":
-    """scale positions relative to first node"""
-    if data.shape[0] == 1:
-        # no effect on single notes / walls
-        return data
-    return scale(data - data[0], scale_3d) + data[0]
-
-
+@add_basic_pivot_wrapper
 def rotate(
     data: "numpy array (n, 3+)", angle: float, direction: int = 1
 ) -> "numpy array (n, 3+)":
@@ -141,30 +122,3 @@ def rotate(
         not_crouch = (out[..., 3] != WALL_TYPES["crouch"][0])
         out[not_crouch, 4] += angle * direction
     return out
-
-def rotate_around(
-    data: "numpy array (n, 3+)",
-    angle: float,
-    pivot_3d: "numpy array (3)",
-    direction: int = 1,
-) -> "numpy array (n, 3+)":
-    """rotate positions anticlockwise around pivot"""
-    pivot_nd = np.zeros((data.shape[-1]))
-    pivot_nd[..., :3] = pivot_3d
-    return rotate(data - pivot_nd, angle, direction=direction) + pivot_nd
-
-
-def rotate_relative(
-    data: "numpy array (n, 3+)", angle: float, direction: int = 1
-) -> "numpy array (n, 3+)":
-    """rotate positions anticlockwise around first node/wall center"""
-    if data.shape[0] == 1:
-        if data.shape[-1] >= 5:
-            # just add to wall rotation
-            wall_rot = np.zeros((data.shape[-1]))
-            wall_rot[4] = angle * direction
-            return data + wall_rot
-        else:
-            # no effect on single notes
-            return data
-    return rotate(data - data[0], angle, direction=direction) + data[0]

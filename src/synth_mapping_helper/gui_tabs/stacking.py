@@ -76,14 +76,14 @@ def _stack(
     rng = np.random.default_rng()
     for _ in range(count):
         if scale != [1,1,1]:
-            stacking.apply_for_all(movement.scale_from, scale_3d=scale, pivot_3d=pivot)
+            stacking.apply_for_all(movement.scale, scale_3d=scale, pivot=pivot)
         if rotation:
-            stacking.apply_for_all(movement.rotate_around, angle=rotation, pivot_3d=pivot)
+            stacking.apply_for_all(movement.rotate, angle=rotation, pivot=pivot)
         if wall_rotation:
-            stacking.apply_for_walls(movement.rotate_relative, wall_rotation)
+            stacking.apply_for_walls(movement.rotate, angle=wall_rotation, relative=True)
         stacking.apply_for_all(movement.offset, offset_3d=offset)
         if outset:
-            stacking.apply_for_all(movement.outset_from, outset_scalar=outset, pivot_3d=pivot)
+            stacking.apply_for_all(movement.outset, outset_scalar=outset, pivot=pivot)
         if random_ranges_offset is not None or random_ranges_angle is not None:
             tmp = stacking.filtered()  # deep copy
             if random_ranges_offset is not None:
@@ -113,7 +113,7 @@ def _stack(
                     random_rotation = random_step_angle * rng.integers(area[0]/random_step_angle, area[1]/random_step_angle, endpoint=True)
                 else:
                     random_rotation = rng.uniform(area[0], area[1])
-                tmp.apply_for_all(movement.rotate_around, angle=random_rotation, pivot_3d=pivot)
+                tmp.apply_for_all(movement.rotate, angle=random_rotation, pivot=pivot)
             d.merge(tmp)
         else:
             d.merge(stacking)

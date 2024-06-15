@@ -154,7 +154,7 @@ def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)",
             piv = f[:3] + movement.rotate((s - f)[:3]/2, 90 - ang/2) / np.sin(np.radians(ang/2))  # pivot location matching rotation with translation
 
             for i in time_offsets:
-                new = movement.rotate_around(f[np.newaxis], angle=ang * (i/delta_t), pivot_3d=piv)
+                new = movement.rotate(f[np.newaxis], angle=ang * (i/delta_t), pivot=piv)
                 new[:,2] += i
                 out_walls[new[0,2]] = new
     return out_walls
@@ -175,14 +175,14 @@ def generate_symmetry(source: dict[str, "numpy array (n, 5)"], operations: list[
         if o in ("mirror_x", "mirror_y"):
             scale = np.array([-1.0,1.0,1.0]) if o=="mirror_x" else np.array([1.0,-1.0,1.0])
             for _, v in sorted(out.items()):
-                v = movement.scale_from(v, scale, pivot_3d=pivot_3d) + offset*counter
+                v = movement.scale(v, scale, pivot=pivot_3d) + offset*counter
                 new_out[v[0,2]] = v
             counter += 1
         elif isinstance(o, int):
             for _, v in sorted(out.items()):
                 ang = 360 / o
                 for r in range(1,abs(o)):
-                    vrot = movement.rotate_around(v, ang*r, pivot_3d=pivot_3d) + offset*counter*r
+                    vrot = movement.rotate(v, ang*r, pivot=pivot_3d) + offset*counter*r
                     new_out[vrot[0,2]] = vrot
             counter += (abs(o)-1)
         else:
