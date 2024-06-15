@@ -137,8 +137,9 @@ def rotate(
     ]
     out = data.dot(rot_matrix)
     if data.shape[-1] >= 5:
-        # just add to wall rotation
-        out[..., 4] += angle * direction
+        # just add to wall rotation (unless it is a crouch wall)
+        not_crouch = (out[..., 3] != WALL_TYPES["crouch"][0])
+        out[not_crouch, 4] += angle * direction
     return out
 
 def rotate_around(

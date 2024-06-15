@@ -2,7 +2,7 @@ from typing import Literal
 
 import numpy as np
 
-from .synth_format import DataContainer, WALLS, WALL_LOOKUP, WALL_SYMMETRY
+from .synth_format import DataContainer, WALLS, WALL_LOOKUP, WALL_SYMMETRY, WALL_TYPES
 from .utils import bounded_arange
 from . import movement
 
@@ -188,4 +188,13 @@ def generate_symmetry(source: dict[str, "numpy array (n, 5)"], operations: list[
         else:
             raise ValueError(f"Unknown symmetry operation {o!r}")
         out = new_out
+    return out
+
+def change_wall_type(walls: "numpy array (n, 5)", new_type: str|int, direction: int = 1) -> "numpy array (n, 5)":
+    if isinstance(new_type, str):
+        new_type = WALL_TYPES[new_type][0]
+    out = walls.copy()
+    out[..., 3] = new_type
+    if new_type == WALL_TYPES["crouch"][0]:
+        out[..., 4] = 0
     return out

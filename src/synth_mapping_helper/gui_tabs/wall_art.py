@@ -153,7 +153,11 @@ def _wall_art_tab():
             if self.drag_time is None:
                 # re-create cursors
                 for c in self.cursors.values():
-                    c.delete()
+                    try:
+                        c.delete()
+                    except KeyError:
+                        # scene sometimes loses track of objects, so use internal delete
+                        c._delete()
                 preview_settings = sp.parse_settings()
                 with preview_scene:
                     pivot_3d = walls[first][0,:3]
@@ -286,6 +290,7 @@ def _wall_art_tab():
 
     selection = Selection()
 
+    @handle_errors
     def _on_key(e: events.KeyEventArguments) -> None:
         if e.key.control:
             selection.set_copy(e.action.keydown)
@@ -469,7 +474,7 @@ def _wall_art_tab():
                     return
                 undo.push_undo(f"change {len(selection.sources)} walls to {synth_format.WALL_LOOKUP[wall_type]}")
                 for s in selection.sources:
-                    walls[s] = np.array([[0.0,0.0,s, wall_type,0.0]])
+                    walls[s] = pattern_generation.change_wall_type(walls[s], wall_type)
                 _soft_refresh()
                 selection.select(set(), "toggle")
             else:

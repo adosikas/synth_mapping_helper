@@ -317,11 +317,7 @@ def main(options):
         if len(options.change_walls) == 1:
             # to single type: just merge all arrays the same way
             new_type = synth_format.WALL_TYPES[options.change_walls[0]][0]
-            def _change_wall_type(wall: "numpy array (1, 5)", direction: int=1) -> "numpy array (1, 5)":
-                new_wall = wall.copy()
-                new_wall[..., 3] = new_type
-                return new_wall
-            data.apply_for_walls(_change_wall_type, types=filter_types)
+            data.apply_for_walls(pattern_generation.change_wall_type, types=filter_types, new_type=new_type)
         else:
             # to multiple types: cycle
             generator = itertools.cycle(synth_format.WALL_TYPES[t][0] for t in options.change_walls)
