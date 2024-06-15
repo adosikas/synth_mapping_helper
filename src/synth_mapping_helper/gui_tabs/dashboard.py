@@ -51,7 +51,8 @@ def offset_card(action_btn_cls: type[ui.button]) -> ui.card:
                         action_btn_cls(
                             tooltip=f'Offset {("down", "", "up")[y+1]}{" and " if x and y else ""}{("left", "", "right")[x+1]}',
                             icon=f'{("south", "", "north")[y+1]}{"_" if x and y else ""}{("west", "", "east")[x+1]}',
-                            func=lambda data, x=x, y=y, **kwargs: data.apply_for_all(movement.offset, offset_3d=np.array([x,y,0])*offset_xy.parsed_value, **kwargs),
+                            apply_func=movement.offset,
+                            apply_args=lambda x=x, y=y: dict(offset_3d=np.array([x,y,0])*offset_xy.parsed_value),
                         )
                     else:
                         offset_xy = make_input("X/Y", 1, "offset_xy", suffix="sq")
@@ -60,14 +61,16 @@ def offset_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Offset earlier in time",
                 icon="remove",
-                func=lambda data, **kwargs: data.apply_for_all(movement.offset, offset_3d=np.array([0,0,-offset_t.parsed_value]), **kwargs),
+                apply_func=movement.offset,
+                apply_args=lambda: dict(offset_3d=np.array([0,0,-offset_t.parsed_value])),
                 color="secondary",
             )
             offset_t = make_input("Time", 1, "dashboard_offset_t", suffix="b")
             action_btn_cls(
                 tooltip="Offset later in time",
                 icon="add",
-                func=lambda data, **kwargs: data.apply_for_all(movement.offset, offset_3d=np.array([0,0,offset_t.parsed_value]), **kwargs),
+                apply_func=movement.offset,
+                apply_args=lambda: dict(offset_3d=np.array([0,0,offset_t.parsed_value])),
             )
 
 def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
@@ -79,35 +82,41 @@ def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Scale Y up (taller)",
                 icon="unfold_more",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,scale_xy.parsed_value,1]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([1,scale_xy.parsed_value,1])),
             )
             action_btn_cls(
                 tooltip="Scale XY up (larger)",
                 icon="zoom_out_map",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([scale_xy.parsed_value,scale_xy.parsed_value,1]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([scale_xy.parsed_value,scale_xy.parsed_value,1])),
             )
             action_btn_cls(
                 tooltip="Scale X down (less wide)",
                 icon="unfold_less", icon_angle=90,
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),1,1]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),1,1])),
                 color="secondary",
             )
             scale_xy = make_input("X/Y", "110%", "scale_xy", tooltip="Can be given as % or ratio. If less than 1 (100%), scale up/down are inverted")
             action_btn_cls(
                 tooltip="Scale X up (wider)",
                 icon="unfold_more", icon_angle=90,
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([scale_xy.parsed_value,1,1]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([scale_xy.parsed_value,1,1])),
             )
             action_btn_cls(
                 tooltip="Scale XY down (smaller)",
                 icon="zoom_in_map",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),_safe_inverse(scale_xy.parsed_value),1]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([_safe_inverse(scale_xy.parsed_value),_safe_inverse(scale_xy.parsed_value),1])),
                 color="secondary",
             )
             action_btn_cls(
                 tooltip="Scale Y down (less tall)",
                 icon="unfold_less",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,_safe_inverse(scale_xy.parsed_value),1]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([1,_safe_inverse(scale_xy.parsed_value),1])),
                 color="secondary",
             )
             with ui.label().classes("mt-auto w-min bg-secondary").bind_text_from(scale_xy, "value", backward=lambda v: f"{_safe_inverse(_safe_parse_number(v)):.1%}"):
@@ -118,14 +127,16 @@ def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Scale time down (shorter)",
                 icon="compress",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,1,_safe_inverse(scale_t.parsed_value)]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([1,1,_safe_inverse(scale_t.parsed_value)])),
                 color="secondary",
             )
             scale_t = make_input("Time", 2, "scale_t", tooltip="Can be given as % or ratio. If less than 1 (100%), scale up/down are inverted")
             action_btn_cls(
                 tooltip="Scale time up (longer)",
                 icon="expand",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,1,scale_t.parsed_value]), **kwargs),
+                apply_func=movement.scale,
+                apply_args=lambda: dict(scale_3d=np.array([1,1,scale_t.parsed_value])),
             )
             
             action_btn_cls(
@@ -148,17 +159,20 @@ def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Flatten to Y axis (X=0)",
                 icon="vertical_align_center", icon_angle=90,
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([0,1,1]), **kwargs),
+                apply_func=movement.scale, 
+                apply_args=dict(scale_3d=np.array([0,1,1])),
             )
             action_btn_cls(
                 tooltip="Flatten to X axis (Y=0)",
                 icon="vertical_align_center",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,0,1]), **kwargs),
+                apply_func=movement.scale, 
+                apply_args=dict(scale_3d=np.array([1,0,1])),
             )
             action_btn_cls(
                 tooltip="Move to pivot (X=Y=0)",
                 icon="adjust",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([0,0,1]), **kwargs),
+                apply_func=movement.scale, 
+                apply_args=dict(scale_3d=np.array([0,0,1])),
             )
         ui.separator()
         ui.label("Mirror").tooltip("Just scaling, but with -1")
@@ -166,17 +180,20 @@ def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Mirror X (left<->right)",
                 icon="align_horizontal_center",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([-1,1,1]), **kwargs),
+                apply_func=movement.scale, 
+                apply_args=dict(scale_3d=np.array([-1,1,1])),
             )
             action_btn_cls(
                 tooltip="Mirror Y (up<->down)",
                 icon="align_vertical_center",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,-1,1]), **kwargs),
+                apply_func=movement.scale, 
+                apply_args=dict(scale_3d=np.array([1,-1,1])),
             )
             action_btn_cls(
                 tooltip="Mirror time (reverse)",
                 icon="fast_rewind",
-                func=lambda data, **kwargs: data.apply_for_all(movement.scale, scale_3d=np.array([1,1,-1]), **kwargs),
+                apply_func=movement.scale, 
+                apply_args=dict(scale_3d=np.array([1,1,-1])),
             )
         ui.separator()
         with ui.grid(columns=3):
@@ -209,13 +226,15 @@ def rotate_outset_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Rotate counterclockwise",
                 icon="rotate_left",
-                func=lambda data, **kwargs: data.apply_for_all(movement.rotate, angle=rotate_angle.parsed_value, **kwargs),
+                apply_func=movement.rotate,
+                apply_args=lambda: dict(angle=rotate_angle.parsed_value),
             )
             rotate_angle = make_input("Angle", 45, "angle", suffix="°")
             action_btn_cls(
                 tooltip="Rotate clockwise",
                 icon="rotate_right",
-                func=lambda data, **kwargs: data.apply_for_all(movement.rotate, angle=-rotate_angle.parsed_value, **kwargs),
+                apply_func=movement.rotate,
+                apply_args=lambda: dict(angle=-rotate_angle.parsed_value),
             )
         ui.separator()
 
@@ -225,14 +244,16 @@ def rotate_outset_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Inset (towards center/pivot)",
                 icon="close_fullscreen",
-                func=lambda data, **kwargs: data.apply_for_all(movement.outset, outset_scalar=-outset_amount.parsed_value, **kwargs),
+                apply_func=movement.outset,
+                apply_args=lambda: dict(outset_scalar=-outset_amount.parsed_value),
                 color="secondary",
             )
             outset_amount = make_input("Amount", 1, "outset", suffix="sq")
             action_btn_cls(
                 tooltip="Outset (away from center/pivot)",
                 icon="open_in_full",
-                func=lambda data, **kwargs: data.apply_for_all(movement.outset, outset_scalar=outset_amount.parsed_value, **kwargs),
+                apply_func=movement.outset,
+                apply_args=lambda: dict(outset_scalar=outset_amount.parsed_value),
             )
 
         ui.separator()
@@ -313,7 +334,7 @@ def rails_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Interpolate rail nodes",
                 icon="format_line_spacing"+"commit",
-                func=lambda data, types, **kwargs: data.apply_for_all(rails.interpolate_nodes, mode="spline", interval=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.interpolate_nodes, mode="spline", interval=rail_interval.parsed_value, types=types),
                 wiki_ref="Rail-Options#interpolate",
             )
 
@@ -330,19 +351,19 @@ def rails_card(action_btn_cls: type[ui.button]) -> ui.card:
             action_btn_cls(
                 tooltip="Shorten rail (cuts from start if negative)",
                 icon="content_cut",
-                func=lambda data, types, **kwargs: data.apply_for_all(rails.shorten_rail, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.shorten_rail, distance=rail_interval.parsed_value, types=types),
                 wiki_ref="Rail-Options#shorten-rails",
             )
 
             action_btn_cls(
                 tooltip="Extend level",
                 icon="swipe_right_alt" + "horizontal_rule",
-                func=lambda data, types, **kwargs: data.apply_for_all(rails.extend_level, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_level, distance=rail_interval.parsed_value, types=types),
             )
             action_btn_cls(
                 tooltip="Extend directional / straight",
                 icon="swipe_right_alt" + "double_arrow",
-                func=lambda data, types, **kwargs: data.apply_for_all(rails.extend_straight, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_straight, distance=rail_interval.parsed_value, types=types),
             )
             action_btn_cls(
                 tooltip="Extend pointing to next",
@@ -511,10 +532,25 @@ def _dashboard_tab():
                 pivot_settings.bind_visibility_from(coordinate_mode, "value", backward=lambda v: v=="pivot")        
 
     class ActionButton(ui.button):
-        def __init__(self, func: Callable, tooltip: str, icon: str="play_arrow", icon_angle: int=0, wiki_ref: Optional[str] = None, **kwargs):
+        def __init__(self,
+            tooltip: str, wiki_ref: Optional[str] = None,
+            icon: str="play_arrow", icon_angle: int=0, 
+            func: Callable|None=None,
+            apply_func: Callable|None=None,
+            apply_args: Callable[[], dict[str, ...]]|dict[str, ...]|None=None,
+            **kwargs
+        ):
             super().__init__(icon=icon if not icon_angle else "", on_click=self.do_action, **kwargs)
             self._tooltip = tooltip
-            self._func = func
+            if (func is not None) == (apply_func is not None):
+                raise TypeError("Specify either func OR apply_func")
+            if func is not None:
+                self._func = func
+            else: # apply_func
+                if apply_args is None:
+                    apply_args = {}
+                self._func = lambda data, **kwargs: data.apply_for_all(apply_func, **kwargs, **(apply_args() if callable(apply_args) else apply_args))
+
             self.classes("w-12 h-10")
             with self:
                 ui.tooltip(tooltip)
