@@ -92,7 +92,8 @@ def _wall_art_tab():
         offset: "np.array (3)" = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
         mirrored: bool = False
         rotation: float = 0.0
-        copy: bool = False
+        copy_button: bool = False
+        axis_button: bool = False
 
         def clear(self):
             self.sources = set()
@@ -149,7 +150,7 @@ def _wall_art_tab():
             if not self.sources:
                 return
             first = min(self.sources)
-            copy_mode = self.copy ^ invert_copy.value
+            copy_mode = self.copy_button ^ drag_copy.value
             copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if copy_mode else 0.0
             if self.drag_time is None:
                 # re-create cursors
@@ -189,7 +190,7 @@ def _wall_art_tab():
                     cur.scale(1,1,1)
                     cur.rotate(np.deg2rad(90), np.deg2rad(180 - rot), 0)
                 # update drag constraints
-                if axis_z.value:
+                if self.axis_button ^ axis_z.value:
                     scene_time_step = time_step.parsed_value*time_scale.parsed_value
                     preview_scene.props(f'drag_constraints="x={scene_pos[0]},z={scene_pos[2]},y=Math.round(y/({scene_time_step}))*({scene_time_step})"')
                 else:
@@ -215,15 +216,20 @@ def _wall_art_tab():
                 self.rotation += 180
             self._update_cursors()
 
-        def set_copy(self, copy: bool):
-            if copy != self.copy:
-                self.copy = copy
+        def set_copy_button(self, copy_button: bool):
+            if copy_button != self.copy_button:
+                self.copy_button = copy_button
+                self._update_cursors()
+
+        def set_axis_button(self, axis_button: bool):
+            if axis_button != self.axis_button:
+                self.axis_button = axis_button
                 self._update_cursors()
 
         @handle_errors
         def apply(self):
             nonlocal walls
-            copy_mode = self.copy ^ invert_copy.value
+            copy_mode = self.copy_button ^ drag_copy.value
             ops = [l for v, l in [(copy_mode, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
             undo.push_undo(f"{pretty_list(ops)} {len(self.sources)} walls")
             first = min(self.sources)
@@ -261,6 +267,7 @@ def _wall_art_tab():
 
         @handle_errors
         def start_drag(self, object_id: str):
+            copy_mode = self.copy_button ^ drag_copy.value
             for t, c in self.cursors.items():
                 if c.id == object_id:
                     self.drag_time = t
@@ -280,7 +287,7 @@ def _wall_art_tab():
                         e = preview_scene.wall_extrusion(relative, preview_settings.wall.size * time_scale.parsed_value)
                         offset = movement.rotate(w-pivot, 180-pivot[0,4])
                         e.move(offset[0,0], offset[0,1], -(w[0,2]-pivot[0,2])*time_scale.parsed_value).rotate(0,0,np.deg2rad(w[0,4]-pivot[0,4]))
-                        if self.copy:
+                        if copy_mode:
                             e.material(copy_color.value, copy_opacity.parsed_value/2)
                         else:
                             e.material(move_color.value, move_opacity.parsed_value/2)
@@ -293,22 +300,36 @@ def _wall_art_tab():
 
     selection = Selection()
     last_ctrl_press = None
+    last_shift_press = None
     @handle_errors
     def _on_key(e: events.KeyEventArguments) -> None:
-        nonlocal last_ctrl_press
+        nonlocal last_ctrl_press, last_shift_press
         if e.key.control:
             if e.action.keydown:
-                # on CTRL double-tap, toggle invert_copy value
+                # on CTRL double-tap, toggle drag_copy value
                 if last_ctrl_press is not None and time() - last_ctrl_press < 0.5:
-                    invert_copy.set_value(not invert_copy.value)
+                    drag_copy.set_value(not drag_copy.value)
                     last_ctrl_press = None
                     return
                 else:
                     last_ctrl_press = time()
-            selection.set_copy(e.action.keydown)
+            selection.set_copy_button(e.action.keydown)
         else:
             # if any other key is pressed/release clear double-tap
             last_ctrl_press = None
+        if e.key.shift:
+            if e.action.keydown:
+                # on SHIFT double-tap, toggle axis_z value
+                if last_shift_press is not None and time() - last_shift_press < 0.5:
+                    axis_z.set_value(not axis_z.value)
+                    last_shift_press = None
+                    return
+                else:
+                    last_shift_press = time()
+            selection.set_axis_button(e.action.keydown)
+        else:
+            # if any other key is pressed/release clear double-tap
+            last_shift_press = None
         if not e.action.keydown:
             return
         try:
@@ -320,7 +341,7 @@ def _wall_art_tab():
                 _spawn_wall(wall_type=wall_type, change_selection=e.modifiers.ctrl, extend_selection=e.modifiers.shift)
             elif e.key.page_up or e.key.page_down:
                 selection.move(np.array([0.0,0.0,(e.key.page_up-e.key.page_down)*time_step.parsed_value])*offset_step.parsed_value)
-            elif e.key.enter or e.key.space:
+            elif e.key.enter or key_name == " ":
                 selection.apply()
             # CTRL: Yes
             elif e.modifiers.ctrl:
@@ -357,9 +378,6 @@ def _wall_art_tab():
             # CTRL: No
             elif e.key.escape:
                 selection.select(set(), "set")
-            elif key_name == "T":
-                axis_z.value = not axis_z.value
-                selection.select(set(), "toggle")
             elif key_name == "R":
                 _compress()
             elif key_name == "B":
@@ -397,9 +415,9 @@ def _wall_art_tab():
     with ui.card():
         with ui.row():
             with ui.row():
-                axis_z = LargeSwitch(False, "axis", "(T) Change movement axis between X/Y and Time", color="info", icon_unchecked="open_with", icon_checked="schedule")
+                axis_z = LargeSwitch(False, "axis", "(Double-tab SHIFT) Change movement axis between X/Y and Time (inverts with SHIFT held)", color="info", icon_unchecked="open_with", icon_checked="schedule")
+                drag_copy = LargeSwitch(False, "drag_copy", "(Double-tap CTRL) Switch default drag behavior between move and copy (inverts with CTRL held).", color="positive", icon_unchecked="start", icon_checked="call_split", on_change=selection._update_cursors)
                 displace = LargeSwitch(False, "displace", "Displace existing walls when moving in time instead of replacing them.", color="warning", icon_unchecked="cancel", icon_checked="move_up")
-                invert_copy = LargeSwitch(False, "invert_copy", "(Double-tap CTRL) Switch default drag behavior between move and copy (inverts with CTRL held).", color="positive", icon_unchecked="start", icon_checked="call_split", on_change=selection._update_cursors)
                 time_step = make_input("Time Step", "1/64", "time_step", suffix="b", tooltip="Time step for adding walls or moving via dragg or (page-up)/(page-down)")
                 offset_step = make_input("Offset Step", "1", "offset_step", suffix="sq", tooltip="Step for moving via (arrow keys)")
                 angle_step = make_input("Angle Step", "15", "angle_step", suffix="°", tooltip="Step for rotation via (A)/(D)")
@@ -567,7 +585,9 @@ def _wall_art_tab():
                         To turn the camera *without* deselecting, hold down ALT.
 
                         Click on a wall to select it. Multiple walls can be selected by CTRL-Click (to add), or SHIFT-Click (expand selection to clicked wall).
-                        Then drag it around using left mouse and/or use one of the edit keys below. Holding CTRL creates a (modified) copy in the next free slot instead of moving.
+                        Then drag it around using left mouse and/or use one of the edit keys below.  
+                        Holding CTRL creates a (modified) copy in the next free slot instead of moving.  
+                        Holding SHIFT drags in time instead of X/Y.
 
                         ## General
                         |Key|Function|
@@ -579,9 +599,9 @@ def _wall_art_tab():
                         |CTRL+🇻|Add walls from clipboard (overrides existing)|
                         |CTRL+🇿|Undo last operation|
                         |CTRL+🇾|Redo last operation|
+                        |Tap SHIFT twice|Toggle drag axis between time and X/Y| 
                         |Tap CTRL twice|Toggle drag behavior between move and copy| 
                         |🇶/🇪|Select previous/next Wall (SHIFT: Expand selection)|
-                        |🇹|Change Axis between X/Y and Time|
                         |🇷|Compress all walls to timestep|
                         |🇧|Open Blender|
 
