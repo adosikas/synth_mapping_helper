@@ -44,7 +44,7 @@ class AudioData:
             p = np.zeros_like(data, shape=(librosa.time_to_samples(before_start_s, sr=sr), *data.shape[1:]))
             data = np.concatenate((p, data))
         if after_end_s < 0:
-            data = data[:-_librosa.time_to_samples(-after_end_s, sr=sr)]
+            data = data[:-librosa.time_to_samples(-after_end_s, sr=sr)]
         if after_end_s > 0:
             p = np.zeros_like(data, shape=(librosa.time_to_samples(after_end_s, sr=sr), *data.shape[1:]))
             data = np.concatenate((data, p))
@@ -84,4 +84,9 @@ def audio_with_clicks(raw_audio_data: bytes, duration: float, bpm: float, offset
     beat_time = 60/bpm
     data, sr = librosa.load(BytesIO(raw_audio_data))
     clicks = librosa.clicks(times=np.arange(beat_time-(offset_ms/1000)%beat_time, duration, beat_time), length=len(data), sr=sr)
-    return export_ogg(data+clicks)
+    return export_ogg(data+clicks, samplerate=sr)
+
+def find_trims(raw_audio_data: bytes) -> tuple[float, float]:
+    data, sr = librosa.load(BytesIO(raw_audio_data))
+    _, (start, end) = librosa.effects.trim(data)
+    return librosa.samples_to_time(start), librosa.samples_to_time(data.shape[0]-end)

@@ -429,8 +429,8 @@ class SynthFileMeta:
     def get_safe_name(self, audio_data: bytes) -> str:
         # editor tracks spectrum data by filename, so just append sha256 of content to filename
         sha256_hash = sha256(audio_data).hexdigest()
-        # <name>_<hash:32 hexdigits>.<ext> or <name>.<ext>
-        m = re.match(r"(.*?)(?:_[0-9a-fA-F]{32})?\.([^.]*)$", self.audio_name)
+        # <name>_<hash:64 hexdigits>.<ext> or <name>.<ext>
+        m = re.match(r"(.*?)(?:_[0-9a-fA-F]{64})*\.([^.]*)$", self.audio_name)
         if m:
             name, ext = m[1], m[2]
         else:  # should only happen if there is no dot in the filename
@@ -761,15 +761,16 @@ class SynthFile:
             else:
                 self.errors[d] = e
 
-    def add_silence(self, *, before_start_ms: int = 0, after_end_ms: int = 0) -> None:
+    def add_silence(self, *, before_start_ms: int|None = 0, after_end_ms: int|None = 0) -> None:
+        if not before_start_ms and not after_end_ms:
+            return
+        if before_start_ms is None:
+            before_start_ms = 0
+        if after_end_ms is None:
+            after_end_ms = 0
         self.audio.add_silence(before_start_s=before_start_ms/1000, after_end_s=after_end_ms/1000)
         if before_start_ms:
-            new_offset = self.offset_ms - before_start_ms
-            if new_offset < 0:
-                # if offset would go negative, shift everything forward such that offset is 0
-                self.offset_everything(delta_s=-new_offset/1000)
-                new_offset = 0
-            self.offset_ms = new_offset
+            self.offset_everything(delta_s=before_start_ms/1000)
 
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":

@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from synth_mapping_helper.gui_tabs.utils import *
-from synth_mapping_helper.utils import pretty_list
+from synth_mapping_helper.utils import pretty_list, beat_to_second
 from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__
 
 def circmedian(values: "numpy array (n,)", high: float) -> float:
@@ -185,6 +185,15 @@ def _file_utils_tab():
             self._wden_card.refresh()
             self._nden_card.refresh()
 
+        async def add_silence(self, before_start_ms: int=0, after_end_ms: int=0) -> None:
+            self.bpm_scan_data = {"state": "Waiting"}
+            self._bpm_card.refresh()
+            # note: this edits the object, so it cannot easily be offloaded to another process
+            # but io_bound is just another thread, which is fine
+            await run.io_bound(self.data.add_silence, before_start_ms=before_start_ms, after_end_ms=after_end_ms)
+            self._audio_info.refresh()
+            ui.timer(0.01, self._calc_bpm, once=True)
+
         @ui.refreshable
         def _audio_info(self) -> None:
             default_source = "data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode()
@@ -229,15 +238,53 @@ def _file_utils_tab():
                     offset_ms = int(self.output_offset)
                     ui.notify(f"Adding {offset_ms} ms of silence. This may take a few seconds.", type="info")
                     self.output_offset = 0
-                    # note: this edits the object, so it cannot easily be offloaded to another process
-                    await run.io_bound(self.data.add_silence, before_start_ms=offset_ms)
-                    self._audio_info.refresh()
-                    self.bpm_scan_data = {"state": "Waiting"}
-                    self.stats_card.refresh()
-                    ui.timer(0.01, self._calc_bpm, once=True)
+                    await self.add_silence(before_start_ms=offset_ms)
                 pad_button = ui.button(icon="keyboard_tab", on_click=_pad_offset, color="positive").props("dense").classes("w-8 my-auto").bind_enabled_from(self, "output_offset")
                 with pad_button:
                     ui.tooltip().bind_text_from(self, "output_offset", lambda o: f"Add {int(o) if o else '<offset>'} ms of silence before the audio")
+                with ui.dialog() as pad_dialog, ui.card():
+                    ui.label("Note: After these, offset should be re-applied")
+                    with ui.row():
+                        before_ms = ui.number("Before", value=0, suffix="ms").props("dense").classes("w-24").tooltip("Amount to add. Negative trims instead.")
+                        async def _pad_audio():
+                            pad_dialog.close()
+                            ui.notify(f"Padding audio. This may take a few seconds.", type="info")
+                            await self.add_silence(before_start_ms=before_ms.value, after_end_ms=after_ms.value)
+                        ui.timer(0.01, self._calc_bpm, once=True)
+                        ui.button(icon="settings_ethernet", color="positive", on_click=_pad_audio).props("dense").classes("my-auto").tooltip("Add silence to start and end")
+                        after_ms = ui.number("After", value=0, suffix="ms").props("dense").classes("w-24").tooltip("Amount to add. Negative trims instead.")
+                    ui.separator()
+                    with ui.row():
+                        async def _trim_silence():
+                            pad_dialog.close()
+                            ui.notify(f"Trimming silence from audio. This may take a few seconds.", type="info")
+                            trim_start, trim_end = await run.io_bound(audio_format.find_trims, raw_audio_data=self.data.audio.raw_data)
+                            await self.add_silence(before_start_ms=-round(trim_start*1000), after_end_ms=-round(trim_end*1000))
+                            ui.notify(f"Trimmed {trim_start:.3f} s from beginning and {trim_end:.3f} s from end", type="info")
+                        ui.button(icon="content_cut volume_off", color="negative", on_click=_trim_silence).props("dense").classes("w-16").tooltip("Detect and remove silence from beginning and end")
+                        async def _add_2s():
+                            pad_dialog.close()
+                            ui.notify(f"Adding two seconds of silence. This may take a few seconds.", type="info")
+                            await self.add_silence(before_start_ms=2000)
+                        ui.button("2s", icon="start", color="positive", on_click=_add_2s).props("dense").tooltip("Add two seconds of silence before start")
+                        async def _align_bookmark():
+                            pad_dialog.close()
+                            bookmarks = sorted(self.data.bookmarks.items())
+                            if not bookmarks:
+                                error(msg="No bookmarks found")
+                            bm_beat, bm_name = bookmarks[0]
+                            bm_time = beat_to_second(bm_beat, bpm=self.data.bpm) - self.data.offset_ms/1000
+                            if bm_time > 2:
+                                ui.notify(f"Removing {bm_time-2:.3f} s to align first bookmark ({bm_name!r}) to 2 second mark. This may take a few seconds.", type="info")
+                            elif bm_time < 2:
+                                ui.notify(f"Adding {2-bm_time:.3f} s to align first bookmark ({bm_name!r}) to 2 second mark. This may take a few seconds.", type="info")
+                            before_start_ms = round((2-bm_time)*1000)
+                            await self.add_silence(before_start_ms=before_start_ms)
+                            self.data.change_offset(0)
+                            self.output_offset = 0
+                        with ui.button("2s", icon="bookmark_added", color="positive", on_click=_align_bookmark).props("dense").bind_enabled_from(self.data, "bookmarks"):
+                            ui.tooltip().bind_text_from(self.data, "bookmarks", backward=lambda b: "Align first bookmark with 2 second mark" + ("" if b else " (no bookmarks found)"))
+                ui.button(icon="settings_ethernet", color="info", on_click=lambda: (pad_dialog.open(), pad_dialog.update())).props("dense").classes("w-8 my-auto").tooltip("Pad or trim audio")
                 ui.separator().props("vertical")
                 async def _add_clicks(e: events.ClickEventArguments):
                     bpm = self.output_bpm
@@ -277,34 +324,38 @@ def _file_utils_tab():
                 self._audio_info()
 
         async def _calc_bpm(self):
-            self.bpm_scan_data["state"] = "Loading Audio"
+            sd = self.bpm_scan_data  # create a pointer to avoid messing up data when it gets replaced during calc
+            sd["state"] = "Loading Audio"
             data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=fi.data.audio.raw_data)
-            self.bpm_scan_data["data"] = data
-            self.bpm_scan_data["sr"] = sr
-            self.bpm_scan_data["state"] = "Detecting Onsets"
+            sd["data"] = data
+            sd["sr"] = sr
+            sd["state"] = "Detecting Onsets"
             onsets = await run.cpu_bound(analysis.calculate_onsets, data=data, sr=sr)
-            self.bpm_scan_data["onsets"] = onsets
-            self.bpm_scan_data["state"] = "Finding BPM"
+            sd["onsets"] = onsets
+            sd["state"] = "Finding BPM"
             peak_bpms, peak_values, pulse = await run.cpu_bound(analysis.find_bpm, onsets=onsets, sr=sr)
-            self.bpm_scan_data["peak_bpms"] = peak_bpms
-            self.bpm_scan_data["peak_values"] = peak_values
-            self.bpm_scan_data["pulse"] = pulse
+            sd["peak_bpms"] = peak_bpms
+            sd["peak_values"] = peak_values
+            sd["pulse"] = pulse
             best_bpm, bpm_sections = analysis.group_bpm(peak_bpms, peak_values)
-            self.bpm_scan_data["bpm_sections"] = bpm_sections
-            self.bpm_scan_data["best_bpm"] = best_bpm
-            self.bpm_scan_data["bpm_override"] = None
-            await self._calc_beats()
+            sd["bpm_sections"] = bpm_sections
+            sd["best_bpm"] = best_bpm
+            sd["bpm_override"] = None
+            if id(self.bpm_scan_data) == id(sd):
+                # only continue when the pointer is still identical
+                await self._calc_beats()
 
         async def _calc_beats(self):
             # have this seperate so it could be updated seperately later
-            sr = self.bpm_scan_data["sr"]
-            onsets = self.bpm_scan_data["onsets"]
-            bpm_override = self.bpm_scan_data["bpm_override"]
+            sd = self.bpm_scan_data
+            sr = sd["sr"]
+            onsets = sd["onsets"]
+            bpm_override = sd["bpm_override"]
             if bpm_override is None:
-                bpm_sections = self.bpm_scan_data["bpm_sections"]
+                bpm_sections = sd["bpm_sections"]
             else:
                 bpm_sections = [(0, onsets.shape[-1], bpm_override, 1)]
-            self.bpm_scan_data["state"] = f"Processing {len(bpm_sections)} sections"
+            sd["state"] = f"Processing {len(bpm_sections)} sections"
             self._bpm_card.refresh()
             offset_sections = []
             beat_results = await asyncio.gather(
@@ -324,8 +375,8 @@ def _file_utils_tab():
                 offset_error = circerror(beats % beat_time, median_offset, high=beat_time)
                 offset_ms = int((beat_time - median_offset)*1000)  # the game offsets the audio, so negate offset
                 offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms, offset_error))
-            self.bpm_scan_data["offset_sections"] = offset_sections
-            self.bpm_scan_data["state"] = "Done"
+            sd["offset_sections"] = offset_sections
+            sd["state"] = "Done"
             self._bpm_card.refresh()
 
         @ui.refreshable
