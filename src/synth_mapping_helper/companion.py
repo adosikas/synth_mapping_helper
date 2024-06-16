@@ -96,7 +96,7 @@ def prepare_data(data: DataContainer, options) -> tuple[
 ]:
     # NOTES DATA
     velocity_window_beats = utils.second_to_beat(options.velocity_window, data.bpm)
-    note_out: list[tuple["rails", "positions", "velocity", "acceleration"]] = []
+    note_out: list[tuple[list["rails"], "positions", "velocity", "acceleration"]] = []
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
         rails: list["xyz"] = []
         pos_dict: dict[float, "xyz"] = {}
