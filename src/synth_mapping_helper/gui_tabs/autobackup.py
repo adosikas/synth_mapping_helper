@@ -12,22 +12,22 @@ def _isdir(v: str) -> bool:
     return Path(v).is_dir()
 
 last_check: dict[Path, float] = {}
-last_backup: dict[Path, float] = {}
+last_backup: dict[Path, tuple[float, Path]] = {}
 
-def _autobackup_tab():
-    watcher_dir: Optional[Path] = None
-    def watcher_func():
+def _autobackup_tab() -> None:
+    watcher_dir: Path|None = None
+    def watcher_func() -> None:
         global last_check
-        if not watcher_dir:
+        if not watcher_dir or "autobackup_backupdir" not in app.storage.user or "autobackup_minage" not in app.storage.user:
             return
         now = time.time()
         for p in watcher_dir.glob("*.synth"):
-            if not p.is_file:
+            if not p.is_file():
                 continue
             if p.stat().st_mtime > last_check.get(watcher_dir, now):
                 logger.debug(f"File change detected: {p}")
-                if now - last_backup.get(p, (0,None))[0] > app.storage.user.get("autobackup_minage"):
-                    pb = Path(app.storage.user.get("autobackup_backupdir")) / f"{p.stem}.{time.strftime('%Y-%m-%d_%H-%M-%S')}{p.suffix}"
+                if now - last_backup.get(p, (0,None))[0] > app.storage.user["autobackup_minage"]:
+                    pb = Path(app.storage.user["autobackup_backupdir"]) / f"{p.stem}.{time.strftime('%Y-%m-%d_%H-%M-%S')}{p.suffix}"
                     logger.info(f"{p} changed, creating backup: {pb}")
                     pb.write_bytes(p.read_bytes())
                     last_backup[p] = (now, pb)
@@ -41,7 +41,8 @@ def _autobackup_tab():
         key = "autobackup_workdir" if e.sender == workdir_picker else "autobackup_backupdir"
         result = await local_dir_picker(app.storage.user.get(key) or ".")
         if result is not None:
-            e.sender.parent_slot.parent.value = str(result)
+            input_element: ui.input = e.sender.parent_slot.parent  # type: ignore
+            input_element.value = str(result)
 
     def dir_changed() -> None:
         nonlocal watcher_dir
@@ -75,7 +76,7 @@ def _autobackup_tab():
             ui.tooltip("Directory to save the backups to")
 
     @ui.refreshable
-    def log():
+    def log() -> None:
         for _, b in sorted(last_backup.values(), key=lambda tb: tb[0], reverse=True):
             ui.label(str(b))
 

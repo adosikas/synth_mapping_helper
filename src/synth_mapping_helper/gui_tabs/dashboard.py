@@ -17,12 +17,12 @@ def _safe_parse_number(v: Any) -> float:
     except ValueError:
         return 0.0
 
-def _swap_hands(data: synth_format.DataContainer, **kwargs):
+def _swap_hands(data: synth_format.DataContainer, **kwargs) -> None:
     data.left, data.right = data.right, data.left
 
-def _change_color(data: synth_format.DataContainer, types: List[str], new_type: str, **kwargs):
+def _change_color(data: synth_format.DataContainer, types: List[str], new_type: str, **kwargs) -> None:
     # to single type: just merge all dicts
-    changed = {}
+    changed: synth_format.SINGLE_COLOR_NOTES = {}
     for t in types:
         if t in synth_format.NOTE_TYPES and t != new_type:
             changed |= getattr(data, t)
@@ -40,7 +40,7 @@ def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHIn
     default_kwargs = {"tab_id": "dashboard"}
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
-def offset_card(action_btn_cls: type[ui.button]) -> ui.card:
+def offset_card(action_btn_cls: Any) -> None:
     with ui.card():
         with ui.label("Offset"):
             wiki_reference("Movement-Options#offset")
@@ -73,7 +73,7 @@ def offset_card(action_btn_cls: type[ui.button]) -> ui.card:
                 apply_args=lambda: dict(offset_3d=np.array([0,0,offset_t.parsed_value])),
             )
 
-def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
+def scaling_card(action_btn_cls: Any) -> None:
     with ui.card():
         with ui.label("Scaling"):
             wiki_reference("Movement-Options#scaling")
@@ -152,7 +152,7 @@ def scaling_card(action_btn_cls: type[ui.button]) -> ui.card:
                 wiki_ref="Pre--and-Post-Processing-Options#change-bpm",
             )
 
-def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
+def flatten_mirror_card(action_btn_cls: Any) -> None:
     with ui.card():
         ui.label("Flatten").tooltip("Just scaling, but with 0")
         with ui.grid(columns=3):
@@ -215,10 +215,12 @@ def flatten_mirror_card(action_btn_cls: type[ui.button]) -> ui.card:
                 func=_do_mirror,
             ):
                 mirror_icon = ui.icon("flip").style(f"rotate: {90-mirror_angle.parsed_value}deg")
-            mirror_angle.on_parsed_value_change = lambda v: mirror_icon.style(f"rotate: {90-v}deg")
+            def _rotate_mirror_icon(ang: float) -> None:
+                mirror_icon.style(f"rotate: {90-ang}deg")
+            mirror_angle.on_parsed_value_change = _rotate_mirror_icon
             mirror_stack = make_input("Stack time", 0, "mirror_stack", suffix="b", tooltip="Instead of just mirroring, stack a mirrored copy onto the input using this as interval. 0=disabled.")
 
-def rotate_outset_card(action_btn_cls: type[ui.button]) -> ui.card:
+def rotate_outset_card(action_btn_cls: Any) -> None:
     with ui.card():
         with ui.label("Rotation"):
             wiki_reference("Movement-Options#rotate")
@@ -273,7 +275,7 @@ def rotate_outset_card(action_btn_cls: type[ui.button]) -> ui.card:
                 func=lambda data, **kwargs: pattern_generation.create_parallel(data, parallel_distance.parsed_value),
             )
 
-def rails_card(action_btn_cls: type[ui.button]) -> ui.card:
+def rails_card(action_btn_cls: Any) -> None:
     with ui.card():
         ui.label("Rails and Notes")
         with ui.grid(columns=3):
@@ -371,7 +373,7 @@ def rails_card(action_btn_cls: type[ui.button]) -> ui.card:
                 func=lambda data, types, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value, types=types),
             )
 
-def color_card(action_btn_cls: type[ui.button]) -> ui.card:
+def color_card(action_btn_cls: Any) -> None:
     with ui.card():
         with ui.label("Color"):
             wiki_reference("Pre--and-Post-Processing-Options#change-note-type")
@@ -407,7 +409,7 @@ def color_card(action_btn_cls: type[ui.button]) -> ui.card:
             color="#FB9D10",
         )
 
-def spiral_spike_card(action_btn_cls: type[ui.button]) -> ui.card:
+def spiral_spike_card(action_btn_cls: Any) -> None:
     with ui.card():
         with ui.row():
             spiral_angle = make_input("Angle", 45, "spiral_angle", suffix="°", tooltip="Angle between nodes. Choose 180 for zigzag.")
@@ -471,7 +473,7 @@ def spiral_spike_card(action_btn_cls: type[ui.button]) -> ui.card:
                 func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fid_dir=0, types=types, mirror_left=mirror_left),
             ).props("square")
 
-def wall_spacing_card(action_btn_cls: type[ui.button]) -> ui.card:
+def wall_spacing_card(action_btn_cls: Any) -> None:
     with ui.card():
         ui.label("Wall spacing")
         with ui.row():
@@ -491,7 +493,7 @@ def wall_spacing_card(action_btn_cls: type[ui.button]) -> ui.card:
                 func=lambda data, **kwargs: _space_walls(data, interval=(4*data.bpm/60)/wall_limit.parsed_value),
             )
 
-card_funcs: tuple[Callable[[type[ui.button]], ui.card]] = (
+card_funcs: list[Callable[[Any], None]] = [
     offset_card,
     scaling_card,
     flatten_mirror_card,
@@ -500,7 +502,7 @@ card_funcs: tuple[Callable[[type[ui.button]], ui.card]] = (
     color_card,
     spiral_spike_card,
     wall_spacing_card,
-)
+]
 
 def _dashboard_tab():
     with ui.row().classes("mb-4"):

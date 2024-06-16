@@ -16,23 +16,25 @@ from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_lis
 from .. import synth_format, movement, pattern_generation
 
 def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
-    default_kwargs = {"tab_id": "wall_art", "width": 16}
+    default_kwargs: dict[str, str|int] = {"tab_id": "wall_art", "width": 16}
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 class LargeSwitch(ui.switch):
     def __init__(self, value: bool|None, storage_id: str, tooltip: str|None=None, color: str="primary", icon_unchecked: str|None=None, icon_checked: str|None=None, **kwargs):
-        super().__init__(value=value, **kwargs)
+        # ui.switch doesn't annotate tristate
+        super().__init__(value=value, **kwargs)  # type: ignore
         self.bind_value(app.storage.user, f"wall_art_{storage_id}")
         self.classes("my-auto")
         self.props(f'dense size="xl" color="{color}" keep-color' + (f' unchecked-icon="{icon_unchecked}"' if icon_unchecked is not None else '') + (f' checked-icon="{icon_checked}"' if icon_checked is not None else ''))
-        self.tooltip(tooltip)
+        if tooltip is not None:
+            self.tooltip(tooltip)
 
 @app.get("/image_proxy")
-def image_proxy(url:str):
+def image_proxy(url:str) -> Response:
     r = requests.get(url)
     return Response(content=r.content)
 
-def _wall_art_tab():
+def _wall_art_tab() -> None:
     preview_scene: MapScene|None = None
     refimg_obj: Texture|None = None
     walls: synth_format.WALLS = {}
@@ -40,8 +42,8 @@ def _wall_art_tab():
 
     @dataclass
     class Undo:
-        undo_stack: list[str, float, tuple[synth_format.WALLS], set[float]] = field(default_factory=list)
-        redo_stack: list[str, float, tuple[synth_format.WALLS], set[float]] = field(default_factory=list)
+        undo_stack: list[tuple[str, float, synth_format.WALLS, set[float]]] = field(default_factory=list)
+        redo_stack: list[tuple[str, float, synth_format.WALLS, set[float]]] = field(default_factory=list)
         max_steps: int = 50
 
         def reset(self):
@@ -88,14 +90,14 @@ def _wall_art_tab():
     class Selection:
         sources: set[float] = field(default_factory=set)
         cursors: dict[float, Extrusion] = field(default_factory=dict)
-        drag_time: float = None
+        drag_time: float|None = None
         offset: "np.array (3)" = field(default_factory=lambda: np.array([0.0, 0.0, 0.0]))
         mirrored: bool = False
         rotation: float = 0.0
         copy_button: bool = False
         axis_button: bool = False
 
-        def clear(self):
+        def clear(self) -> None:
             self.sources = set()
             if self.drag_time is not None:
                 # everything is parented to this one
@@ -109,7 +111,7 @@ def _wall_art_tab():
             self.mirrored = False
             self.rotation = 0
 
-        def copy_to_clipboard(self):
+        def copy_to_clipboard(self) -> None:
             # copy everything when nothing is selected
             wall_data = walls if not self.sources else {t: walls[t] for t in self.sources}
             synth_format.export_clipboard(synth_format.ClipboardDataContainer(walls=wall_data), False)
@@ -126,7 +128,7 @@ def _wall_art_tab():
             _soft_refresh()
             ui.notify(f"Deleted {len(ts)} walls", type="info")
 
-        def select(self, new_sources: set[float], mode: Literal["toggle", "expand", "set"]):
+        def select(self, new_sources: set[float], mode: Literal["toggle", "expand", "set"]) -> None:
             if mode == "toggle":
                 new_sources ^= self.sources
             elif mode == "expand" and self.sources:  # "expand" and nothing selected: "set"
@@ -146,8 +148,8 @@ def _wall_art_tab():
             self.sources = new_sources
             self._update_cursors()
 
-        def _update_cursors(self):
-            if not self.sources:
+        def _update_cursors(self) -> None:
+            if not self.sources or preview_scene is None:
                 return
             first = min(self.sources)
             copy_mode = self.copy_button ^ drag_copy.value
@@ -202,32 +204,32 @@ def _wall_art_tab():
                 else:
                     c.material(move_color.value, move_opacity.parsed_value)
 
-        def move(self, offset: "numpy array (3)"):
+        def move(self, offset: "numpy array (3)") -> None:
             self.offset += offset
             self._update_cursors()
 
-        def rotate(self, rotation: float):
+        def rotate(self, rotation: float) -> None:
             self.rotation += rotation if not self.mirrored else -rotation
             self._update_cursors()
 
-        def mirror(self, horizontal: bool):
+        def mirror(self, horizontal: bool) -> None:
             self.mirrored = not self.mirrored
             if horizontal:
                 self.rotation += 180
             self._update_cursors()
 
-        def set_copy_button(self, copy_button: bool):
+        def set_copy_button(self, copy_button: bool) -> None:
             if copy_button != self.copy_button:
                 self.copy_button = copy_button
                 self._update_cursors()
 
-        def set_axis_button(self, axis_button: bool):
+        def set_axis_button(self, axis_button: bool) -> None:
             if axis_button != self.axis_button:
                 self.axis_button = axis_button
                 self._update_cursors()
 
         @handle_errors
-        def apply(self):
+        def apply(self) -> None:
             nonlocal walls
             copy_mode = self.copy_button ^ drag_copy.value
             ops = [l for v, l in [(copy_mode, "copy"), (self.rotation, "rotate"), (self.mirrored, "mirror"), (np.any(self.offset), "offset")] if v]
@@ -246,7 +248,7 @@ def _wall_art_tab():
                 new_walls[w[0,2]] = w
                 new_sources |= {w[0,2]}
 
-            sym_ops: list[str|int] = []
+            sym_ops: list[Literal["mirror_x", "mirror_y"]|int] = []
             if mirror_x.value:
                 sym_ops.append("mirror_x")
             if mirror_y.value:
@@ -258,7 +260,7 @@ def _wall_art_tab():
                 else:
                     sym_ops.append(int(rsym))
             sym_interval = symmetry_step.parsed_value
-            new_walls |= pattern_generation.generate_symmetry(new_walls, sym_ops, sym_interval)
+            new_walls |= pattern_generation.generate_symmetry(source=new_walls, operations=sym_ops, interval=sym_interval)
                 
             for _, w in sorted(new_walls.items()):
                 _insert_wall(w, displace_forward=self.offset[2]>0)
@@ -266,7 +268,9 @@ def _wall_art_tab():
             self.select(new_sources, "set")
 
         @handle_errors
-        def start_drag(self, object_id: str):
+        def start_drag(self, object_id: str) -> None:
+            if preview_scene is None:
+                return
             copy_mode = self.copy_button ^ drag_copy.value
             for t, c in self.cursors.items():
                 if c.id == object_id:
@@ -294,7 +298,9 @@ def _wall_art_tab():
                         self.cursors[t] = e
             self._update_cursors()
 
-        def end_drag(self, xyt: tuple[float, float, float]):
+        def end_drag(self, xyt: tuple[float, float, float]) -> None:
+            if self.drag_time is None:
+                return
             self.offset = np.array(xyt) - walls[self.drag_time][0,:3]
             self.apply()
 
@@ -337,6 +343,7 @@ def _wall_art_tab():
             key_name = e.key.name.upper()  # key.name is upper/lowercase depending on shift
             # CTRL-independent
             if e.key.number in range(1, len(synth_format.WALL_LOOKUP)+1):
+                assert e.key.number is not None  # mypy doesn't unstand the range above
                 wall_type = sorted(synth_format.WALL_LOOKUP)[e.key.number-1]
                 _spawn_wall(wall_type=wall_type, change_selection=e.modifiers.ctrl, extend_selection=e.modifiers.shift)
             elif e.key.page_up or e.key.page_down:
@@ -411,7 +418,7 @@ def _wall_art_tab():
         except ParseInputError as pie:
             error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
             return
-    PreventDefaultKeyboard(on_key=_on_key, ignore=['input', 'select', 'button', 'textarea', "switch"]).bind_active_from(app.storage.user, "active_tab", backward=lambda v: v=="wall_art")
+    PreventDefaultKeyboard(on_key=_on_key).bind_active_from(app.storage.user, "active_tab", backward=lambda v: v=="wall_art")
     with ui.card():
         with ui.row():
             with ui.row():
@@ -436,7 +443,7 @@ def _wall_art_tab():
                         ui.tooltip("Number of rotational symmetry. Note that mirror in both X and Y overlaps with even symmetries, ie 2x/4x/etc")
                         rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-24").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
                         ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}").bind_visibility_from(rotsym_direction, "value", backward=lambda v: v is not None)
-                def _update_symex(_) -> None:
+                def _update_symex(_) -> str:
                     enabled = []
                     if mirror_x.value:
                         enabled.append("X")
@@ -486,7 +493,7 @@ def _wall_art_tab():
             return t
 
         @handle_errors
-        def _insert_wall(w: "np.array (1,5)", displace_forward: bool = False):
+        def _insert_wall(w: "np.array (1,5)", displace_forward: bool = False) -> None:
             if not displace.value:
                 walls[w[0,2]] = w
                 return
@@ -498,7 +505,7 @@ def _wall_art_tab():
             walls[pending[0,2]] = pending
 
         @handle_errors
-        def _spawn_wall(wall_type: int, change_selection: bool = False, extend_selection: bool = False):
+        def _spawn_wall(wall_type: int, change_selection: bool = False, extend_selection: bool = False) -> None:
             if change_selection:
                 if not selection.sources:
                     return
@@ -517,7 +524,7 @@ def _wall_art_tab():
                 selection.select({new_t}, mode="set" if not extend_selection else "toggle")
 
         @handle_errors
-        def _soft_refresh():
+        def _soft_refresh() -> None:
             nonlocal refimg_obj
             preview_settings = sp.parse_settings()
             if preview_scene is None:
@@ -531,12 +538,14 @@ def _wall_art_tab():
                         coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
                         pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
                         opacity = refimg_opacity.parsed_value
-                        refimg_obj = preview_scene.texture(f"/image_proxy?url={refimg_url.value}",coords).move(*pos).material(opacity=opacity)
+                        refimg_obj = preview_scene.texture(f"/image_proxy?url={refimg_url.value}",coords.tolist()).move(*pos).material(opacity=opacity)
                 wall_data = synth_format.DataContainer(walls=walls)
                 preview_scene.render(wall_data, preview_settings)
 
         @handle_errors
-        def _on_click(e: events.SceneClickEventArguments):
+        def _on_click(e: events.SceneClickEventArguments) -> None:
+            if preview_scene is None:
+                return
             nonlocal is_dragging
             if is_dragging or e.alt:
                 is_dragging = False
@@ -562,7 +571,7 @@ def _wall_art_tab():
 
         @ui.refreshable
         @handle_errors
-        def draw_preview_scene():
+        def draw_preview_scene() -> None:
             nonlocal preview_scene
             w = int(scene_width.parsed_value)
             h = int(scene_height.parsed_value)
@@ -633,7 +642,7 @@ def _wall_art_tab():
                     ui.tooltip().bind_text_from(undo, "redo_stack", backward=lambda rs: f"Redo '{rs[-1][0]}' (CTRL+Y) [{len(rs)} steps]" if rs else "Redo (CTRL+Y)")
                 ui.separator()
                 @handle_errors
-                def _paste():
+                def _paste() -> None:
                     with safe_clipboard_data(use_original=False, write=False) as data:
                         undo.push_undo("paste from clipboad")
                         walls.update(data.walls)
@@ -647,11 +656,15 @@ def _wall_art_tab():
                     ui.tooltip("Select all (CTRL+A)")
                 with ui.button(icon="content_copy", on_click=selection.copy_to_clipboard).style("width: 36px"):
                     ui.tooltip("Copy (CTRL+C)")
-                with ui.button(icon="clear", color="negative", on_click=lambda _: (undo.reset(), walls.clear(), _soft_refresh())).props("outline").style("width: 36px"):
+                def _clear() -> None:
+                    undo.reset()
+                    walls.clear()
+                    _soft_refresh()
+                with ui.button(icon="clear", color="negative", on_click=_clear).props("outline").style("width: 36px"):
                     ui.tooltip("Clear everything (includes undo steps)")
                 ui.separator()
                 @handle_errors
-                def _compress():
+                def _compress() -> None:
                     undo.push_undo("compress")
                     new_sources = set()
                     for i, (t, w) in enumerate(sorted(walls.items())):
@@ -677,23 +690,24 @@ def _wall_art_tab():
                     )
                     with ui.row():
                         blend_interval = make_input("Interval", "1/2", "blend_interval", tooltip="Interval between blending steps", suffix="b")
-                        def _do_blend():
+                        def _do_blend() -> None:
                             nonlocal walls
                             wc, pc, pl = blend_pattern.value
+                            error_data = [w.tolist() for w in walls.values()]
                             if len(walls) != wc*pc:
-                                error(f"Wall count changed! Expected {pc*wc}, found {len(walls)}", data=[w.tolist() for w in walls])
+                                error(f"Wall count changed! Expected {pc*wc}, found {len(walls)}", data=error_data)
                                 return
                             try:
                                 patterns = np.array([w[0] for _, w in sorted(walls.items())]).reshape((pc, wc, 5))
                                 interval = blend_interval.parsed_value
                             except ValueError as ve:
-                                error(f"Could not split up {len(walls)} walls into {pc} patterns with {wc} wall{'s'*(wc!=1)} each", ve, data=[w.tolist() for w in walls])
+                                error(f"Could not split up {len(walls)} walls into {pc} patterns with {wc} wall{'s'*(wc!=1)} each", ve, data=error_data)
                                 return
                             pattern_deltas = np.diff(patterns[:,0,2])
                             if pattern_deltas.max() <= interval:
                                 error(
                                     f"Blend interval ({pretty_fraction(interval)}b) must be greater than largest pattern distance ({pretty_fraction(pattern_deltas.max())}b), else blending will do nothing.",
-                                    data=[w.tolist() for w in walls],
+                                    data=error_data,
                                 )
                                 return
 
@@ -713,7 +727,7 @@ def _wall_art_tab():
                             try:
                                 walls |= pattern_generation.blend_walls_multiple(patterns, interval=interval)
                             except ValueError as ve:
-                                error("Error blending walls", ve, data=[w.tolist() for w in walls])
+                                error("Error blending walls", ve, data=error_data)
                                 return
                             added = len(walls)//patterns.shape[1] - patterns.shape[0]
                             ui.notify(f"Created {added} additional pattern{'s'*(added!=1)} between the existing {patterns.shape[0]}", type="info")
@@ -721,15 +735,16 @@ def _wall_art_tab():
                             blend_dialog.close()
                         ui.button(icon="blender", on_click=_do_blend).props("outline").classes("w-16 h-10")
 
-                def _open_blend_dialog():
+                def _open_blend_dialog() -> None:
+                    error_data = [w.tolist() for w in walls.values()]
                     if len(walls) < 2:
-                        error("Need at least two walls to do blending", data=[w.tolist() for w in walls])
+                        error("Need at least two walls to do blending", data=error_data)
                         return
                     # autodetect patterns
                     try:
                         detected_patterns = pattern_generation.find_wall_patterns(walls)
                     except ValueError as ve:
-                        error(f"Could not detect patterns in walls: {ve}", data=[w.tolist() for w in walls])
+                        error(f"Could not detect patterns in walls: {ve}", data=error_data)
                         return
                     blend_dialog.open()
                     blend_pattern.set_options({
@@ -749,7 +764,7 @@ def _wall_art_tab():
                 with ui.button(icon="delete", color="negative", on_click=selection.delete).style("width: 36px").bind_enabled_from(selection, "sources", backward=bool):
                     ui.tooltip("Delete selection (Delete/Backspace)")
                 for k, (i, t) in enumerate(sorted(synth_format.WALL_LOOKUP.items())):
-                    def _add_wall(e: events.GenericEventArguments, wall_type=i):
+                    def _add_wall(e: events.GenericEventArguments, wall_type=i) -> None:
                         # python closure doesn't work as needed here, so enclose i as default param instead
                         _spawn_wall(wall_type=wall_type, change_selection=e.args["ctrlKey"], extend_selection=e.args["shiftKey"])
                     with ui.button(color="positive").on("click", _add_wall).classes("p-2"):

@@ -23,7 +23,7 @@ class PlotDataContainer:
 
     def __post_init__(self) -> None:
         self.max_value = self.plot_data[:,1].max() if self.plot_data.shape[0] else 0.0
-        self.plot_times = list(map(datetime.utcfromtimestamp, self.plot_data[:,0]))
+        self.plot_times = [np.datetime64(datetime.utcfromtimestamp(t)) for t in self.plot_data[:,0]]
 
 
 def density(times: list[float], window: float) -> PlotDataContainer:
@@ -57,7 +57,7 @@ def density(times: list[float], window: float) -> PlotDataContainer:
         plot_data=np.array(out)
     )
 
-def wall_mode(highest_density: int, *, combined: bool) -> str:
+def wall_mode(highest_density: float, *, combined: bool) -> str:
     mode = "OK"
     if combined:
         if highest_density >= QUEST_RENDER_LIMIT:
@@ -68,7 +68,7 @@ def wall_mode(highest_density: int, *, combined: bool) -> str:
         if highest_density >= PC_TYPE_DESPAWN:
             mode = "PC-Despawn"
 
-    return f"{mode}, max {highest_density}"
+    return f"{mode}, max {highest_density:.3f}"
 
 def note_densities(data: DataContainer) -> dict[str, dict[str, PlotDataContainer]]:
     window_b = RENDER_WINDOW*data.bpm/60
@@ -148,10 +148,9 @@ def find_bpm(onsets: "numpy array (m,)", sr: int) -> "numpy array (m,), numpy ar
     # bpms, normalized bpm strength, pulse curve
     return np.array(bpm_peaks), librosa.util.normalize(np.array(bpm_peak_values)), librosa.util.normalize(pulse)
 
-def group_bpm(bpms: "numpy array (m,)", bpm_strengths: "numpy array (m,)", max_jump: float=0.1, min_len_ratio: float=0.01) -> list[tuple[int, int, float, float]]:
+def group_bpm(bpms: "numpy array (m,)", bpm_strengths: "numpy array (m,)", max_jump: float=0.1, min_len_ratio: float=0.01) -> tuple[float, list[tuple[int, int, float, float]]]:
     min_len = np.ceil(bpms.shape[-1] * min_len_ratio)
-    jumps = np.argwhere(np.abs(np.diff(bpms, prepend=bpms[0])) > max_jump)
-    jumps = [idx[0] for idx in jumps]
+    jumps = [idx[0] for idx in np.argwhere(np.abs(np.diff(bpms, prepend=bpms[0])) > max_jump)]
 
     out: list[tuple[int, int, float, float]] = []
     max_str = 0

@@ -37,7 +37,7 @@ Z_MULTIPLIER = 20
 NOTE_TYPES = ("right", "left", "single", "both")
 NOTE_TYPE_STRINGS = ("RightHanded", "LeftHanded", "OneHandSpecial", "BothHandsSpecial")
 # Note: wall offsets are eyeballed
-WALL_TYPES = {
+WALL_TYPES: dict[str, tuple[int, list[float]]] = {
     # name: (index, center_offset)
     # index 0-4 are the same "slideType" used in the JSON in the "slides" list
     "wall_right": (0, [4.05, -1.85]),
@@ -71,7 +71,7 @@ WALL_SYMMETRY = {
     "square": 90,
     "triangle": 120,
 }
-SLIDE_TYPES = [name for name, (id, _) in WALL_TYPES.items() if id < 100]
+SLIDE_TYPES = tuple(name for name, (id, _) in WALL_TYPES.items() if id < 100)
 LEFT_WALLS = [id for name, (id, _) in WALL_TYPES.items() if "left" in name]
 WALL_VERTS = {
     "angle_right": (
@@ -114,7 +114,7 @@ META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 BETA_WARNING_SHOWN = False
 
 class JSONParseError(ValueError):
-    def __init__(self, d: dict, t: str) -> None:
+    def __init__(self, d: dict|list, t: str) -> None:
         super().__init__()
         self.dict = d
         self.type = t
@@ -161,10 +161,10 @@ class _TrueInt(int):
         return True
 class _NonAsciiStr(str):
     # this makes it think the filename is not ascii, so it adds the UTF8 flag
-    def encode(self, encoding: str = None) -> bytes:
+    def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
         if encoding == "ascii":
             raise UnicodeEncodeError(encoding, self, 0, 0, "dummy error to trick ZipFile._open_to_write")
-        return super().encode(encoding=encoding)
+        return super().encode(encoding=encoding, errors=errors)
     
 
 @dataclasses.dataclass
@@ -183,14 +183,12 @@ class DataContainer:
         # truthy when there is *any* object in any of the dicts
         return any(bool(getattr(self, f)) for f in NOTE_TYPES + ("walls", "lights", "effects"))
 
-    def get_counts(self) -> dict[str, dict[str, int]]:
-        out = {
+    def get_counts(self) -> dict[str, dict[str, int]|int]:
+        out: dict[str, dict[str, int]] = {
             "walls": {k: 0 for k in WALL_TYPES},
             "notes": {},
             "rails": {},
             "rail_nodes": {},
-            "lights": len(self.lights),
-            "effects": len(self.effects),
         }
         for wall in self.walls.values():
             out["walls"][WALL_LOOKUP[wall[0, 3]]] += 1
@@ -202,12 +200,12 @@ class DataContainer:
             out["rail_nodes"][t] = sum(n_nodes) - len(n_nodes)
         for e in ("walls", "notes", "rails", "rail_nodes"):
             out[e]["total"] = sum(out[e].values())
-        return out
+        return out | {"lights": len(self.lights), "effects": len(self.effects)}
 
     # Note: None of these functions are allowed to *modify* the dicts, instead they must create new dicts
     # This avoids requring deep copies for everything
 
-    def apply_for_notes(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_notes(self, f, *args, types: tuple[str, ...] = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
         for t in NOTE_TYPES:
             if t not in types:
                 continue
@@ -218,7 +216,7 @@ class DataContainer:
                 out[out_nodes[0, 2]] = out_nodes
             setattr(self, str(t), out)
 
-    def apply_for_walls(self, f, *args, types: list = WALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_walls(self, f, *args, types: tuple[str, ...] = tuple(WALL_TYPES), mirror_left: bool = False, **kwargs) -> None:
         wall_types = [WALL_TYPES[t][0] for t in WALL_TYPES if t in types]
         out_walls = {}
         for time_index, wall in sorted(self.walls.items()):
@@ -229,7 +227,7 @@ class DataContainer:
                 out_walls[time_index] = wall
         self.walls = out_walls
 
-    def apply_for_all(self, f, *args, types: list = ALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_all(self, f, *args, types: tuple[str, ...] = ALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
         self.apply_for_notes(f, *args, types=types, mirror_left=mirror_left, **kwargs)
         self.apply_for_walls(f, *args, types=types, mirror_left=mirror_left, **kwargs)
         for t in ("lights", "effects"):
@@ -244,13 +242,13 @@ class DataContainer:
 
 
     # used when the functions needs access to all notes and rails of a color at once
-    def apply_for_note_types(self, f, *args, types: list = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_note_types(self, f, *args, types: tuple[str, ...] = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
         for t in types:
             if t not in NOTE_TYPES:
                 continue
             setattr(self, t, f(getattr(self, t), *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs))
 
-    def filtered(self, types: list = ALL_TYPES) -> "DataContainer":
+    def filtered(self, types: tuple[str, ...] = ALL_TYPES) -> "DataContainer":
         replacement = {
             t: getattr(self, t) if t in types else {}
             for t in NOTE_TYPES
@@ -283,7 +281,7 @@ class DataContainer:
         }
 
     def to_clipboard_json(self, realign_start: bool = True) -> str:
-        clipboard = {
+        clipboard: dict[str, Any] = {
             "BPM": self.bpm,
             "startMeasure": 0,
             "startTime": 0,
@@ -300,8 +298,8 @@ class DataContainer:
         if isinstance(self, ClipboardDataContainer) and self.original_json:
             clipboard["original_json"] = self.original_json
 
-        first = 99999
-        last = -99999
+        first = 99999.0
+        last = -99999.0
         for note_type, notes in enumerate((self.right, self.left, self.single, self.both)):
             type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
             for time_index, nodes in notes.items(): 
@@ -376,7 +374,7 @@ class ClipboardDataContainer(DataContainer):
         left: SINGLE_COLOR_NOTES = {}
         single: SINGLE_COLOR_NOTES = {}
         both: SINGLE_COLOR_NOTES = {}
-        notes_lookup: tuple[SINGLE_COLOR_NOTES] = (right, left, single, both)
+        notes_lookup: tuple[SINGLE_COLOR_NOTES, SINGLE_COLOR_NOTES, SINGLE_COLOR_NOTES, SINGLE_COLOR_NOTES] = (right, left, single, both)
         for time_index, time_notes in clipboard["notes"].items():
             for note in time_notes:
                 note_type, nodes = note_from_synth(bpm, startMeasure, note)
@@ -445,11 +443,11 @@ class SynthFile:
     bookmarks: dict[float, str]
     difficulties: dict[str, DataContainer]
 
-    errors: dict[str, list[tuple[str, JSONParseError]]]
+    errors: dict[str, list[tuple[JSONParseError, str]]]
     offset_ms: int
 
     @staticmethod
-    def empty_from_audio(audio_file: Union[Path, BytesIO], *, filename: str = None, name: str = None, artist: str = "unknown artist", mapper: str = "your name here") -> "SynthFile":
+    def empty_from_audio(audio_file: Union[Path, BytesIO], *, filename: str|None = None, name: str|None = None, artist: str = "unknown artist", mapper: str = "your name here") -> "SynthFile":
         raw_data = audio_file.read_bytes() if isinstance(audio_file, Path) else audio_file.read()
         audio = AudioData.from_raw(raw_data, allow_conversion=True)
         if filename is None:
@@ -485,7 +483,7 @@ class SynthFile:
 
     @staticmethod
     def from_synth(synth_file: Union[Path, BytesIO]) -> "SynthFile":
-        errors: dict[str, list[tuple[str, JSONParseError]]] = {}
+        errors: dict[str, list[tuple[JSONParseError, str]]] = {}
         with zipfile.ZipFile(synth_file) as inzip:
             # load beatmap json
             beatmap = json.loads(inzip.read(BEATMAP_JSON_FILE))
@@ -494,9 +492,13 @@ class SynthFile:
         bpm: float = beatmap["BPM"]
         difficulties: dict[str, DataContainer] = {}
         for diff in DIFFICULTIES:
-            diff_removed : list[tuple[str, JSONParseError]] = []
+            diff_removed : list[tuple[JSONParseError, str]] = []
             # r, l, s, b
-            notes: list[SINGLE_COLOR_NOTES] = [{} for _ in range(4)]
+            right: SINGLE_COLOR_NOTES = {}
+            left: SINGLE_COLOR_NOTES = {}
+            single: SINGLE_COLOR_NOTES = {}
+            both: SINGLE_COLOR_NOTES = {}
+            notes_lookup: tuple[SINGLE_COLOR_NOTES, SINGLE_COLOR_NOTES, SINGLE_COLOR_NOTES, SINGLE_COLOR_NOTES] = (right, left, single, both)
             for time, time_notes in beatmap["Track"][diff].items():
                 time_types = set()
                 for note in time_notes:
@@ -505,7 +507,7 @@ class SynthFile:
                         if note_type in time_types:
                             raise JSONParseError(note, "duplicate note type")
                         time_types.add(note_type)
-                        notes[note_type][nodes[0,2]] = nodes
+                        notes_lookup[note_type][nodes[0,2]] = nodes
                     except JSONParseError as jpe:
                         try:
                             time = f"{time} (measure {float(time)/64})"
@@ -553,8 +555,8 @@ class SynthFile:
                 for b in [round_time_to_fractions(t / 64)]
             }
             # add difficulty when there is a note of any type, a wall or lights/effects
-            if any(notes) or walls or lights or effects:
-                difficulties[diff] = DataContainer(bpm, *notes, walls, lights, effects)
+            if any(notes_lookup) or walls or lights or effects:
+                difficulties[diff] = DataContainer(bpm=bpm, right=right, left=left, single=single, both=both, walls=walls, lights=lights, effects=effects)
 
             if diff_removed:
                 errors[diff] = diff_removed
@@ -595,7 +597,7 @@ class SynthFile:
         ]
         safe_audio_name = self.meta.get_safe_name(self.audio.raw_data)
         now = datetime.datetime.now(datetime.timezone.utc)
-        out_beatmap = {
+        out_beatmap: dict[str, Any] = {
             "Name": self.meta.name,
             "Author": self.meta.artist,
             "Artwork": self.meta.cover_name,
@@ -635,9 +637,9 @@ class SynthFile:
 
         # fill per-difficulty arrays/dicts
         for diff, data in self.difficulties.items():
-            new_notes = {}
+            new_notes: dict[float, list[dict]] = {}
             for note_type, notes in enumerate((data.right, data.left, data.single, data.both)):
-                type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
+                type_notes: dict[float, dict] = {}  # buffer single type to avoid multiple of the same type at the same time
                 for time_index, nodes in sorted(notes.items()):
                     type_notes[round_tick_for_json_index(time_index * 64)] = note_to_synth(data.bpm, note_type, nodes)
                 for time_tick, synth_dict in sorted(type_notes.items()):
@@ -650,7 +652,7 @@ class SynthFile:
                         | {"Direction": 0}
                     )
             out_beatmap["Track"][diff] = {k: v for k,v in sorted(new_notes.items())}
-            walls = {
+            walls: dict[str, list[dict]] = {
                 "crouchs": [],
                 "squares": [],
                 "triangles": [],
@@ -723,10 +725,10 @@ class SynthFile:
             for c in self.difficulties.values():
                 c.change_bpm(bpm)
 
-    def offset_everything(self, delta_s: float = None, delta_b: float = None) -> None:
-        if delta_s is not None == delta_b is not None:
+    def offset_everything(self, delta_s: float|None = None, delta_b: float|None = None) -> None:
+        if (delta_s is not None) == (delta_b is not None):
             raise ValueError("Specify either delta_s or delta_b")
-        if delta_b is None:
+        elif delta_b is None and delta_s is not None:
             delta_b = second_to_beat(delta_s, self.bpm)
         if delta_b:
             self.bookmarks = {
@@ -810,7 +812,7 @@ def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> di
     }
 
 # full wall dict
-def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> tuple[int, "numpy array (1, 5)"]:
+def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> "numpy array (1, 5)":
     if wall_type not in WALL_LOOKUP:
         raise JSONParseError(wall_dict, "wall") from ValueError(f"Unexpected wall type ({wall_type})")
     return np.concatenate((

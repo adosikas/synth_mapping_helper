@@ -61,7 +61,7 @@ def generate_text(
         lr += letter_rotation
 
 def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
-    default_kwargs = {"tab_id": "text_gen", "width": 20}
+    default_kwargs: dict[str, str|int] = {"tab_id": "text_gen", "width": 20}
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 def _text_gen_tab() -> None:
@@ -92,8 +92,10 @@ def _text_gen_tab() -> None:
                     except Exception as e:
                         return False
                 font_input = ui.input("Font (clipboard JSON)", value=DEFAULT_FONT, validation={"Invalid clipboard content": _is_valid_clipboard}).props("dense").classes("w-full h-full").bind_value(app.storage.user, "text_gen_font")
-            
-            with ui.button(icon="format_size", on_click=lambda: (font_dialog.open(),font_input.update()), color="info").classes("cursor-text").style("width: 36px"):
+            def _open_font_dialog() -> None:
+                font_dialog.open()
+                font_input.update()
+            with ui.button(icon="format_size", on_click=_open_font_dialog, color="info").classes("cursor-text").style("width: 36px"):
                 ui.tooltip("Edit font")
         ui.separator()
         with ui.row():

@@ -22,7 +22,7 @@ def _movement_helper(data: synth_format.DataContainer, mirror_left: bool, base_f
     else:
         data.apply_for_all(base_func, *args, mirror_left=mirror_left, **kwargs)
 
-def do_movement(options, data: synth_format.DataContainer, filter_types: list = synth_format.ALL_TYPES) -> None:
+def do_movement(options, data: synth_format.DataContainer, filter_types: tuple[str, ...] = synth_format.ALL_TYPES) -> None:
     common_args = dict(relative=options.relative, pivot=np.array(options.pivot), mirror_left=options.mirror_left, types=filter_types)
     if options.scale is not None:
         data.apply_for_all(movement.scale, scale_3d=options.scale, **common_args)
@@ -35,7 +35,7 @@ def do_movement(options, data: synth_format.DataContainer, filter_types: list = 
     if options.outset is not None:
         data.apply_for_all(movement.outset, outset_scalar=options.outset, **common_args)
 
-def do_random_movement(options, data: synth_format.DataContainer, filter_types: list = synth_format.ALL_TYPES) -> None:
+def do_random_movement(options, data: synth_format.DataContainer, filter_types: tuple[str, ...] = synth_format.ALL_TYPES) -> None:
     if options.rotate_random is not None:
         if len(options.rotate_random) == 1:
             area = options.rotate_random[0]

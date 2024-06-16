@@ -31,19 +31,21 @@ def circerror(values: "numpy array (n,)", target: float, high: float) -> "numpy 
     # now get the delta from high/2, and transform into 0 (equal) to 1 (opposite)
     return np.abs(shifted_delta-high/2) / (high/2)
 
-def _file_utils_tab():
+def _file_utils_tab() -> None:
     @dataclasses.dataclass
     class FileInfo:
         data: Optional[synth_format.SynthFile] = None
         output_filename: str = "No file selected"
         output_bpm: float = 0.0
-        output_offset: float = 0.0
+        output_offset: int = 0
         output_finalize: bool = False
         preview_audio: Optional[tuple[str, bytes]] = None
+        # [diff][type]
         wall_densities: Optional[dict[str, dict[str, analysis.PlotDataContainer]]] = None
-        note_densities: Optional[dict[str, dict[str, analysis.PlotDataContainer]]] = None
+        # [diff][color][subtype]
+        note_densities: Optional[dict[str, dict[str, dict[str, analysis.PlotDataContainer]]]] = None
         bpm_scan_data: Optional[dict] = None
-        merged_filenames: Optional[list[str]] = None
+        merged_filenames: list[str] = dataclasses.field(default_factory=list)
 
         @property
         def is_valid(self) -> bool:
@@ -53,8 +55,8 @@ def _file_utils_tab():
             self.data = None
             self.output_filename = "No base file selected"
             self.output_bpm = 0.0
-            self.output_offset = 0.0
-            self.merged_filenames = None
+            self.output_offset = 0
+            self.merged_filenames = []
             self.bpm_scan_data = None
             self.wall_densities = None
             self.note_densities = None
@@ -62,7 +64,8 @@ def _file_utils_tab():
 
         @handle_errors
         async def upload(self, e: events.UploadEventArguments) -> None:
-            e.sender.reset()
+            upl: ui.upload = e.sender  # type:ignore
+            upl.reset()
             self.clear()
             if e.name.endswith(".synth"):
                 self.data = try_load_synth_file(e)
@@ -89,7 +92,10 @@ def _file_utils_tab():
 
         @handle_errors
         def upload_merge(self, e: events.UploadEventArguments) -> None:
-            e.sender.reset()
+            upl: ui.upload = e.sender  # type:ignore
+            upl.reset()
+            if self.data is None:
+                return
             merge = try_load_synth_file(e)
             if merge is None:
                 return
@@ -101,7 +107,10 @@ def _file_utils_tab():
             self.refresh()
 
         def upload_cover(self, e: events.UploadEventArguments) -> None:
-            e.sender.reset()
+            upl: ui.upload = e.sender  # type:ignore
+            upl.reset()
+            if self.data is None:
+                return
             if not e.name.lower().endswith(".png"):
                 error("Cover image must be .png")
                 return
@@ -112,7 +121,10 @@ def _file_utils_tab():
 
         @handle_errors
         async def upload_audio(self, e: events.UploadEventArguments) -> None:
-            e.sender.reset()
+            upl: ui.upload = e.sender  # type:ignore
+            upl.reset()
+            if self.data is None:
+                return
             try:
                 raw_data = e.content.read()
                 try:
@@ -138,11 +150,13 @@ def _file_utils_tab():
 
         @handle_errors
         def save(self) -> None:
+            if self.data is None:
+                return
             if self.output_bpm is None or not self.output_bpm > 0:
-                error("BPM must be greater than 0", data=bpm)
+                error("BPM must be greater than 0", data=self.output_bpm)
                 return
             if self.output_offset is None or self.output_offset < 0:
-                error("Offset must be 0 or greater", data=offset)
+                error("Offset must be 0 or greater", data=self.output_offset)
                 return
             if self.output_bpm != self.data.bpm:
                 self.data.change_bpm(self.output_bpm)
@@ -186,6 +200,8 @@ def _file_utils_tab():
             self._nden_card.refresh()
 
         async def add_silence(self, before_start_ms: int=0, after_end_ms: int=0) -> None:
+            if self.data is None:
+                return
             self.bpm_scan_data = {"state": "Waiting"}
             self._bpm_card.refresh()
             # note: this edits the object, so it cannot easily be offloaded to another process
@@ -196,6 +212,8 @@ def _file_utils_tab():
 
         @ui.refreshable
         def _audio_info(self) -> None:
+            if self.data is None:
+                return
             default_source = "data:audio/ogg;base64,"+base64.b64encode(self.data.audio.raw_data).decode()
             preview_audio = ui.audio(default_source)
             with ui.row():
@@ -284,9 +302,14 @@ def _file_utils_tab():
                             self.output_offset = 0
                         with ui.button("2s", icon="bookmark_added", color="positive", on_click=_align_bookmark).props("dense").bind_enabled_from(self.data, "bookmarks"):
                             ui.tooltip().bind_text_from(self.data, "bookmarks", backward=lambda b: "Align first bookmark with 2 second mark" + ("" if b else " (no bookmarks found)"))
-                ui.button(icon="settings_ethernet", color="info", on_click=lambda: (pad_dialog.open(), pad_dialog.update())).props("dense").classes("w-8 my-auto").tooltip("Pad or trim audio")
+                def _open_pad_dialog() -> None:
+                    pad_dialog.open()
+                    pad_dialog.update()
+                ui.button(icon="settings_ethernet", color="info", on_click=_open_pad_dialog).props("dense").classes("w-8 my-auto").tooltip("Pad or trim audio")
                 ui.separator().props("vertical")
                 async def _add_clicks(e: events.ClickEventArguments):
+                    if self.data is None:
+                        return
                     bpm = self.output_bpm
                     offset = self.output_offset
                     if bpm is None or not bpm > 0:
@@ -295,7 +318,7 @@ def _file_utils_tab():
                     if offset is None or offset < 0:
                         error("Offset must be 0 or greater", data=offset)
                         return
-                    btn: ui.button = e.sender
+                    btn: ui.button = e.sender  # type: ignore
                     btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
                     try:
                         data = await run.cpu_bound(audio_format.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
@@ -326,7 +349,7 @@ def _file_utils_tab():
         async def _calc_bpm(self):
             sd = self.bpm_scan_data  # create a pointer to avoid messing up data when it gets replaced during calc
             sd["state"] = "Loading Audio"
-            data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=fi.data.audio.raw_data)
+            data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=self.data.audio.raw_data)
             sd["data"] = data
             sd["sr"] = sr
             sd["state"] = "Detecting Onsets"
@@ -538,7 +561,7 @@ def _file_utils_tab():
         @ui.refreshable
         def _wden_card(self) -> None:
             ui.label("Wall density")
-            if self.wall_densities is None:
+            if self.data is None or self.wall_densities is None:
                 ui.spinner(size="xl")
                 return
             wfig = go.Figure(
@@ -584,7 +607,7 @@ def _file_utils_tab():
         @ui.refreshable
         def _nden_card(self) -> None:
             ui.label("Note & Rail density")
-            if self.wall_densities is None:
+            if self.data is None or self.note_densities is None:
                 ui.spinner(size="xl")
                 return
             # mostly the same thing as walls, but for combined notes and rail nodes

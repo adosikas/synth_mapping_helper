@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Union
 
 import numpy as np
 
@@ -30,7 +30,7 @@ def spiral(
     rot = np.arange(length) / fidelity  # in rotations, ie 1.0 = 360°
     if length % 1:
         # add a partial angle at the end
-        rot = np.concatenate((rot, [(length / fidelity)]))
+        rot = np.concatenate((rot, np.array([(length / fidelity)])))
     return angle_to_xy(rot * 360 + start_angle)
 
 def add_spiral(nodes: "numpy array (n, 3)", fidelity: float, radius: float, start_angle: float = 0.0, direction: int = 1) -> "numpy array (n, 3)":
@@ -121,7 +121,7 @@ def find_wall_patterns(walls: WALLS) -> list[tuple[int, int, float]]:
         return out
     raise ValueError(f"Could not find any pattern of type AND timing that repeats consistently")
 
-def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)", interval: float, with_symmetry: bool=True) -> dict[str, "numpy array (1, 5)"]:
+def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)", interval: float, with_symmetry: bool=True) -> dict[float, "numpy array (1, 5)"]:
     """create blending substeps between two patterns
     
     first and second must be numpy arrays of the patterns (each with n walls)
@@ -134,7 +134,7 @@ def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)",
         raise ValueError("Patterns have mismatched timing")
     time_offsets = bounded_arange(0, delta_t, interval)
 
-    out_walls = {}
+    out_walls: dict[float, "numpy array (1, 5)"] = {}
 
     for f, s in zip(first, second):
         sym = WALL_SYMMETRY[WALL_LOOKUP[f[3]]] if with_symmetry else 360
@@ -159,14 +159,14 @@ def blend_wall_single(first: "numpy array (n, 5)", second: "numpy array (n, 5)",
                 out_walls[new[0,2]] = new
     return out_walls
 
-def blend_walls_multiple(patterns: list["numpy array (n, 5)"], interval: float, with_symmetry: bool=True) -> dict[str, "numpy array (1, 5)"]:
+def blend_walls_multiple(patterns: "numpy array (m,n,5)", interval: float, with_symmetry: bool=True) -> dict[float, "numpy array (1, 5)"]:
     """calls blend_wall_single to blending between multiple patterns, each with n walls"""
-    out_walls = {}
+    out_walls: dict[float, "numpy array (x*n, 5)"] = {}
     for first, second in zip(patterns[:-1], patterns[1:]):
         out_walls |= blend_wall_single(first, second, interval=interval, with_symmetry=with_symmetry)
     return out_walls
 
-def generate_symmetry(source: dict[str, "numpy array (n, 5)"], operations: list[Literal["mirror_x", "mirror_y"]|int], interval: float, pivot_3d: "numpy_array (3)" = np.zeros((3,))) -> dict[str, "numpy array (n, 5)"]:
+def generate_symmetry(source: dict[float, "numpy array (n, 5)"], operations: list[Literal["mirror_x", "mirror_y"]|int], interval: float, pivot_3d: "numpy_array (3)" = np.zeros((3,))) -> dict[float, "numpy array (n, 5)"]:
     out = source.copy()
     offset = np.array([0.0,0.0,interval,0.0,0.0])
     counter = 1

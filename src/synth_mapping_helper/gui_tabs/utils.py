@@ -28,7 +28,7 @@ __all__ = [
 logger = logging.getLogger("SMH-GUI")
 wiki_base = "https://github.com/adosikas/synth_mapping_helper/wiki"
 
-last_error: Optional[tuple[str, Exception, Any, Any, datetime]] = None
+last_error: Optional[tuple[str, Exception|None, Any, Any, datetime.datetime]] = None
 
 @dataclass
 class GUITab:
@@ -61,11 +61,11 @@ class SMHInput(ui.input):
         tooltip: Optional[str] = None,
         suffix: Optional[str] = None,
         negate_icons: dict[int, str]|None = None,
-        on_parsed_value_change: Optional[None] = None,
+        on_parsed_value_change: Optional[Callable[[float], None]] = None,
         tab_id: Optional[str] = None,
         width: int = 12,
         height: int = 10,
-        **input_kwargs,
+        **input_kwargs: Any,
     ):
         self.on_parsed_value_change = on_parsed_value_change
         super().__init__(label=label, value=str(default_value), **input_kwargs)
@@ -90,6 +90,8 @@ class SMHInput(ui.input):
                     return val[1:]
                 return "-" + val
             def _get_icon(val: str|None) -> str:
+                if not val:  # empty string or None
+                    return negate_icons[0]
                 try:
                     v = utils.parse_number(val)
                 except ValueError:
@@ -122,7 +124,7 @@ class SMHInput(ui.input):
         try:
             return utils.parse_number(self.value)
         except ValueError as ve:
-            raise ParseInputError(input_id=self.storage_id, value=self.value, exc=ve) from ve
+            raise ParseInputError(input_id=self.storage_id or "input", value=self.value, exc=ve) from ve
 
 class PrettyJSONResponse(Response):
     media_type = "application/json"
@@ -187,7 +189,8 @@ def try_load_synth_file(e: events.UploadEventArguments) -> Optional[synth_format
         data = synth_format.import_file(BytesIO(e.content.read()))
     except Exception as exc:
         msg = f"Error reading {e.name} as SynthFile"
-        e.sender.reset()
+        upl: ui.upload = e.sender  # type: ignore
+        upl.reset()
         error(msg, exc)
         return None
     if data.errors:
@@ -249,7 +252,7 @@ def write_clipboard(text: str) -> None:
 
 # like synth_format.clipboard_data, but reporting errors
 @contextmanager
-def safe_clipboard_data(use_original: bool = False, realign_start: bool = True, write: bool = True) -> Generator[Optional[synth_format.ClipboardDataContainer], None, None]:
+def safe_clipboard_data(use_original: bool = False, realign_start: bool = True, write: bool = True) -> Generator[synth_format.ClipboardDataContainer, None, None]:
     try:
         clipboard_in = read_clipboard()
     except RuntimeError as re:

@@ -21,10 +21,6 @@ from . import movement, synth_format, utils, __version__
 from .rails import interpolate_spline
 from .synth_format import DataContainer, SynthFile
 
-@FuncFormatter
-def min_sec_formatter(x, _) -> str:
-    f"{int(x//60):d}:{int(x%60):02d}{'.{:03d}'.format(int((x%1)*1000)) if x%1 else ''}"
-
 NOTE_COLORS = {"right": "red", "left": "cyan", "single": "lime", "both": "gold"}
 
 RENDER_WINDOW = 4  # 4 seconds of elements are rendered
@@ -100,14 +96,14 @@ def prepare_data(data: DataContainer, options) -> tuple[
 ]:
     # NOTES DATA
     velocity_window_beats = utils.second_to_beat(options.velocity_window, data.bpm)
-    note_out = []
+    note_out: list[tuple["rails", "positions", "velocity", "acceleration"]] = []
     for t, note_type in enumerate(synth_format.NOTE_TYPES):
         rails: list["xyz"] = []
         pos_dict: dict[float, "xyz"] = {}
         notes_dict = getattr(data, note_type)
         if not notes_dict:
             # early abort when there are no notes
-            note_out.append((np.zeros((0,3)), np.zeros((0,2)), np.zeros((0,2)), np.zeros((0,2))))
+            note_out.append(([], np.zeros((0,2)), np.zeros((0,2)), np.zeros((0,2))))
             continue
         
         # first, dump all notes and rails nodes into a dict, to get positions over time
@@ -153,7 +149,10 @@ def prepare_data(data: DataContainer, options) -> tuple[
         acc = delta_vel[:, :2] / avg_delta_t ** 2
         note_out.append((rails, pos, vel, acc))
 
-    wall_out = []
+    wall_out: list[tuple[  # wall data (pc + quest)
+        tuple["pc_density", "pc_ok", "pc_despawn"],
+        tuple["quest_density", "quest_ok", "quest_despawn", "quest_hidden"]
+    ]] = []
     
     # walls
     all_walls: dict[str, list[float]] = {
@@ -174,8 +173,8 @@ def prepare_data(data: DataContainer, options) -> tuple[
     quest_wall_delay_beats = utils.second_to_beat(QUEST_WALL_DELAY, data.bpm)
 
     for wall_type in synth_format.WALL_TYPES:
-        pc_density: list[tuple[float, int]] = []
-        quest_density: list[tuple[float, int]] = []
+        pc_density: list[tuple[float, int|float]] = []
+        quest_density: list[tuple[float, int|float]] = []
 
         pc_ok: list[float] = []
         pc_despawn: list[float] = []
@@ -304,7 +303,7 @@ def plot_walls(options, fig, infile: SynthFile, data: DataContainer, prepared_da
     ax_status.set_ylim((-0.5,9))
 
     wall_markers = {
-        # type: (marker shape, marker fill, y-slot in type plot)
+        # wall_type: (marker_shape, marker_fill, y-slot in type plot)
         "wall_left": ("s", "left", 7),
         "wall_right": ("s", "right", 6),
         "angle_left": ("o", "left", 5),

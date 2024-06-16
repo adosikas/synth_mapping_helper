@@ -53,7 +53,7 @@ class AudioData:
 
 def load_for_analysis(raw_data: bytes) -> tuple["numpy array (f,)", int]:
     data, sr = librosa.load(BytesIO(raw_data))  # load with default samplerate and as mono
-    return data, sr
+    return data, int(sr)
 
 def export_ogg(data: "numpy array (c, s)|(s,)", samplerate: int = 22050) -> bytes:
     # librosa uses channels x samples instead of samples x channels, so transpose
@@ -84,7 +84,7 @@ def audio_with_clicks(raw_audio_data: bytes, duration: float, bpm: float, offset
     beat_time = 60/bpm
     data, sr = librosa.load(BytesIO(raw_audio_data))
     clicks = librosa.clicks(times=np.arange(beat_time-(offset_ms/1000)%beat_time, duration, beat_time), length=len(data), sr=sr)
-    return export_ogg(data+clicks, samplerate=sr)
+    return export_ogg(data+clicks, samplerate=int(sr))
 
 def find_trims(raw_audio_data: bytes) -> tuple[float, float]:
     data, sr = librosa.load(BytesIO(raw_audio_data))

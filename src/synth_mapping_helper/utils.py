@@ -70,7 +70,7 @@ def parse_xy_range(val: str) -> tuple[tuple[float, float], tuple[float, float]]:
         y = parse_range(split[1])
     except ValueError:
         raise ValueError("Error parsing y range")
-    return np.array((x, y)).transpose()
+    return ((x[0], y[0]), (x[1], y[1]))
 
 
 class SecondFloat:
@@ -81,9 +81,6 @@ class SecondFloat:
         return second_to_beat(self.val, bpm)
     def __str__(self) -> str:
         return f"{self.val}s"
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self})"
-
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self})"
 

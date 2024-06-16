@@ -47,9 +47,9 @@ DEFAULT_PRESETS = {
     for k,v in DEFAULT_PRESETS.items()
 }
 
-presets = {}
+def _command_tab() -> None:
+    presets: dict[str, str] = {}
 
-def _command_tab():
     loaded_presets = app.storage.user.get("command_presets")
     if loaded_presets:
         logger.info(f"Loaded {len(loaded_presets)} presets")
@@ -59,16 +59,18 @@ def _command_tab():
         presets = DEFAULT_PRESETS.copy()
 
     @ui.refreshable
-    def quick_run_buttons():
+    def quick_run_buttons() -> None:
         for p in presets:
             ui.button(p, icon="fast_forward", on_click=run_preset).tooltip(f"Load and immediately execute {p} preset")
 
-    def presets_updated():
+    def presets_updated() -> None:
         preset_selector.set_options(list(presets))
         quick_run_buttons.refresh()
 
     @handle_errors
-    def load_commands(e: events.UploadEventArguments):
+    def load_commands(e: events.UploadEventArguments) -> None:
+        upl: ui.upload = e.sender  # type: ignore
+        upl.reset()
         data = e.content.read()
         try:
             presets[e.name] = data.decode()
@@ -76,10 +78,9 @@ def _command_tab():
             preset_selector.value = e.name  # this also loads the content
         except UnicodeDecodeError as ude:
             raise PrettyError(msg=f"Error reading commands from {e.name}", exc=ude, data=data[ude.start: ude.end].hex())
-        e.sender.reset()
 
     @handle_errors
-    def run_command():
+    def run_command() -> None:
         p = cli.get_parser()
         p.exit_on_error = False
         commands = command_input.value.splitlines()
@@ -98,7 +99,7 @@ def _command_tab():
             except ArgumentError as ae:
                 raise PrettyError(msg=f"Error parsing line {i+1}", exc=ae, data=line) from ae
             if remaining:
-                raise PrettyError(msg=f"Unknown arguments in line {i+1}", exc=exc, data=remaining)
+                raise PrettyError(msg=f"Unknown arguments in line {i+1}", data=remaining)
             try:
                 cli.main(opts)
             except RuntimeError as re:
@@ -111,11 +112,12 @@ def _command_tab():
                 message = f"Sucessfully executed {count} command{'s'*(count>1)}"
             info(message)
 
-    def run_preset(e: events.ClickEventArguments):
-        preset_selector.value = e.sender.text
+    def run_preset(e: events.ClickEventArguments) -> None:
+        btn: ui.button = e.sender  # type: ignore
+        preset_selector.value = btn.text
         run_command()
 
-    def restore_presets():
+    def restore_presets() -> None:
         presets.update(DEFAULT_PRESETS)
         presets_updated()
         prev_val = preset_selector.value
@@ -124,11 +126,11 @@ def _command_tab():
             preset_selector.value = prev_val
         info("Restored default presets")
 
-    def save_presets():
+    def save_presets() -> None:
         app.storage.user["command_presets"] = presets
         info(f"Saved {len(presets)} presets")
 
-    def add_preset():
+    def add_preset() -> None:
         presets[add_preset_name.value] = command_input.value
         presets_updated()
         preset_selector.value = add_preset_name.value
@@ -140,7 +142,7 @@ def _command_tab():
             ui.button("Cancel", icon="cancel", on_click=add_dialog.close).props("flat")
             ui.button("Add", icon="add", color="green", on_click=add_preset)
 
-    def delete_preset(e: events.ClickEventArguments):
+    def delete_preset(e: events.ClickEventArguments) -> None:
         del presets[preset_selector.value]
         presets_updated()
         preset_selector.value = None

@@ -10,6 +10,8 @@ from ..utils import parse_number, parse_range, parse_xy_range, pretty_fraction, 
 from .. import synth_format, movement, pattern_generation
 
 def _icon_scale(val: str|None, icons: dict) -> str:
+    if not val:
+        return icons.get(0, "close")
     try:
         v = parse_number(val)
     except ValueError:
@@ -33,12 +35,15 @@ def _register_marking(bt: ui.button, *inp: ui.input) -> ui.button:
     return bt
 
 def _clear_button(*inp: ui.input) -> ui.button:
-    bt = ui.button("Reset", icon="delete", color="negative", on_click=lambda _: [o.set_value(getattr(o, "default_value", "0")) for o in inp])
+    def _clear_all() -> None:
+        for o in inp:
+            o.set_value(getattr(o, "default_value", "0"))
+    bt = ui.button("Reset", icon="delete", color="negative", on_click=_clear_all)
     bt.props("outline size=sm align=left").classes("w-full")
     _register_marking(bt, *inp)
     return bt
 
-def _find_first(types: list[str] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)"]]:
+def _find_first(types: tuple[str, ...] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)"]]:
     with safe_clipboard_data(use_original=False, write=False) as d:
         first_t: Optional[str] = None
         first: Optional["numpy array (3+)"] = None
@@ -52,10 +57,10 @@ def _find_first(types: list[str] = synth_format.ALL_TYPES) -> Optional[tuple[str
                 first = ty_first[0]
         if first_t is None:
             return None
-        return first_t, first, second
+        return first_t, first
 
 
-def _find_first_pair(types: list[str] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)", "numpy array (3)"]]:
+def _find_first_pair(types: tuple[str, ...] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)", "numpy array (3)"]]:
     with safe_clipboard_data(use_original=False, write=False) as d:
         first_t: Optional[str] = None
         first: Optional["numpy array (3+)"] = None
@@ -79,19 +84,19 @@ def _stack(
     offset: tuple[float, float, float], scale: tuple[float, float, float], rotation: float, wall_rotation: float, outset: float,
     random_ranges_offset: list[tuple[tuple[float, float], tuple[float, float]]]|None, random_step_offset: tuple[float, float]|None, random_ranges_angle: list[tuple[float, float]]|None, random_step_angle: float|None
 ):
-    pivot = np.array(pivot)
+    pivot_np = np.array(pivot)
     stacking = d.filtered()  # deep copy
     rng = np.random.default_rng()
     for _ in range(count):
         if scale != [1,1,1]:
-            stacking.apply_for_all(movement.scale, scale_3d=scale, pivot=pivot)
+            stacking.apply_for_all(movement.scale, scale_3d=scale, pivot=pivot_np)
         if rotation:
-            stacking.apply_for_all(movement.rotate, angle=rotation, pivot=pivot)
+            stacking.apply_for_all(movement.rotate, angle=rotation, pivot=pivot_np)
         if wall_rotation:
             stacking.apply_for_walls(movement.rotate, angle=wall_rotation, relative=True)
         stacking.apply_for_all(movement.offset, offset_3d=offset)
         if outset:
-            stacking.apply_for_all(movement.outset, outset_scalar=outset, pivot=pivot)
+            stacking.apply_for_all(movement.outset, outset_scalar=outset, pivot=pivot_np)
         if random_ranges_offset is not None or random_ranges_angle is not None:
             tmp = stacking.filtered()  # deep copy
             if random_ranges_offset is not None:
@@ -99,39 +104,40 @@ def _stack(
                     area = random_ranges_offset[0]
                 else:
                     areas = np.array([
-                        max(a[1,0]-a[0,0], 0.01)*max(a[1,1]-a[0,1], 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
-                        for a in random_ranges_offset
+                        max(x_max-x_min, 0.01)*max(y_max-y_min, 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
+                        for (x_min, y_min), (x_max, y_max) in random_ranges_offset
                     ])
-                    area = random_ranges_offset[rng.choice(len(areas), p=areas/sum(areas))]
+                    area = rng.choice(random_ranges_offset, p=areas/sum(areas))
                 if random_step_offset is not None:
-                    random_offset = [random_step_offset[axis] * rng.integers(area[0,axis]/random_step_offset[axis], area[1,axis]/random_step_offset[axis], endpoint=True) for axis in (0,1)]
+                    xy_min, xy_max = area
+                    random_offset = [random_step_offset[axis] * rng.integers(round(xy_min[axis]/random_step_offset[axis]), round(xy_max[axis]/random_step_offset[axis]), endpoint=True) for axis in (0,1)]
                 else:
                     random_offset = pattern_generation.random_xy(1, area[0], area[1])[0]
                 tmp.apply_for_all(movement.offset, offset_3d=[random_offset[0], random_offset[1], 0])
             if random_ranges_angle is not None:
                 if len(random_ranges_angle) == 1:
-                    area = random_ranges_angle[0]
+                    ang_area = random_ranges_angle[0]
                 else:
-                    areas = np.array([
-                        max(a[1]-a[0], 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
-                        for a in random_ranges_angle
+                    ang_areas = np.array([
+                        max(a_max-a_min, 0.01)  # ang_area, where 0-width axes are counted as 0.01 for numerical stability
+                        for a_max, a_min in random_ranges_angle
                     ])
-                    area = random_ranges_angle[rng.choice(len(areas), p=areas/sum(areas))]
+                    ang_area = rng.choice(random_ranges_angle, p=ang_areas/sum(ang_areas))
                 if random_step_angle is not None:
-                    random_rotation = random_step_angle * rng.integers(area[0]/random_step_angle, area[1]/random_step_angle, endpoint=True)
+                    random_rotation = random_step_angle * rng.integers(round(ang_area[0]/random_step_angle), round(ang_area[1]//random_step_angle), endpoint=True)
                 else:
-                    random_rotation = rng.uniform(area[0], area[1])
-                tmp.apply_for_all(movement.rotate, angle=random_rotation, pivot=pivot)
+                    random_rotation = rng.uniform(ang_area[0], ang_area[1])
+                tmp.apply_for_all(movement.rotate, angle=random_rotation, pivot=pivot_np)
             d.merge(tmp)
         else:
             d.merge(stacking)
 
 def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
-    default_kwargs = {"tab_id": "stacking", "width": 24}
+    default_kwargs: dict[str, str|int] = {"tab_id": "stacking", "width": 24}
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 
-def _stacking_tab():
+def _stacking_tab() -> None:
     preview_scene: MapScene|None = None
     with ui.row():
         with ui.card():
@@ -241,7 +247,7 @@ def _stacking_tab():
             offset_t = make_input("Time", "1/16", "offset_t", suffix="b", negate_icons={1: "fast_forward", -1: "fast_rewind"})
             @handle_errors
             def _pick_spiral():
-                tfs = _find_first_pair(list(synth_format.WALL_TYPES))
+                tfs = _find_first_pair(synth_format.WALL_TYPES)
                 if tfs is None:
                     raise PrettyError(msg="No object pair found!")
                 t, first, second = tfs
@@ -286,15 +292,9 @@ def _stacking_tab():
             o_t = offset_t.parsed_value
             if not o_t:
                 raise PrettyError("Time offset must not be 0", data=offset_t.value)
-            if count_mode == "count":
-                c = int(count.parsed_value)
-            elif count_mode == "duration":
-                c = int(duration.parsed_value / o_t)
-            elif count_mode == "fill":
-                c = int(d.selection_length / o_t)
-            p = [pivot_x.parsed_value, pivot_y.parsed_value, 0]
-            o = [offset_x.parsed_value, offset_y.parsed_value, o_t]
-            s = [scale_x.parsed_value, scale_y.parsed_value, 1]
+            p = (pivot_x.parsed_value, pivot_y.parsed_value, 0)
+            o = (offset_x.parsed_value, offset_y.parsed_value, o_t)
+            s = (scale_x.parsed_value, scale_y.parsed_value, 1)
             r = pattern_angle.parsed_value
             wr = walls_angle.parsed_value
             outset = outset_amount.parsed_value
@@ -304,9 +304,12 @@ def _stacking_tab():
                 elif "@" in random_offset.value:
                     ranges, step = random_offset.value.rsplit("@", 1)
                     random_ranges_offset = [parse_xy_range(r) for r in ranges.split(";")]
-                    random_step_offset = [parse_number(xy) for xy in step.split(",",1)]
-                    if len(random_step_offset) == 1:
-                        random_step_offset = [random_step_offset[0], random_step_offset[0]]
+                    if "," in step:
+                        x, y = step.split(",",1)
+                        random_step_offset = (parse_number(x), parse_number(y))
+                    else:
+                        xy = parse_number(step)
+                        random_step_offset = (xy, xy)
                 else:
                     random_ranges_offset = [parse_xy_range(r) for r in random_offset.value.split(";")]
                     random_step_offset = None
@@ -325,8 +328,19 @@ def _stacking_tab():
             except ValueError as ve:
                 raise PrettyError(msg="Error parsing random angle ranges", exc=ve, data=random_angle.value) from ve
             try:
-                with safe_clipboard_data(use_original=True, realign_start=False) as d:
-                    _stack(d, c, p, o, s, r, wr, outset, random_ranges_offset, random_step_offset, random_ranges_angle, random_step_angle)
+                with safe_clipboard_data(use_original=True, realign_start=False) as d:  # type: synth_format.ClipboardDataContainer
+                    if count_mode == "count":
+                        c = int(count.parsed_value)
+                    elif count_mode == "duration":
+                        c = int(duration.parsed_value / o_t)
+                    elif count_mode == "fill":
+                        c = int(d.selection_length / o_t)
+                    _stack(
+                        d=d, count=c, pivot=p,
+                        offset=o, scale=s, rotation=r, wall_rotation=wr, outset=outset,
+                        random_ranges_offset=random_ranges_offset, random_step_offset=random_step_offset,
+                        random_ranges_angle=random_ranges_angle, random_step_angle=random_step_angle,
+                    )
             except PrettyError:
                 raise
             except Exception as exc:

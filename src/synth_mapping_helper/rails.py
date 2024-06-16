@@ -10,14 +10,14 @@ from .utils import bounded_arange_plusminus
 MERGE_ACCURACY_GRID = 1 / 8
 MERGE_ACCURACY_BEAT = 1 / 64
 
-def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: bool = 1) -> "numpy array (x, 3)":
+def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: int = 1) -> "numpy array (x, 3)":
     return np.stack((
         np.interp(new_z, data[:, 2], data[:, 0]),
         np.interp(new_z, data[:, 2], data[:, 1]),
         new_z,
     ), axis=-1)
 
-def synth_curve(data: "numpy array (n, m)", *, direction: bool = 1):
+def synth_curve(data: "numpy array (n, m)", *, direction: int = 1):
     # based on https://github.com/LittleAsi/synth-riders-editor,
     # which uses LineSmoother.cs from https://forum.unity.com/threads/easy-curved-line-renderer-free-utility.391219
     if data.shape[0] == 1:
@@ -41,7 +41,7 @@ def synth_curve(data: "numpy array (n, m)", *, direction: bool = 1):
     curve_points.append(data[-1])
     return np.array(curve_points)
 
-def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: bool = 1) -> "numpy array (x, 3)":
+def interpolate_spline(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: int = 1) -> "numpy array (x, 3)":
     return interpolate_linear(synth_curve(data), new_z, direction=direction)
 
 def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bool = True) -> "numpy array (2)":
@@ -67,7 +67,7 @@ def get_position_at(notes: SINGLE_COLOR_NOTES, beat: float, interpolate_gaps: bo
 
 # Note: None of these functions are allowed to *modify* the input dict instance. Returning the same dict (if nothing needed to be changed) is allowed.
 
-def split_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def split_rails(notes: SINGLE_COLOR_NOTES, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """splits rails at single notes"""
     current_rail_start = None
     current_rail_end = None
@@ -108,7 +108,7 @@ def split_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COL
             out[time] = nodes
     return out
 
-def snap_singles_to_rail(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def snap_singles_to_rail(notes: SINGLE_COLOR_NOTES, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """snap single notes to rail"""
     current_rail_start = None
     current_rail_end = None
@@ -129,7 +129,7 @@ def snap_singles_to_rail(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> S
             out[time] = nodes
     return out
 
-def merge_sequential_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def merge_sequential_rails(notes: SINGLE_COLOR_NOTES, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """merges rails where end and start a very close"""
     current_rail_start = None
     current_rail_end = None
@@ -164,7 +164,7 @@ def merge_sequential_rails(notes: SINGLE_COLOR_NOTES, *, direction: bool = 1) ->
 
     return out
 
-def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """merges rails"""
     current_rail_start = None
     current_rail_end = None
@@ -201,7 +201,7 @@ def merge_rails(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: bo
 
     return out
 
-def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """Turn single notes into rails"""
     current_rail_start = None
     current_rail_end = None
@@ -232,7 +232,7 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
     return out
 
 def interpolate_nodes(
-    data: "numpy array (n, 3)", mode: Literal["spline", "linear"], interval: float, *, direction: bool = 1
+    data: "numpy array (n, 3)", mode: Literal["spline", "linear"], interval: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """places nodes at defined interval along the rail, interpolating between existing nodes. Can be negative to start from end."""
     if data.shape[0] == 1:  # ignore single nodes
@@ -246,7 +246,7 @@ def interpolate_nodes(
     else:
         raise RuntimeError("Invalid iterpolation mode")
 
-def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """Turn all rails into single notes"""
     out: SINGLE_COLOR_NOTES = {}
     for time in sorted(notes):
@@ -261,7 +261,7 @@ def rails_to_singles(notes: SINGLE_COLOR_NOTES, keep_rail: bool, *, direction: b
 
     return out
 
-def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: bool, *, direction: bool = 1) -> SINGLE_COLOR_NOTES:
+def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: bool, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     """Turn all rails into notestacks. Can be negative to start from wnd"""
     out: SINGLE_COLOR_NOTES = {}
     for time in sorted(notes):
@@ -278,7 +278,7 @@ def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: b
     return out
 
 def shorten_rail(
-    data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
+    data: "numpy array (n, 3)", distance: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """Cut a bit of the end or start (if negative) of the rail"""
     if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails
@@ -297,7 +297,7 @@ def shorten_rail(
         return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
 
 def extend_level(
-    data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
+    data: "numpy array (n, 3)", distance: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """Add a level rail section at the end or start (if negative). Turns single notes into rails"""
     if not distance:
@@ -308,7 +308,7 @@ def extend_level(
         return np.concatenate((data[np.newaxis,0]+[0,0,distance], data))
 
 def extend_straight(
-    data: "numpy array (n, 3)", distance: float, *, direction: bool = 1
+    data: "numpy array (n, 3)", distance: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """Add a straight rail section at the end or start (if negative) which keeps the same direction of the previous segment"""
     if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails
@@ -321,7 +321,7 @@ def extend_straight(
         return np.concatenate((data[np.newaxis,0]+delta*(distance/delta[2]), data))
 
 def extend_to_next(
-    notes: SINGLE_COLOR_NOTES, distance: float, *, direction: bool = 1
+    notes: SINGLE_COLOR_NOTES, distance: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """Add a rail section at the end pointing to next note/rail. Vice-versa for negative. Turns single notes into rails."""
     if len(notes) < 2 or not distance:  # ignore when there is nothing to work with
@@ -349,7 +349,7 @@ def extend_to_next(
     return out
 
 def segment_rail(
-    notes: SINGLE_COLOR_NOTES, max_length: float, *, direction: bool = 1
+    notes: SINGLE_COLOR_NOTES, max_length: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """Segment rails into multiple range of maximum length. Can be negative to segment from end"""
     out: SINGLE_COLOR_NOTES = {}

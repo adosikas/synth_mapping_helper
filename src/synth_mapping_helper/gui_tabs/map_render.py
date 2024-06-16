@@ -37,7 +37,7 @@ WALL_VERTS = {
 }
 
 def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
-    default_kwargs = {"tab_id": "render", "width": 14}
+    default_kwargs: dict[str, str|int] = {"tab_id": "render", "width": 14}
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
 
 class SettingsPanel(ui.element):
@@ -89,9 +89,10 @@ class SettingsPanel(ui.element):
 
 class MapScene(ui.scene):
     def __init__(self, *args, frame_length: int, time_scale: float, zoomout: float=10, **kwargs) -> None:
-        super().__init__(*args, grid=False, **kwargs)
+        kwargs.setdefault("grid", False)
+        super().__init__(*args, **kwargs)
         self.time_scale = time_scale
-        self.walls: dict[float, Tuple[elements.scene_objects.Extrusion, elements.scene_objects.Extrusion]] = {}
+        self.walls: dict[float, tuple[elements.scene_objects.Extrusion, elements.scene_objects.Extrusion]] = {}
         self.wall_lookup: dict[str, float] = {}
         with self:
             self._obj_group = self.group()
@@ -113,7 +114,7 @@ class MapScene(ui.scene):
 
     def wall_extrusion(self, xytwa: "numpy array (5)", thickness: float) -> elements.scene_objects.Extrusion:
         return self.extrusion(
-            WALL_VERTS[int(xytwa[0,3])], -thickness,
+            WALL_VERTS[int(xytwa[0,3])].tolist(), -thickness,
         ).rotate(
             np.deg2rad(90), np.deg2rad(180 - xytwa[0,4]), 0
         ).move(
@@ -132,15 +133,15 @@ class MapScene(ui.scene):
 
                 with body:
                     outline = self.extrusion(
-                        WALL_VERTS[int(w[0,3])], -settings.wall.size * self.time_scale, wireframe=True
+                        WALL_VERTS[int(w[0,3])].tolist(), -settings.wall.size * self.time_scale, wireframe=True
                     ).material(
                         settings.wall_outline.color, settings.wall_outline.opacity
                     )
                 self.walls[t] = (body, outline)
                 self.wall_lookup[body.id] = t
-            for t in synth_format.NOTE_TYPES:
-                color: str = getattr(settings, "color_" + t)
-                for _, n in getattr(data, t).items():
+            for ty in synth_format.NOTE_TYPES:
+                color: str = getattr(settings, "color_" + ty)
+                for _, n in getattr(data, ty).items():
                     parent = self._sphere(n[0], settings.note, color)
                     with parent:
                         diff = n - n[0]
@@ -148,9 +149,9 @@ class MapScene(ui.scene):
                             self._sphere(diff[i], settings.rail_node, color)
 
                             self.quadratic_bezier_tube(
-                                self.to_scene(diff[i-1]),
-                                self.to_scene((diff[i-1]+diff[i])/2),
-                                self.to_scene(diff[i]),
+                                list(self.to_scene(diff[i-1])),
+                                list(self.to_scene((diff[i-1]+diff[i])/2)),
+                                list(self.to_scene(diff[i])),
                                 radius=settings.rail.size,
                             ).material(
                                 color, settings.rail.opacity
