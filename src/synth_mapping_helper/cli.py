@@ -212,12 +212,12 @@ def main(options):
         for t in synth_format.ALL_TYPES[::-1]:  # start with walls (for SPIRAL mode)
             obj_dict = data.get_object_dict(t)
             if len(obj_dict) >= 2:
-                it = iter(sorted(obj_dict.items()))
-                _, t_first = next(it)
-                if first is None or t_first[0,2] < first[0,2]:
-                    first = t_first[0]  # rail head only
-                    _, t_second = next(it)
-                    second = t_second[0]
+                ty_objs = sorted(obj_dict.items())
+                _, ty_first = ty_objs[0]
+                if first is None or ty_first[0,2] < first[2]:
+                    first = ty_first[0]  # rail head only
+                    _, ty_second = ty_objs[1]
+                    second = ty_second[0]
                     obj_type = t
         if first is None:
             abort("Could not find object pair for autostack")

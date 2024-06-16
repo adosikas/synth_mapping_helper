@@ -43,10 +43,13 @@ def _find_first(types: list[str] = synth_format.ALL_TYPES) -> Optional[tuple[str
         first_t: Optional[str] = None
         first: Optional["numpy array (3+)"] = None
         for t in types:
-            n = sorted(d.get_object_dict(t).items())
-            if n and (first is None or n[0][1][0,2] < first[2]):
+            ty_objs = sorted(d.get_object_dict(t).items())
+            if not ty_objs:
+                continue
+            _, ty_first = ty_objs[0]
+            if first is None or ty_first[0,2] < first[2]:
                 first_t = t
-                first = n[0][1][0]
+                first = ty_first[0]
         if first_t is None:
             return None
         return first_t, first, second
@@ -58,11 +61,15 @@ def _find_first_pair(types: list[str] = synth_format.ALL_TYPES) -> Optional[tupl
         first: Optional["numpy array (3+)"] = None
         second: Optional["numpy array (3+)"] = None
         for t in types:
-            n = sorted(d.get_object_dict(t).items())
-            if len(n) >= 2 and (second is None or n[0][2][0,2] < second[2]):
+            ty_objs = sorted(d.get_object_dict(t).items())
+            if len(ty_objs) < 2:
+                continue
+            _, ty_first = ty_objs[0]
+            if second is None or ty_first[0,2] < second[2]:
                 first_t = t
-                first = n[0][1][0]
-                second = n[1][1][0]
+                first = ty_first[0]
+                _, ty_second = ty_objs[1]
+                second = ty_second[0]
         if first_t is None:
             return None
         return first_t, first, second
@@ -72,6 +79,7 @@ def _stack(
     offset: tuple[float, float, float], scale: tuple[float, float, float], rotation: float, wall_rotation: float, outset: float,
     random_ranges_offset: list[tuple[tuple[float, float], tuple[float, float]]]|None, random_step_offset: tuple[float, float]|None, random_ranges_angle: list[tuple[float, float]]|None, random_step_angle: float|None
 ):
+    pivot = np.array(pivot)
     stacking = d.filtered()  # deep copy
     rng = np.random.default_rng()
     for _ in range(count):
@@ -325,8 +333,7 @@ def _stacking_tab():
                 raise PrettyError(
                     msg=f"Error executing stack",
                     exc=exc,
-                    settings={"count": c, "pivot": p, "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset},
-                    data=clipboard,
+                    context={"count": c, "pivot": p, "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset},
                 ) from exc
             counts = d.get_counts()
             info(
