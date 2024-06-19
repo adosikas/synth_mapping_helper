@@ -15,6 +15,8 @@ from .utils import GUITab, SMHInput, ParseInputError, PreventDefaultKeyboard, ha
 from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
+TURBOSTACK_COUNTS = (3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32)
+
 def make_input(label: str, value: str|float, storage_id: str, **kwargs) -> SMHInput:
     default_kwargs: dict[str, str|int] = {"tab_id": "wall_art", "width": 16}
     return SMHInput(storage_id=storage_id, label=label, default_value=value, **(default_kwargs|kwargs))
@@ -238,7 +240,6 @@ def _wall_art_tab() -> None:
             copy_offset = [0.0,0.0,_find_free_slot(first+self.offset[2])-first-self.offset[2],0.0,0.0] if copy_mode else 0.0
             pivot_3d = walls[self.drag_time if self.drag_time is not None else first][0,:3]
             scale_3d = np.array([1.0, -1.0 if self.mirrored else 1.0, 1.0])
-            new_sources = set()
             new_walls = {}
             for t in sorted(self.sources):
                 w = walls[t]+copy_offset if copy_mode else walls.pop(t)
@@ -246,7 +247,20 @@ def _wall_art_tab() -> None:
                 w = movement.scale(w, scale_3d=scale_3d, pivot=pivot_3d)
                 w = movement.offset(w, self.offset)
                 new_walls[w[0,2]] = w
-                new_sources |= {w[0,2]}
+            if turbostack.value and copy_mode:
+                extra_count = TURBOSTACK_COUNTS[turbostack.value-1] - 2  # subtract base and copy
+                stack_walls = new_walls.copy()
+                for _ in range(extra_count):
+                    stack_new = {}
+                    for t in sorted(stack_walls):
+                        w = stack_walls[t]+copy_offset
+                        w = movement.rotate(w, angle=self.rotation, pivot=pivot_3d)
+                        w = movement.scale(w, scale_3d=scale_3d, pivot=pivot_3d)
+                        w = movement.offset(w, self.offset)
+                        stack_new[w[0,2]] = w
+                    new_walls |= stack_new
+                    stack_walls = stack_new
+            new_sources = set(new_walls)
 
             sym_ops: list[Literal["mirror_x", "mirror_y"]|int] = []
             if mirror_x.value:
@@ -310,7 +324,7 @@ def _wall_art_tab() -> None:
     @handle_errors
     def _on_key(e: events.KeyEventArguments) -> None:
         nonlocal last_ctrl_press, last_shift_press
-        if e.key.control:
+        if e.key.control and not e.action.repeat:
             if e.action.keydown:
                 # on CTRL double-tap, toggle drag_copy value
                 if last_ctrl_press is not None and time() - last_ctrl_press < 0.5:
@@ -323,7 +337,8 @@ def _wall_art_tab() -> None:
         else:
             # if any other key is pressed/release clear double-tap
             last_ctrl_press = None
-        if e.key.shift:
+
+        if e.key.shift and not e.action.repeat:
             if e.action.keydown:
                 # on SHIFT double-tap, toggle axis_z value
                 if last_shift_press is not None and time() - last_shift_press < 0.5:
@@ -336,6 +351,7 @@ def _wall_art_tab() -> None:
         else:
             # if any other key is pressed/release clear double-tap
             last_shift_press = None
+
         if not e.action.keydown:
             return
         try:
@@ -439,10 +455,14 @@ def _wall_art_tab() -> None:
                 with ui.row():
                     ui.label("Rotation: ").classes("my-auto")
                     rotsym_direction = LargeSwitch(None, "rotsym_direction", "Rotation direction", color="white", icon_unchecked="rotate_left", icon_checked="rotate_right").props('toggle-indeterminate indeterminate-icon="cancel" icon-color="black"')
-                    with ui.row():
-                        ui.tooltip("Number of rotational symmetry. Note that mirror in both X and Y overlaps with even symmetries, ie 2x/4x/etc")
-                        rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-24").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
-                        ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}").bind_visibility_from(rotsym_direction, "value", backward=lambda v: v is not None)
+                    ui.tooltip("Number of rotational symmetry. Note that mirror in both X and Y overlaps with even symmetries, ie 2x/4x/etc")
+                    rotsym = ui.slider(min=2, max=12, value=2).props('snap markers selection-color="transparent" color="secondary" track-size="2px" thumb-size="25px"').classes("w-24").bind_value(app.storage.user, "wall_art_rotsym").bind_enabled_from(rotsym_direction, "value", backward=lambda v: v is not None)
+                    ui.label().classes("my-auto w-8").bind_text_from(rotsym, "value", backward=lambda v: f"x{v}").bind_visibility_from(rotsym_direction, "value", backward=lambda v: v is not None)
+                with ui.row():
+                    ui.label("TurboStack: ").classes("my-auto")
+                    ui.tooltip("Create stacked copies")
+                    turbostack = ui.slider(min=0, max=len(TURBOSTACK_COUNTS), value=0).props('snap markers selection-color="transparent" color="lime" track-size="2px" thumb-size="25px"').classes("w-24").bind_value(app.storage.user, "wall_art_turbostack")
+                    ui.label().classes("my-auto w-8").bind_text_from(turbostack, "value", backward=lambda v: f"{TURBOSTACK_COUNTS[v-1]}x" if v else "off")#.bind_visibility_from(rotsym_direction, "value", backward=lambda v: v is not None)
                 def _update_symex(_) -> str:
                     enabled = []
                     if mirror_x.value:
@@ -455,8 +475,9 @@ def _wall_art_tab() -> None:
                             enabled.insert(0, f"{rotdir}{rotsym.value}")
                         else:
                             enabled.append(f"{rotdir}{rotsym.value}")
-                    return f"Symmetry: {', '.join(enabled) or 'off'}"
-                for inp in (mirror_x, mirror_y, rotsym_direction, rotate_first):
+                    stack_str = f"Stack: {TURBOSTACK_COUNTS[turbostack.value-1]}x, " if turbostack.value else ""
+                    return f"{stack_str}Symmetry: {', '.join(enabled) or 'off'}"
+                for inp in (mirror_x, mirror_y, rotsym_direction, rotate_first, turbostack):
                     inp.bind_value_to(sym_exp, "text", forward=_update_symex)
             with ui.expansion("Preview setttings", icon="palette").props("dense"):
                 sp = SettingsPanel()

@@ -7,7 +7,7 @@ import json
 import math
 import logging
 import traceback
-from typing import Any, Callable, Generator, Optional, Self
+from typing import Any, Callable, Generator, Optional
 
 from fastapi import Response
 from nicegui import app, events, ui, binding
@@ -137,14 +137,14 @@ def error_report():
     if last_error is None:
         out = {
             "version": __version__,
-            "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
             "msg": "No error yet"
         }
     else:
         msg, exc, context, data, time = last_error
         out = {
             "version": __version__,
-            "time": time.isoformat(),
+            "time": time.strftime("%Y-%m-%dT%H-%M-%SZ"),
             "message": msg,
         }
         if exc is not None:
@@ -286,6 +286,6 @@ class PreventDefaultKeyboard(ui.keyboard, component="prevent_default_keyboard.js
                         target_object: Any,
                         target_name: str = 'active',
                         backward: Callable[..., Any] = lambda x: x,
-                        ) -> Self:
+                        ) -> "Self":
         binding.bind_from(self, 'active', target_object, target_name, backward)
         return self

@@ -68,7 +68,7 @@ def wall_mode(highest_density: float, *, combined: bool) -> str:
         if highest_density >= PC_TYPE_DESPAWN:
             mode = "PC-Despawn"
 
-    return f"{mode}, max {highest_density:.3f}"
+    return f"{mode}, max {round(highest_density)}"
 
 def note_densities(data: DataContainer) -> dict[str, dict[str, PlotDataContainer]]:
     window_b = RENDER_WINDOW*data.bpm/60

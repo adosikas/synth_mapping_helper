@@ -628,7 +628,7 @@ def _file_utils_tab() -> None:
                     for sub_t, pdc in den_subdict.items():
                         if pdc.max_value:
                             nfig.add_scatter(
-                                x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({nt} {sub_t}s) [max {pdc.max_value}]",
+                                x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({nt} {sub_t}s) [max {round(pdc.max_value)}]",
                                 showlegend=True,
                                 legendgroup=f"{d} {nt}",
                                 # start with only combined note visible
