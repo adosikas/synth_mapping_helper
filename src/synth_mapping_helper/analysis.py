@@ -2,17 +2,33 @@ from io import BytesIO
 from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import datetime
+from typing import Generator, Literal
 
 import numpy as np
 import librosa
 import soundfile
 
-from synth_mapping_helper.synth_format import DataContainer, NOTE_TYPES, WALL_TYPES, AudioData
+from synth_mapping_helper import rails
+from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES, NOTE_TYPES, WALL_TYPES, AudioData, GRID_SCALE
 
 RENDER_WINDOW = 4.0  # the game always renders 4 seconds ahead
 QUEST_WIREFRAME_LIMIT = 200  # combined
 QUEST_RENDER_LIMIT = 500  # combined
 PC_TYPE_DESPAWN = 80  # for each type
+
+HEAD_POSITION = np.array([0.0,2.0])
+HEAD_RADIUS_SQ = 1.5 ** 2  # squared, such that we can skip the sqrt in sqrt(x**2+y**2) < HEAD_RADIUS_SQ
+
+# the game uses some formula like out = in - (in^3) to scale X and Y in spieral, which is not monotonic and breaks down as the coordinates approach 1m
+SPIRAL_APEX = 0.65 / GRID_SCALE  # 65 cm away from the center the notes stop getting further out
+SPIRAL_FLIP = 0.80 / GRID_SCALE  # 80 cm away from the center the math breaks down completely and returns to then, then flips to other side
+SPIRAL_NEUTRAL_OFFSET: dict[str, "numpy array (2,)"] = {
+    # center is shifted a bit for left/right hands
+    "right": np.array([1.5,0.0]),
+    "left": np.array([-1.5,0.0]),
+    "single": np.zeros(2),
+    "both": np.zeros(2),
+}
 
 @dataclass
 class PlotDataContainer:
@@ -25,6 +41,7 @@ class PlotDataContainer:
         self.max_value = self.plot_data[:,1].max() if self.plot_data.shape[0] else 0.0
         self.plot_times = [np.datetime64(datetime.utcfromtimestamp(t)) for t in self.plot_data[:,0]]
 
+# DENSITY
 
 def density(times: list[float], window: float) -> PlotDataContainer:
     # prepares density plot
@@ -97,6 +114,12 @@ def note_densities(data: DataContainer) -> dict[str, dict[str, PlotDataContainer
     }
     return out
 
+def all_note_densities(diffs: dict[str, DataContainer]) -> dict[str, dict[str, dict[str, PlotDataContainer]]]:
+    return {
+        d: note_densities(c)
+        for d, c in diffs.items()
+    }
+
 def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
     window_b = RENDER_WINDOW*data.bpm/60
     out = {
@@ -105,6 +128,186 @@ def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
     }
     out["combined"] = density(times=list(data.walls), window=window_b)
     return out
+
+def all_wall_densities(diffs: dict[str, DataContainer]) -> dict[str, dict[str, PlotDataContainer]]:
+    return {
+        d: wall_densities(c)
+        for d, c in diffs.items()
+    }
+
+# MOVEMENT
+
+CURVE_INTERP = 192  # 192 bins per beat
+RAIL_WEIGHT = 0.3  # rails have a lower weight than notes
+RAIL_TAIL_WEIGHT = 0.1  # last 20% of rail
+
+def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> "numpy array (n, 3)":
+    if not notes:
+        return np.full((1,3), np.nan)
+    # step 1: find average positions for each time "bin", by weighted average of notes and (interpolated) rails
+    data_points: dict[int, "numpy array (3,)"] = {}  # t//i: weight,x,y
+    for _, nodes in sorted(notes.items()):
+        tb = int(nodes[0,2]*CURVE_INTERP)  # time bin
+        if nodes.shape[0] == 1:  # single notes
+            # head at full weight
+            wxy = np.concatenate(([1.0], nodes[0,:2]))
+            if tb not in data_points:
+                data_points[tb] = wxy
+            else:
+                data_points[tb] += wxy
+        else:  # rails
+            # first, sample at 1/192
+            interp_rail = rails.interpolate_nodes(nodes, mode="spline", interval=1/CURVE_INTERP)[:,:2]
+            # then, add weights: full for head, reduced for tails
+            weights = np.full((interp_rail.shape[0], 1), RAIL_WEIGHT)
+            weights[0] = 1.0
+            weights[-int(interp_rail.shape[0]*0.2):] = RAIL_TAIL_WEIGHT
+            weighted_rail = np.concatenate((weights, interp_rail*weights), axis=-1)
+            # finally, dump bins into data points
+            for bi, wxy in enumerate(weighted_rail):
+                if tb+bi not in data_points:
+                    data_points[tb+bi] = wxy
+                else:
+                    data_points[tb+bi] += wxy
+    # step 2: locate continguous sections and interpolate over the averaged locations
+    out = []
+    current_curve = []
+    last_b = None
+    for bi, (w,x,y) in sorted(data_points.items()):
+        this_b = (bi/CURVE_INTERP)
+        if last_b is not None and (this_b - last_b) > window_b:
+            out.append(rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP))
+            current_curve = []
+            out.append(np.full((1,3), np.nan))  # add NaN spacers between sections
+        current_curve.append([x/w,y/w,this_b])
+        last_b = this_b
+    if current_curve:
+        out.append(rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP))
+    # put it all together
+    return np.concatenate(out)
+
+def hand_curves(data: DataContainer) -> dict[str, "numpy array (n, 3)"]:
+    return {
+        nt: hand_curve(getattr(data, nt), window_b=2.0)
+        for nt in NOTE_TYPES
+        if getattr(data, nt)
+    }
+
+def all_hand_curves(diffs: dict[str, DataContainer]) -> dict[str, dict[str, "numpy array (n, 3)"]]:
+    return {
+        d: hand_curves(c)
+        for d, c in diffs.items()
+    }
+
+def sections_from_bools(bools: "numpy array (n,)") -> Generator[tuple[int, int], None, None]:
+    if bools.any():
+        idx = np.nonzero(bools)[0]
+        idx_diff_idx = np.nonzero(np.diff(idx)-1)[0]
+        start = 0
+        for idi in idx_diff_idx:
+            yield idx[start], idx[idi]
+            start = idi + 1
+        yield idx[start], idx[-1]
+
+
+@dataclass
+class Warning:
+    type: Literal["straight_rail", "spiral_distortion", "spiral_breakdown", "head_area"]
+    figure: Literal["x", "y", "xy"]
+    note_type: str
+    start_beat: float
+    end_beat: float
+
+    @property
+    def icon(self) -> str:
+        return {
+            "straight_rail": "📏",
+            "spiral_distortion": "🌀<br>⚠️",
+            "spiral_breakdown": "🌀<br>💀",
+            "head_area": "🙈",
+        }[self.type]
+    
+    @property
+    def text(self) -> str:
+        return {
+            "straight_rail": "Long rail without intermediate nodes<br>This may be unplayable in spiral",
+            "spiral_distortion": "Somewhat far from hand neutral position<br>This may look distorted in spiral",
+            "spiral_breakdown": "Far away from hand neutral position<br>This will be massively misplaced in spiral",
+            "head_area": "Inside head area<br>This may block line of sight",
+        }[self.type]
+
+def warnings(data: DataContainer) -> list[Warning]:
+    out: list[tuple[Warning]] = []
+    for nt in NOTE_TYPES:
+        for _, nodes in sorted(getattr(data, nt).items()):
+            if nodes.shape[0] == 1:
+                crv = nodes
+                nr = "Note"
+            else:
+                crv = rails.interpolate_nodes(nodes, mode="spline", interval=1/CURVE_INTERP)
+                nr = "Rail"
+
+                rail_deltas = np.diff(nodes[:,2])
+                for s_idx, e_idx in sections_from_bools(rail_deltas > 2.0):  # nodes more than 2 beats apart
+                    out.append(Warning(
+                        type="straight_rail",
+                        figure="xy",
+                        note_type=nt,
+                        start_beat=crv[s_idx, 2],
+                        end_beat=crv[e_idx, 2],
+                    ))
+            spiral_delta = np.abs((crv[:,:1] - SPIRAL_NEUTRAL_OFFSET[nt]))
+            for s_idx, e_idx in sections_from_bools(spiral_delta[:,0] > SPIRAL_APEX):
+                out.append(Warning(
+                    type="spiral_distortion",
+                    figure="x",
+                    note_type=nt,
+                    start_beat=crv[s_idx, 2],
+                    end_beat=crv[e_idx, 2],
+                ))
+            for s_idx, e_idx in sections_from_bools(spiral_delta[:,1] > SPIRAL_APEX):
+                out.append(Warning(
+                    type="spiral_distortion",
+                    figure="y",
+                    note_type=nt,
+                    start_beat=crv[s_idx, 2],
+                    end_beat=crv[e_idx, 2],
+                ))
+            for s_idx, e_idx in sections_from_bools(spiral_delta[:,0] > SPIRAL_FLIP):
+                out.append(Warning(
+                    type="spiral_breakdown",
+                    figure="x",
+                    note_type=nt,
+                    start_beat=crv[s_idx, 2],
+                    end_beat=crv[e_idx, 2],
+                ))
+            for s_idx, e_idx in sections_from_bools(spiral_delta[:,1] > SPIRAL_FLIP):
+                out.append(Warning(
+                    type="spiral_breakdown",
+                    figure="y",
+                    note_type=nt,
+                    start_beat=crv[s_idx, 2],
+                    end_beat=crv[e_idx, 2],
+                ))
+
+            head_delta = (crv[:,:2] - HEAD_POSITION)
+            for s_idx, e_idx in sections_from_bools(head_delta[:,0]**2+head_delta[:,1]**2 <= HEAD_RADIUS_SQ):  # distance to head < radius
+                out.append(Warning(
+                    type="head_area",
+                    figure="xy",
+                    note_type=nt,
+                    start_beat=crv[s_idx, 2],
+                    end_beat=crv[e_idx, 2],
+                ))
+    return out
+
+def all_warnings(diffs: dict[str, DataContainer]) -> dict[str, list[tuple[str, str, float, float, str]]:]:
+    return {
+        d: warnings(c)
+        for d, c in diffs.items()
+    }
+
+# AUDIO
 
 def calculate_onsets(data: "numpy array (s,)", sr: int) -> "numpy array (m,)":
     return librosa.util.normalize(librosa.onset.onset_strength(y=data, sr=sr, aggregate=np.median, center=True))

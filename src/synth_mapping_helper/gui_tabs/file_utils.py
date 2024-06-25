@@ -15,6 +15,8 @@ from synth_mapping_helper.gui_tabs.utils import *
 from synth_mapping_helper.utils import pretty_list, beat_to_second
 from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__
 
+NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "yellow", "combined": "black"}
+
 def circmedian(values: "numpy array (n,)", high: float) -> float:
     # doing statistics on "circular data" (ie 0-beat_time) is hard, but we can treat each value as "angle" (0-2pi, ie 0-360 deg)
     # see also: scipy.stats.circmean
@@ -42,8 +44,12 @@ def _file_utils_tab() -> None:
         preview_audio: Optional[tuple[str, bytes]] = None
         # [diff][type]
         wall_densities: Optional[dict[str, dict[str, analysis.PlotDataContainer]]] = None
-        # [diff][color][subtype]
+        # [diff][type][subtype]
         note_densities: Optional[dict[str, dict[str, dict[str, analysis.PlotDataContainer]]]] = None
+        # [diff][type]
+        hand_curves: Optional[dict[str, dict[str, "numpy array (n, 3)"]]] = None
+        # [diff]
+        warnings: Optional[dict[str, list[analysis.Warning]]] = None
         bpm_scan_data: Optional[dict] = None
         merged_filenames: list[str] = dataclasses.field(default_factory=list)
 
@@ -60,6 +66,8 @@ def _file_utils_tab() -> None:
             self.bpm_scan_data = None
             self.wall_densities = None
             self.note_densities = None
+            self.hand_curves = None
+            self.warnings = None
             self.refresh()
 
         @handle_errors
@@ -84,9 +92,11 @@ def _file_utils_tab() -> None:
                 self.output_finalize = (self.data.bookmarks.get(0) == "#smh_finalized")
                 self.merged_filenames = []
                 self.bpm_scan_data = {"state": "Waiting"}
-                ui.timer(0.1, self._calc_wden, once=True)
-                ui.timer(0.2, self._calc_nden, once=True)
-                ui.timer(0.5, self._calc_bpm, once=True)
+                ui.timer(0.1, self._calc_warn, once=True)
+                ui.timer(0.2, self._calc_wden, once=True)
+                ui.timer(0.3, self._calc_nden, once=True)
+                ui.timer(0.4, self._calc_hcurve, once=True)
+                ui.timer(1, self._calc_bpm, once=True)
 
             self.refresh()
 
@@ -119,7 +129,6 @@ def _file_utils_tab() -> None:
             ui.notify(f"Changed cover image to {e.name}", type="info")
             self.refresh()
 
-        @handle_errors
         async def upload_audio(self, e: events.UploadEventArguments) -> None:
             upl: ui.upload = e.sender  # type:ignore
             upl.reset()
@@ -195,9 +204,6 @@ def _file_utils_tab() -> None:
         def refresh(self) -> None:
             self.info_card.refresh()
             self.stats_card.refresh()
-            self._bpm_card.refresh()
-            self._wden_card.refresh()
-            self._nden_card.refresh()
 
         async def add_silence(self, before_start_ms: int=0, after_end_ms: int=0) -> None:
             if self.data is None:
@@ -465,6 +471,7 @@ def _file_utils_tab() -> None:
                     yaxis=go.layout.YAxis(title="BPM"),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
                 ),
             )
             bpmfig.add_scatter(
@@ -491,13 +498,14 @@ def _file_utils_tab() -> None:
                     yaxis=go.layout.YAxis(title=" "),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem", bgcolor="rgba(255,255,255,0.3)", borderwidth=1),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
                 ),
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(onsets, sr=sr), y=onsets,
                 name="Note onsets",
                 legendgroup="common",
-                legendgrouptitle=dict(text="Click to toggle:"),
+                legendgrouptitle=dict(text="Common"),
             )
             onset_fig.add_scatter(
                 x=librosa.times_like(peak_values, sr=sr), y=peak_values,
@@ -550,91 +558,139 @@ def _file_utils_tab() -> None:
                 )
             ui.plotly(onset_fig).classes("w-full h-96")
 
-        def _calc_wden(self):
-            self.wall_densities = {d: analysis.wall_densities(c) for d, c in self.data.difficulties.items()}
-            self._wden_card.refresh()
+        async def _calc_wden(self):
+            self.wall_densities = await run.cpu_bound(analysis.all_wall_densities, diffs=self.data.difficulties)
+            self.stats_card.refresh()
 
-        def _calc_nden(self):
-            self.note_densities = {d: analysis.note_densities(c) for d, c in self.data.difficulties.items()}
-            self._nden_card.refresh()
+        async def _calc_nden(self):
+            self.note_densities = await run.cpu_bound(analysis.all_note_densities, diffs=self.data.difficulties)
+            self.stats_card.refresh()
 
-        @ui.refreshable
-        def _wden_card(self) -> None:
-            ui.label("Wall density")
-            if self.data is None or self.wall_densities is None:
-                ui.spinner(size="xl")
-                return
+        async def _calc_hcurve(self):
+            self.hand_curves = await run.cpu_bound(analysis.all_hand_curves, diffs=self.data.difficulties)
+            self.stats_card.refresh()
+
+        async def _calc_warn(self):
+            self.warnings = await run.cpu_bound(analysis.all_warnings, diffs=self.data.difficulties)
+            self.stats_card.refresh()
+
+        def _wden_content(self, den_dict: dict[str, analysis.PlotDataContainer]) -> None:
             wfig = go.Figure(
                 layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Measure"),
                     yaxis=go.layout.YAxis(title="Visible Walls (4s)"),
-                    legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
                 ),
             )
             for t, b in self.data.bookmarks.items():
-                wfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
-            
-            # difficulty->wall_type
-            wall_densities: dict[str, dict[str, analysis.PlotDataContainer]] = {
-                d: analysis.wall_densities(c)
-                for d, c in self.data.difficulties.items()
-            }
+                wfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+
             # show horizontal lines when combined y is close to or over the limit
-            max_com_d = max(den_dict["combined"].max_value for den_dict in self.wall_densities.values()) if self.wall_densities else 0
+            max_com_d = den_dict["combined"].max_value
             if max_com_d > 0.9 * analysis.QUEST_WIREFRAME_LIMIT:
                 wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
             if max_com_d > 0.9 * analysis.QUEST_RENDER_LIMIT:
                 wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
             # show horizontal lines when single y is over the limit
-            max_single_d = max(max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined") for den_dict in self.wall_densities.values()) if self.wall_densities else 0
+            max_single_d = max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined")
             if max_single_d > 0.95 * analysis.PC_TYPE_DESPAWN:
                 wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow", "dash": "dash"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
 
-            for d, den_dict in self.wall_densities.items():
-                for wt in ("combined", *synth_format.WALL_TYPES):
-                    pdc = den_dict[wt]
-                    if pdc.max_value:
-                        wfig.add_scatter(
-                            x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({wt}) [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
-                            showlegend=True,
-                            legendgroup=d,
-                            # start with only combined visible and single only when above PC limit
-                            visible=(wt == "combined" or pdc.max_value > 0.95 * analysis.PC_TYPE_DESPAWN) or "legendonly"
-                        )
+            for wt in ("combined", *synth_format.WALL_TYPES):
+                pdc = den_dict[wt]
+                if pdc.max_value:
+                    wfig.add_scatter(
+                        x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{wt} [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
+                        showlegend=True,
+                        # start with only combined visible and single only when above PC limit
+                        visible=(wt == "combined" or pdc.max_value > 0.95 * analysis.PC_TYPE_DESPAWN) or "legendonly"
+                    )
             ui.plotly(wfig).classes("w-full h-96")
 
-        @ui.refreshable
-        def _nden_card(self) -> None:
-            ui.label("Note & Rail density")
-            if self.data is None or self.note_densities is None:
-                ui.spinner(size="xl")
-                return
+        def _nden_content(self, den_dict: dict[str, dict[str, analysis.PlotDataContainer]]) -> None:
             # mostly the same thing as walls, but for combined notes and rail nodes
             nfig = go.Figure(
                 layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Measure"),
                     yaxis=go.layout.YAxis(title="Visible (4s)"),
                     legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
                 ),
             )
             for t, b in self.data.bookmarks.items():
-                nfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="[]", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+                nfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
 
-            for d, den_dict in self.note_densities.items():
-                for nt in ("combined", *synth_format.NOTE_TYPES):
-                    den_subdict = den_dict[nt]
-                    for sub_t, pdc in den_subdict.items():
-                        if pdc.max_value:
-                            nfig.add_scatter(
-                                x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{d} ({nt} {sub_t}s) [max {round(pdc.max_value)}]",
-                                showlegend=True,
-                                legendgroup=f"{d} {nt}",
-                                # start with only combined note visible
-                                visible=(nt == "combined" and sub_t == "note") or "legendonly",
-                            )
-            ui.plotly(nfig).classes("w-full h-96")
+            for nt in ("combined", *synth_format.NOTE_TYPES):
+                den_subdict = den_dict[nt]
+                for sub_t, pdc in den_subdict.items():
+                    if pdc.max_value:
+                        nfig.add_scatter(
+                            x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{nt} {sub_t}s [max {round(pdc.max_value)}]",
+                            showlegend=True,
+                            legendgroup=nt,
+                            line={"color": NOTE_COLORS[nt]},
+                            # start with only combined note visible
+                            visible=(nt == "combined" and sub_t == "note") or "legendonly",
+                        )
+            ui.plotly(nfig).classes("w-full h-128")
+
+        def _hcurve_content(self, curves: dict[str, "np array (n, 3)"], warnings: list[analysis.Warning]) -> None:
+            xfig = go.Figure(
+                layout=go.Layout(
+                    yaxis=go.layout.YAxis(title="X: right (+) <-> left (-)", range=(7,-7)),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
+                ),
+            )
+            yfig = go.Figure(
+                layout=go.Layout(
+                    yaxis=go.layout.YAxis(title="Y: down (-) <-> up (+)", range=(-5,5)),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
+                ),
+            )
+            for t, b in self.data.bookmarks.items():
+                xfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+                yfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+
+            if curves is not None:
+                for nt, curve in curves.items():
+                    xfig.add_scatter(
+                        x=curve[:,2], y=curve[:,0], name=nt,
+                        showlegend=True,
+                        line={"color": NOTE_COLORS[nt]}
+                    )
+                    yfig.add_scatter(
+                        x=curve[:,2], y=curve[:,1], name=nt,
+                        showlegend=True,
+                        line={"color": NOTE_COLORS[nt]}
+                    )
+            if warnings is not None:
+                for w in warnings:
+                    if w.type == "head_area":
+                        continue
+                    color = NOTE_COLORS.get(w.note_type, "black")
+                    for fn, fig in [("x", xfig), ("y", yfig)]:
+                        if fn in w.figure:
+                            if w.start_beat == w.end_beat:
+                                fig.add_vline(
+                                    w.start_beat,
+                                    line_color=color, opacity=0.2,
+                                    annotation=go.layout.Annotation(text=w.icon, yanchor="top", yref="paper", hovertext=w.text),
+                                    annotation_position="top",
+                                )
+                            else:
+                                fig.add_vrect(
+                                    w.start_beat, w.end_beat,
+                                    line_width=0, fillcolor=color, opacity=0.2,
+                                    annotation=go.layout.Annotation(text=w.icon, yanchor="top", yref="paper", hovertext=w.text),
+                                    annotation_position="top",
+                                )
+            ui.plotly(xfig).classes("w-full h-48")
+            ui.plotly(yfig).classes("w-full h-48")
 
         @ui.refreshable
         def stats_card(self) -> None:
@@ -675,15 +731,43 @@ def _file_utils_tab() -> None:
                     {"headerName": "Effects", "field": "effects"},
                 ],
                 "rowData": [
-                    c.get_counts() | {"diff": d, "errors": len(self.data.errors.get(d, []))} 
+                    c.get_counts() | {"diff": d, "errors": len(self.data.errors.get(d, []))}
                     for d, c in self.data.difficulties.items()
                 ],
             }).classes("w-full h-auto").on("cellClicked", _stats_notify)
 
-            ui.separator()
-            self._wden_card()
-            ui.separator()
-            self._nden_card()
+            with ui.tabs() as tabs:
+                for d in synth_format.DIFFICULTIES:
+                    ui.tab(d).set_enabled(d in self.data.difficulties)
+            with ui.tab_panels(tabs).classes("w-full").bind_value(app.storage.user, "fileutils_stats_tab"):
+                for d in synth_format.DIFFICULTIES:
+                    with ui.tab_panel(d):
+                        ui.label("Hand curves and warnings")
+                        if self.data is None or self.hand_curves is None or self.warnings is None:
+                            ui.spinner(size="xl")
+                        elif (
+                            (d not in self.hand_curves or all(np.isnan(arr).all() for arr in self.hand_curves[d].values()))
+                            and (d not in self.warnings or not self.warnings[d])
+                        ):
+                            ui.label("No data").classes("w-full h-96")
+                        else:
+                            self._hcurve_content(self.hand_curves.get(d, None), self.warnings.get(d, None))
+
+                        ui.label("Wall density")
+                        if self.data is None or self.wall_densities is None:
+                            ui.spinner(size="xl")
+                        elif d not in self.wall_densities or not self.wall_densities[d]["combined"].max_value:
+                            ui.label("No data").classes("w-full h-96")
+                        else:
+                            self._wden_content(self.wall_densities[d])
+
+                        ui.label("Note & Rail density")
+                        if self.data is None or self.note_densities is None:
+                            ui.spinner(size="xl")
+                        elif d not in self.note_densities or not any(pdc.max_value for pdc in self.note_densities[d]["combined"].values()):
+                            ui.label("No data").classes("w-full h-96")
+                        else:
+                            self._nden_content(self.note_densities[d])
 
         def __repr__(self) -> str:
             return type(self).__name__  # avoid spamming logs with binary data

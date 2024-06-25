@@ -196,8 +196,11 @@ def try_load_synth_file(e: events.UploadEventArguments) -> Optional[synth_format
     if data.errors:
         warning("There was invalid data in the file, affected items were REMOVED:")
         for diff, errors in data.errors.items():
-            for jpe, time in errors:
-                warning(f"{diff}@{time}: {jpe}")
+            if len(errors) > 3:
+                warning(f"{diff}: {len(errors)} errors. See the error report for details.")
+            else:
+                for jpe, time in errors:
+                    warning(f"{diff}@{time}: {jpe}")
     return data
 
 def add_suffix(filename: str, suffix: str) -> str:
