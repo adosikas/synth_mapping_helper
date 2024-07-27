@@ -74,7 +74,7 @@ def _file_utils_tab() -> None:
                 try:
                     self.data = synth_format.SynthFile.empty_from_audio(audio_file=BytesIO(e.content.read()), filename=e.name)
                 except Exception as exc:
-                    error(f"Creating .synth from {e.name} failed", exc=exc)
+                    error(f"Creating .synth from '{e.name}' failed", exc=exc)
                     self.data = None
                 else:
                     self.output_filename = self.data.meta.name + ".synth"

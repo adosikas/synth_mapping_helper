@@ -106,11 +106,7 @@ def entrypoint():
             with ui.button(icon="question_mark", color="white", on_click=lambda _:ui.open(wiki_base, new_tab=True)).props("text-color=primary"):
                 ui.tooltip("Open wiki")
             with ui.button(icon="close", color="red", on_click=stop) as close_button:
-                if args.dev_mode:
-                    ui.tooltip("Cannot stop in dev mode, abort script manually")
-                    close_button.set_enabled(False)
-                else:
-                    ui.tooltip("Quit")
+                ui.tooltip("Quit")
                 
         with ui.tab_panels(tabs, value=tab_list[0].name).classes("w-full").bind_value(app.storage.user, "active_tab"):
             for t in tab_list:

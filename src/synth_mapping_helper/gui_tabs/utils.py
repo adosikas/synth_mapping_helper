@@ -240,7 +240,7 @@ def handle_errors(func: Callable) -> Callable:
         except PrettyError as pe:
             error(msg=pe.msg, exc=pe.exc, context=pe.context, data=pe.data)
         except Exception as exc:
-            error(msg="Unexpected error. Please report this so a more useful message can show here.", exc=exc)
+            error(msg="Unexpected error. Please report this by clicking the report button in the top-right and sending me the report.", exc=exc)
     return _wrapped_func
 
 # wrappers, for when I decide to use the browser clipboard

@@ -5,16 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "synth_mapping_helper"
 dependencies = [
-    "numpy>=1.26.4",
-    "scipy>=1.13.1",
-    "matplotlib>=3.9.0",
-    "plotly>=5.22.0",
-    "pyperclip>=1.8.2",
-    "watchdog>=4.0.1",
-    "requests>=2.32.3",
-    "nicegui>=1.4.27",
-    "librosa>=0.10.2.post1",
-    "pywin32>=306; sys_platform=='win32'",
+    "numpy==1.26.4",
+    "scipy==1.14",
+    "matplotlib==3.9.1",
+    "plotly==5.23.0",
+    "pyperclip==1.9.0",
+    "watchdog==4.0.1",
+    "requests==2.32.3",
+    "nicegui==1.4.30",
+    "librosa==0.10.2.post1",
+    "soundfile==0.12.1",
+    "pywin32==306; sys_platform=='win32'",
 ]
 requires-python = ">=3.10"
 authors = [{"name"="adosikas"}]

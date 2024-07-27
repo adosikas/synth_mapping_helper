@@ -313,7 +313,8 @@ def _wall_art_tab() -> None:
             self._update_cursors()
 
         def end_drag(self, xyt: tuple[float, float, float]) -> None:
-            if self.drag_time is None:
+            if self.drag_time not in walls:
+                self.clear()
                 return
             self.offset = np.array(xyt) - walls[self.drag_time][0,:3]
             self.apply()
@@ -667,6 +668,7 @@ def _wall_art_tab() -> None:
                     with safe_clipboard_data(use_original=False, write=False) as data:
                         undo.push_undo("paste from clipboad")
                         walls.update(data.walls)
+                    selection.select(set(), mode="toggle")
                     _soft_refresh()
                     info(f"Added {len(data.walls)} walls from clipboard")
                 with ui.button(icon="content_paste", color="positive", on_click=_paste).style("width: 36px"):

@@ -570,7 +570,7 @@ class SynthFile:
                 name = beatmap["Name"],
                 artist = beatmap["Author"],
                 mapper = beatmap["Beatmapper"],
-                explicit = beatmap["Explicit"],
+                explicit = beatmap.get("Explicit", False),
                 cover_name = Path(beatmap["Artwork"]).stem + ".png",  # change to .png, regardless of input type
                 cover_data = base64.b64decode(beatmap["ArtworkBytes"]),  # this seems to be a converted form (to png)
                 audio_name = beatmap["AudioName"],
