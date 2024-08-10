@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from synth_mapping_helper.gui_tabs.utils import *
-from synth_mapping_helper.utils import pretty_list, beat_to_second
+from synth_mapping_helper.utils import pretty_list, beat_to_second, second_to_beat
 from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__
 
 NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "yellow", "combined": "black"}
@@ -47,7 +47,7 @@ def _file_utils_tab() -> None:
         # [diff][type][subtype]
         note_densities: Optional[dict[str, dict[str, dict[str, analysis.PlotDataContainer]]]] = None
         # [diff][type]
-        hand_curves: Optional[dict[str, dict[str, "numpy array (n, 3)"]]] = None
+        hand_curves: Optional[dict[str, dict[str, analysis.HAND_CURVE_TYPE]]] = None
         # [diff]
         warnings: Optional[dict[str, list[analysis.Warning]]] = None
         bpm_scan_data: Optional[dict] = None
@@ -342,15 +342,15 @@ def _file_utils_tab() -> None:
             ui.markdown("**Edit metadata**")
             meta = self.data.meta
             with ui.row():
-                with ui.upload(label="Replace Cover" if meta.cover_data else "Set Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
-                    ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).tooltip(meta.cover_name)
-                with ui.column():
+                with ui.column().classes("w-40"):
                     ui.input("Name").props("dense").classes("h-8").bind_value(meta, "name")
                     ui.input("Artist").props("dense").classes("h-8").bind_value(meta, "artist")
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
-            with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-full").add_slot("list"):
-                self._audio_info()
+                with ui.upload(label="Replace Cover" if meta.cover_data else "Set Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
+                    ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).tooltip(meta.cover_name)
+                with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-80").add_slot("list"):
+                    self._audio_info()
 
         async def _calc_bpm(self):
             sd = self.bpm_scan_data  # create a pointer to avoid messing up data when it gets replaced during calc
@@ -571,8 +571,12 @@ def _file_utils_tab() -> None:
             self.stats_card.refresh()
 
         async def _calc_warn(self):
-            self.warnings = await run.cpu_bound(analysis.all_warnings, diffs=self.data.difficulties)
-            self.stats_card.refresh()
+            self.warnings = await run.cpu_bound(
+                analysis.all_warnings,
+                diffs=self.data.difficulties,
+                last_beat=second_to_beat(self.data.audio.duration-self.data.offset_ms/1000, bpm=self.data.bpm)
+            )
+            self._stats_table.refresh()
 
         def _wden_content(self, den_dict: dict[str, analysis.PlotDataContainer]) -> None:
             wfig = go.Figure(
@@ -635,7 +639,7 @@ def _file_utils_tab() -> None:
                         )
             ui.plotly(nfig).classes("w-full h-128")
 
-        def _hcurve_content(self, curves: dict[str, "np array (n, 3)"], warnings: list[analysis.Warning]) -> None:
+        def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE], warnings: list[analysis.Warning]) -> None:
             xfig = go.Figure(
                 layout=go.Layout(
                     yaxis=go.layout.YAxis(title="X: right (+) <-> left (-)", range=(7,-7)),
@@ -652,22 +656,58 @@ def _file_utils_tab() -> None:
                     hovermode="x unified",
                 ),
             )
+            vfig = go.Figure(
+                layout=go.Layout(
+                    yaxis=go.layout.YAxis(title="Velocity (m/s)"),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
+                ),
+            )
+            afig = go.Figure(
+                layout=go.Layout(
+                    yaxis=go.layout.YAxis(title="Acceleration (m/s²)"),
+                    legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
+                ),
+            )
             for t, b in self.data.bookmarks.items():
-                xfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
-                yfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+                for f in (xfig, yfig, vfig, afig):
+                    f.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
 
             if curves is not None:
-                for nt, curve in curves.items():
+                any_vel = False
+                vel_mult = synth_format.GRID_SCALE * beat_to_second(analysis.CURVE_INTERP, self.data.bpm)
+                any_acc = False
+                acc_mult = synth_format.GRID_SCALE * (beat_to_second(analysis.CURVE_INTERP, self.data.bpm)**2)
+                for nt, (pos, vel, all) in curves.items():
                     xfig.add_scatter(
-                        x=curve[:,2], y=curve[:,0], name=nt,
+                        x=pos[:,2], y=pos[:,0], name=nt,
                         showlegend=True,
                         line={"color": NOTE_COLORS[nt]}
                     )
                     yfig.add_scatter(
-                        x=curve[:,2], y=curve[:,1], name=nt,
+                        x=pos[:,2], y=pos[:,1], name=nt,
                         showlegend=True,
                         line={"color": NOTE_COLORS[nt]}
                     )
+                    if not np.isnan(vel).all():
+                        v_mag = np.sqrt(vel[:,0]**2 + vel[:,1]**2) * vel_mult
+                        vfig.add_scatter(
+                            x=vel[:,2], y=vel[:,0], name=nt,
+                            showlegend=True,
+                            line={"color": NOTE_COLORS[nt]}
+                        )
+                        any_vel = True
+                    if not np.isnan(vel).all():
+                        v_mag = np.sqrt(vel[:,0]**2 + vel[:,1]**2) * acc_mult
+                        afig.add_scatter(
+                            x=vel[:,2], y=vel[:,0], name=nt,
+                            showlegend=True,
+                            line={"color": NOTE_COLORS[nt]}
+                        )
+                        any_acc = True
             if warnings is not None:
                 for w in warnings:
                     if w.type == "head_area":
@@ -691,23 +731,16 @@ def _file_utils_tab() -> None:
                                 )
             ui.plotly(xfig).classes("w-full h-48")
             ui.plotly(yfig).classes("w-full h-48")
+            if any_vel:
+                ui.label("Velocity")
+                ui.plotly(vfig).classes("w-full h-48")
+            if any_acc:
+                ui.label("Acceleration")
+                ui.plotly(afig).classes("w-full h-48")
 
         @ui.refreshable
-        def stats_card(self) -> None:
-            if self.data is None:
-                ui.label("Load a map to show stats and graphs")
-                return
-            self._bpm_card()
-            ui.separator()
+        def _stats_table(self) -> None:
             ui.label(f"{len(self.data.bookmarks)} Bookmarks")
-            if self.merged_filenames:
-                ui.label("Merged:")
-                for m in self.merged_filenames:
-                    ui.label(m)
-            if self.data.errors:
-                with ui.button("Save error report", icon="summarize", color="warning", on_click=self.save_errors):
-                    ui.tooltip("Use this if you want to re-add notes that were corrupted.")
-
             ui.label("Object counts (click to see more)")
             def _stats_notify(ev: events.GenericEventArguments) -> None:
                 if "." in ev.args["colId"]:
@@ -718,11 +751,25 @@ def _file_utils_tab() -> None:
                         position="center",
                         type="info"
                     )
+                    
+            warning_counts: dict[str, dict[str, int]|int] = {
+                d: -1 
+                for d in self.data.difficulties.keys()
+            }
+            if self.warnings is not None:
+                for d in self.data.difficulties.keys():
+                    warnings = self.warnings.get(d, [])
+                    counts: dict[str, int] = {}
+                    for w in warnings:
+                        counts[w.type] = counts.get(w.type, 0) + 1
+                    counts["total"] = sum(counts.values())
+                    warning_counts[d] = counts
             ui.aggrid({
                 "domLayout": "autoHeight",
                 "columnDefs": [
                     {"headerName": "Difficulty", "field": "diff"},
                     {"headerName": "Fixed Errors", "field": "errors"},
+                    {"headerName": "Warnings", "field": "warnings.total"},
                     {"headerName": "Notes", "field": "notes.total"},
                     {"headerName": "Rails", "field": "rails.total"},
                     {"headerName": "Rail nodes", "field": "rail_nodes.total"},
@@ -731,44 +778,96 @@ def _file_utils_tab() -> None:
                     {"headerName": "Effects", "field": "effects"},
                 ],
                 "rowData": [
-                    c.get_counts() | {"diff": d, "errors": len(self.data.errors.get(d, []))}
+                    c.get_counts() | {
+                        "diff": d,
+                        "errors": len(self.data.errors.get(d, [])),
+                        "warnings": warning_counts[d]
+                    }
                     for d, c in self.data.difficulties.items()
                 ],
             }).classes("w-full h-auto").on("cellClicked", _stats_notify)
 
+        @ui.refreshable
+        def _hands_card(self, difficulty: str|None) -> None:
+            if difficulty is None:
+                ui.label("Select a difficulty")
+            elif difficulty == "wait" or self.data is None or self.hand_curves is None or self.warnings is None:
+                ui.spinner(size="xl")
+            elif (
+                (difficulty not in self.hand_curves or all(np.isnan(pos).all() for pos, _, _ in self.hand_curves[difficulty].values()))
+                and (difficulty not in self.warnings or not self.warnings[difficulty])
+            ):
+                ui.label("No data").classes("h-32")
+            else:
+                ui.label("Hand curves and warnings")
+                self._hcurve_content(self.hand_curves.get(difficulty), self.warnings.get(difficulty))
+
+        @ui.refreshable
+        def _density_card(self, difficulty: str|None) -> None:
+            if difficulty is None:
+                ui.label("Select a difficulty")
+                return
+            elif difficulty == "wait":
+                ui.spinner(size="xl")
+                return
+            
+            ui.label("Wall density")
+            if self.wall_densities is None:
+                ui.spinner(size="xl")
+            elif difficulty not in self.wall_densities or not self.wall_densities[difficulty]["combined"].max_value:
+                ui.label("No data").classes("h-32")
+            else:
+                self._wden_content(self.wall_densities[difficulty])
+
+            ui.label("Note & Rail density")
+            if self.note_densities is None:
+                ui.spinner(size="xl")
+            elif difficulty not in self.note_densities or not any(pdc.max_value for pdc in self.note_densities[difficulty]["combined"].values()):
+                ui.label("No data").classes("h-32")
+            else:
+                self._nden_content(self.note_densities[difficulty])
+
+        @ui.refreshable
+        def stats_card(self) -> None:
+            if self.data is None:
+                ui.label("Load a map to show stats and graphs")
+                return
+            if self.merged_filenames:
+                ui.label("Merged:")
+                for m in self.merged_filenames:
+                    ui.label(m)
+            if self.data.errors:
+                with ui.button("Save error report", icon="summarize", color="warning", on_click=self.save_errors):
+                    ui.tooltip("Use this if you want to re-add notes that were corrupted.")
+            self._stats_table()
+
+            ui.separator()
+
             with ui.tabs() as tabs:
-                for d in synth_format.DIFFICULTIES:
-                    ui.tab(d).set_enabled(d in self.data.difficulties)
-            with ui.tab_panels(tabs).classes("w-full").bind_value(app.storage.user, "fileutils_stats_tab"):
-                for d in synth_format.DIFFICULTIES:
-                    with ui.tab_panel(d):
-                        ui.label("Hand curves and warnings")
-                        if self.data is None or self.hand_curves is None or self.warnings is None:
-                            ui.spinner(size="xl")
-                        elif (
-                            (d not in self.hand_curves or all(np.isnan(arr).all() for arr in self.hand_curves[d].values()))
-                            and (d not in self.warnings or not self.warnings[d])
-                        ):
-                            ui.label("No data").classes("w-full h-96")
-                        else:
-                            self._hcurve_content(self.hand_curves.get(d, None), self.warnings.get(d, None))
+                ui.tab("bpm", label="BPM", icon="speed")
+                ui.tab("hands", label="Hands", icon="accessibility")
+                ui.tab("density", label="Density", icon="analytics")
 
-                        ui.label("Wall density")
-                        if self.data is None or self.wall_densities is None:
-                            ui.spinner(size="xl")
-                        elif d not in self.wall_densities or not self.wall_densities[d]["combined"].max_value:
-                            ui.label("No data").classes("w-full h-96")
-                        else:
-                            self._wden_content(self.wall_densities[d])
-
-                        ui.label("Note & Rail density")
-                        if self.data is None or self.note_densities is None:
-                            ui.spinner(size="xl")
-                        elif d not in self.note_densities or not any(pdc.max_value for pdc in self.note_densities[d]["combined"].values()):
-                            ui.label("No data").classes("w-full h-96")
-                        else:
-                            self._nden_content(self.note_densities[d])
-
+            with ui.tab_panels(tabs, value="bpm").bind_value(app.storage.user, "fileutils_stats_type").classes("w-full"):
+                with ui.tab_panel("bpm"):
+                    with ui.element().classes("w-full min-h-screen"):
+                        self._bpm_card()
+                with ui.tab_panel("hands"):
+                    def _change_diff(vce: events.ValueChangeEventArguments):
+                        if vce.value is not None:
+                            self._hands_card.refresh("wait")
+                        ui.timer(0.01, lambda: self._hands_card.refresh(vce.value), once=True)
+                    ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty", on_change=_change_diff).bind_value(app.storage.user, "fileutils_stats_diff").classes("w-32")
+                    with ui.element().classes("w-full min-h-screen"):
+                        self._hands_card(None)
+                with ui.tab_panel("density"):
+                    def _change_diff(vce: events.ValueChangeEventArguments):
+                        if vce.value is not None:
+                            self._density_card.refresh("wait")
+                        ui.timer(0.01, lambda: self._density_card.refresh(vce.value), once=True)
+                    ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty", on_change=_change_diff).bind_value(app.storage.user, "fileutils_stats_diff").classes("w-32")
+                    with ui.element().classes("w-full min-h-screen"):
+                        self._density_card(None)
         def __repr__(self) -> str:
             return type(self).__name__  # avoid spamming logs with binary data
 
@@ -795,8 +894,10 @@ def _file_utils_tab() -> None:
             * Merge files, including different BPM and Offset
             * Show stats
                 * Object counts per difficulty
+                * Hand position, velocity and acceleration plots
                 * Density plot for Walls (including checks for PC or Quest limitations)
                 * Density plot for Notes and Rails
+            * See warnings about problematic sections (spiral distortions, headbanger notes)
 
             To start, just open a .synth file by clicking the plus button below.  
             You can also drag files directly onto these file selectors.

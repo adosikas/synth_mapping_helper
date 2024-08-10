@@ -28,7 +28,7 @@ __all__ = [
 logger = logging.getLogger("SMH-GUI")
 wiki_base = "https://github.com/adosikas/synth_mapping_helper/wiki"
 
-last_error: Optional[tuple[str, Exception|None, Any, Any, datetime.datetime]] = None
+last_errors: list[tuple[str, Exception|None, Any, Any, datetime.datetime]] = []
 
 @dataclass
 class GUITab:
@@ -134,33 +134,30 @@ class PrettyJSONResponse(Response):
 
 @app.get("/error_report", response_class=PrettyJSONResponse)
 def error_report():
-    if last_error is None:
-        out = {
-            "version": __version__,
-            "time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
-            "msg": "No error yet"
-        }
-    else:
-        msg, exc, context, data, time = last_error
-        out = {
-            "version": __version__,
+    out = {
+        "version": __version__,
+        "report_time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
+        "errors": [],
+    }
+    for msg, exc, context, data, time in last_errors:
+        err = {
             "time": time.strftime("%Y-%m-%dT%H-%M-%SZ"),
             "message": msg,
         }
         if exc is not None:
-            out["exception"] = repr(exc)
+            err["exception"] = repr(exc)
             if exc.__cause__ is not None:
-                out["exception_cause"] = repr(exc.__cause__)
-            out["traceback"] = [l for tb in traceback.format_exception(exc, chain=True) for l in tb.splitlines()]
+                err["exception_cause"] = repr(exc.__cause__)
+            err["traceback"] = [l for tb in traceback.format_exception(exc, chain=True) for l in tb.splitlines()]
         if context is not None:
-            out["context"] = context
+            err["context"] = context
         if data is not None:
-            out["data"] = data
+            err["data"] = data
+        out["errors"].append(err)
     return out
 
 def error(msg: str, exc: Optional[Exception]=None, context: Any = None, data: Any=None) -> None:
-    global last_error
-    last_error = (msg, exc, context, data, datetime.datetime.now(datetime.timezone.utc))
+    last_errors.append((msg, exc, context, data, datetime.datetime.now(datetime.timezone.utc)))
     logger.error(msg+(" " + repr(exc) if exc is not None else ""))
     if exc is not None:
         logger.debug("Stacktrace:", exc_info=exc)

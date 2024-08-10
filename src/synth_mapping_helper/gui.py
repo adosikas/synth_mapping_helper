@@ -1,5 +1,6 @@
 from argparse import ArgumentParser, ArgumentError
 from io import BytesIO
+from pathlib import Path
 import logging
 import sys
 from typing import Optional
@@ -135,7 +136,7 @@ def entrypoint():
         logging.getLogger(ln).setLevel(logging.WARN)
 
     if __name__ == "__main__":  # don't run when spawned as child process
-        logger.info(f"Starting {version}{' in background' if args.background else ''}...")
+        logger.info(f"Starting {version}{' in background' if args.background else ''}. Working directory: {Path().absolute()}")
     ui.run(
         host=args.host,
         port=args.port,

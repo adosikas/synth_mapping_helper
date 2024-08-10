@@ -8,7 +8,7 @@ import numpy as np
 import librosa
 import soundfile
 
-from synth_mapping_helper import rails
+from synth_mapping_helper import rails, utils
 from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES, NOTE_TYPES, WALL_TYPES, AudioData, GRID_SCALE
 
 RENDER_WINDOW = 4.0  # the game always renders 4 seconds ahead
@@ -29,6 +29,13 @@ SPIRAL_NEUTRAL_OFFSET: dict[str, "numpy array (2,)"] = {
     "single": np.zeros(2),
     "both": np.zeros(2),
 }
+
+CURVE_INTERP = 192  # 192 bins per beat
+RAIL_WEIGHT = 0.3  # rails have a lower weight than notes
+RAIL_TAIL_WEIGHT = 0.1  # last 20% of rail
+HAND_CURVE_TYPE = tuple["numpy array (n, 2)", "numpy array (n, 2)", "numpy array (n, 2)"]  # position, velocity, acceleration
+
+END_PADDING = 1.0  # notes should not be in the last second to avoid them not showing up at all
 
 @dataclass
 class PlotDataContainer:
@@ -88,7 +95,7 @@ def wall_mode(highest_density: float, *, combined: bool) -> str:
     return f"{mode}, max {round(highest_density)}"
 
 def note_densities(data: DataContainer) -> dict[str, dict[str, PlotDataContainer]]:
-    window_b = RENDER_WINDOW*data.bpm/60
+    window_b = utils.second_to_beat(RENDER_WINDOW, bpm=data.bpm)
     out = {}
     for nt in NOTE_TYPES:
         # time, node_count
@@ -137,11 +144,7 @@ def all_wall_densities(diffs: dict[str, DataContainer]) -> dict[str, dict[str, P
 
 # MOVEMENT
 
-CURVE_INTERP = 192  # 192 bins per beat
-RAIL_WEIGHT = 0.3  # rails have a lower weight than notes
-RAIL_TAIL_WEIGHT = 0.1  # last 20% of rail
-
-def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> "numpy array (n, 3)":
+def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
     if not notes:
         return np.full((1,3), np.nan)
     # step 1: find average positions for each time "bin", by weighted average of notes and (interpolated) rails
@@ -170,30 +173,47 @@ def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> "numpy array (n, 3
                 else:
                     data_points[tb+bi] += wxy
     # step 2: locate continguous sections and interpolate over the averaged locations
-    out = []
+    out_pos = []
+    out_vel = []
+    out_acc = []
     current_curve = []
+
+    def _append_section():
+        interp_pos = rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP)
+        out_pos.append(interp_pos)
+        out_pos.append(np.full((1,3), np.nan))  # add NaN spacers between sections
+
+        if interp_pos.shape[0] > 1:
+            section_vel = np.diff(interp_pos[:, :2], axis=0)
+            out_vel.append(np.concatenate((section_vel, interp_pos[:-1, 2:3]), axis=-1))
+            out_vel.append(np.full((1,3), np.nan))
+            if section_vel.shape[0] > 1:
+                section_acc = np.diff(section_vel, axis=0)
+                out_acc.append(np.concatenate((section_acc, interp_pos[1:-1, 2:3]), axis=-1))
+                out_acc.append(np.full((1,3), np.nan))
+        
+        current_curve.clear()
+
     last_b = None
     for bi, (w,x,y) in sorted(data_points.items()):
         this_b = (bi/CURVE_INTERP)
         if last_b is not None and (this_b - last_b) > window_b:
-            out.append(rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP))
-            current_curve = []
-            out.append(np.full((1,3), np.nan))  # add NaN spacers between sections
+            _append_section()
         current_curve.append([x/w,y/w,this_b])
         last_b = this_b
     if current_curve:
-        out.append(rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP))
+        _append_section()
     # put it all together
-    return np.concatenate(out)
+    return np.concatenate(out_pos), np.concatenate(out_vel), np.concatenate(out_acc)
 
-def hand_curves(data: DataContainer) -> dict[str, "numpy array (n, 3)"]:
+def hand_curves(data: DataContainer) -> dict[str, HAND_CURVE_TYPE]:
     return {
         nt: hand_curve(getattr(data, nt), window_b=2.0)
         for nt in NOTE_TYPES
         if getattr(data, nt)
     }
 
-def all_hand_curves(diffs: dict[str, DataContainer]) -> dict[str, dict[str, "numpy array (n, 3)"]]:
+def all_hand_curves(diffs: dict[str, DataContainer]) -> dict[str, dict[str, HAND_CURVE_TYPE]]:
     return {
         d: hand_curves(c)
         for d, c in diffs.items()
@@ -212,7 +232,7 @@ def sections_from_bools(bools: "numpy array (n,)") -> Generator[tuple[int, int],
 
 @dataclass
 class Warning:
-    type: Literal["straight_rail", "spiral_distortion", "spiral_breakdown", "head_area"]
+    type: Literal["straight_rail", "end_padding", "spiral_distortion", "spiral_breakdown", "head_area"]
     figure: Literal["x", "y", "xy"]
     note_type: str
     start_beat: float
@@ -222,6 +242,7 @@ class Warning:
     def icon(self) -> str:
         return {
             "straight_rail": "📏",
+            "end_padding": "🔚",
             "spiral_distortion": "🌀<br>⚠️",
             "spiral_breakdown": "🌀<br>💀",
             "head_area": "🙈",
@@ -230,14 +251,16 @@ class Warning:
     @property
     def text(self) -> str:
         return {
-            "straight_rail": "Long rail without intermediate nodes<br>This may be unplayable in spiral",
-            "spiral_distortion": "Somewhat far from hand neutral position<br>This may look distorted in spiral",
-            "spiral_breakdown": "Far away from hand neutral position<br>This will be massively misplaced in spiral",
-            "head_area": "Inside head area<br>This may block line of sight",
+            "straight_rail": "Long rail without intermediate nodes.<br>This may be unplayable in spiral.",
+            "end_padding": "Close to end of song when accounting for offset.<br>This may cause issues.",
+            "spiral_distortion": "Somewhat far from hand neutral position.<br>This may look distorted in spiral.",
+            "spiral_breakdown": "Far away from hand neutral position.<br>This will be massively misplaced in spiral.",
+            "head_area": "Inside head area.<br>This may block line of sight",
         }[self.type]
 
-def warnings(data: DataContainer) -> list[Warning]:
-    out: list[tuple[Warning]] = []
+def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
+    last_safe_beat = last_beat - utils.second_to_beat(END_PADDING, bpm=data.bpm)
+    out: list[Warning] = []
     for nt in NOTE_TYPES:
         for _, nodes in sorted(getattr(data, nt).items()):
             if nodes.shape[0] == 1:
@@ -256,8 +279,18 @@ def warnings(data: DataContainer) -> list[Warning]:
                         start_beat=crv[s_idx, 2],
                         end_beat=crv[e_idx, 2],
                     ))
+
+            if nodes[-1, 2] >= last_safe_beat:
+                out.append(Warning(
+                    type="end_padding",
+                    figure="xy",
+                    note_type=nt,
+                    start_beat=max(nodes[0, 2], last_safe_beat),
+                    end_beat=nodes[-1, 2],
+                ))
+
             spiral_delta = np.abs((crv[:,:1] - SPIRAL_NEUTRAL_OFFSET[nt]))
-            for s_idx, e_idx in sections_from_bools(spiral_delta[:,0] > SPIRAL_APEX):
+            for s_idx, e_idx in sections_from_bools(np.logical_and(spiral_delta[:,0] > SPIRAL_APEX, spiral_delta[:,0] <= SPIRAL_FLIP)):
                 out.append(Warning(
                     type="spiral_distortion",
                     figure="x",
@@ -265,7 +298,7 @@ def warnings(data: DataContainer) -> list[Warning]:
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
-            for s_idx, e_idx in sections_from_bools(spiral_delta[:,1] > SPIRAL_APEX):
+            for s_idx, e_idx in sections_from_bools(np.logical_and(spiral_delta[:,1] > SPIRAL_APEX, spiral_delta[:,1] <= SPIRAL_FLIP)):
                 out.append(Warning(
                     type="spiral_distortion",
                     figure="y",
@@ -301,9 +334,9 @@ def warnings(data: DataContainer) -> list[Warning]:
                 ))
     return out
 
-def all_warnings(diffs: dict[str, DataContainer]) -> dict[str, list[tuple[str, str, float, float, str]]:]:
+def all_warnings(diffs: dict[str, DataContainer], last_beat: float) -> dict[str, list[tuple[str, str, float, float, str]]:]:
     return {
-        d: warnings(c)
+        d: warnings(c, last_beat=last_beat)
         for d, c in diffs.items()
     }
 
