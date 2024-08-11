@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from synth_mapping_helper.gui_tabs.utils import *
-from synth_mapping_helper.utils import pretty_list, beat_to_second, second_to_beat
+from synth_mapping_helper.utils import pretty_list, pretty_fraction, beat_to_second, second_to_beat
 from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__
 
 NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "yellow", "combined": "black"}
@@ -722,14 +722,21 @@ def _file_utils_tab() -> None:
                                 fig.add_vline(
                                     w.start_beat,
                                     line_color=color, opacity=0.2,
-                                    annotation=go.layout.Annotation(text=w.icon, yanchor="top", yref="paper", hovertext=w.text),
+                                    annotation=go.layout.Annotation(
+                                        text=w.icon, yanchor="top", yref="paper",
+                                        hovertext=f"{w.note_type} {w.note_rail} @ {pretty_fraction(w.start_beat)}<br>{w.text}",
+                                    ),
                                     annotation_position="top",
                                 )
                             else:
                                 fig.add_vrect(
                                     w.start_beat, w.end_beat,
                                     line_width=0, fillcolor=color, opacity=0.2,
-                                    annotation=go.layout.Annotation(text=w.icon, yanchor="top", yref="paper", hovertext=w.text),
+                                    annotation=go.layout.Annotation(
+                                        text=w.icon, yanchor="top", yref="paper",
+                                        # round to inclusive 1/64, to ensure 1/192 interpolation doesn't result in ugly fractions
+                                        hovertext=f"{w.note_type} {w.note_rail} @ {pretty_fraction(np.floor(w.start_beat*64)/64)} to {pretty_fraction(np.ceil(w.end_beat*64)/64)}<br>{w.text}",
+                                    ),
                                     annotation_position="top",
                                 )
             ui.plotly(xfig).classes("w-full h-48")

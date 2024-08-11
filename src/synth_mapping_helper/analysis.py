@@ -234,7 +234,8 @@ def sections_from_bools(bools: "numpy array (n,)") -> Generator[tuple[int, int],
 class Warning:
     type: Literal["straight_rail", "end_padding", "spiral_distortion", "spiral_breakdown", "head_area"]
     figure: Literal["x", "y", "xy"]
-    note_type: str
+    note_type: Literal["left", "right", "single", "both"]
+    note_rail: Literal["note", "rail"]
     start_beat: float
     end_beat: float
 
@@ -265,10 +266,10 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
         for _, nodes in sorted(getattr(data, nt).items()):
             if nodes.shape[0] == 1:
                 crv = nodes
-                nr = "Note"
+                nr = "note"
             else:
                 crv = rails.interpolate_nodes(nodes, mode="spline", interval=1/CURVE_INTERP)
-                nr = "Rail"
+                nr = "rail"
 
                 rail_deltas = np.diff(nodes[:,2])
                 for s_idx, e_idx in sections_from_bools(rail_deltas > 2.0):  # nodes more than 2 beats apart
@@ -276,6 +277,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                         type="straight_rail",
                         figure="xy",
                         note_type=nt,
+                        note_rail=nr,
                         start_beat=crv[s_idx, 2],
                         end_beat=crv[e_idx, 2],
                     ))
@@ -285,6 +287,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     type="end_padding",
                     figure="xy",
                     note_type=nt,
+                    note_rail=nr,
                     start_beat=max(nodes[0, 2], last_safe_beat),
                     end_beat=nodes[-1, 2],
                 ))
@@ -295,6 +298,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     type="spiral_distortion",
                     figure="x",
                     note_type=nt,
+                    note_rail=nr,
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
@@ -303,6 +307,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     type="spiral_distortion",
                     figure="y",
                     note_type=nt,
+                    note_rail=nr,
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
@@ -311,6 +316,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     type="spiral_breakdown",
                     figure="x",
                     note_type=nt,
+                    note_rail=nr,
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
@@ -319,6 +325,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     type="spiral_breakdown",
                     figure="y",
                     note_type=nt,
+                    note_rail=nr,
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
@@ -329,6 +336,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     type="head_area",
                     figure="xy",
                     note_type=nt,
+                    note_rail=nr,
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
