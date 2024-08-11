@@ -21,7 +21,7 @@ HEAD_RADIUS_SQ = 1.5 ** 2  # squared, such that we can skip the sqrt in sqrt(x**
 
 # the game uses some formula like out = in - (in^3) to scale X and Y in spieral, which is not monotonic and breaks down as the coordinates approach 1m
 SPIRAL_APEX = 0.65 / GRID_SCALE  # 65 cm away from the center the notes stop getting further out
-SPIRAL_FLIP = 0.80 / GRID_SCALE  # 80 cm away from the center the math breaks down completely and returns to then, then flips to other side
+SPIRAL_FLIP = 0.80 / GRID_SCALE  # 80 cm away from the center the math breaks down completely and returns to center, then flips to other side
 SPIRAL_NEUTRAL_OFFSET: dict[str, "numpy array (2,)"] = {
     # center is shifted a bit for left/right hands
     "right": np.array([1.5,0.0]),
