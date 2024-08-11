@@ -1,5 +1,5 @@
 @echo off
-python3 -m synth_mapping_helper.gui || (
+python -m synth_mapping_helper.gui || (
 	echo.
 	echo A script error occured
 	echo Aborting...

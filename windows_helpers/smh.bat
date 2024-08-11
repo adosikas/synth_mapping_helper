@@ -7,7 +7,7 @@ goto :eof
 	set line=%*
 	if "%line:~0,1%" == "#" exit /b 0 :: skip comments
 	echo Executing %line%
-	python3 -m synth_mapping_helper.cli %line% || (
+	python -m synth_mapping_helper.cli %line% || (
 		echo.
 		echo A script error occured executing %line%
 		echo Aborting...
