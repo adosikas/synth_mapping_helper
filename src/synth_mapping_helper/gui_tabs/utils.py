@@ -1,4 +1,6 @@
+import asyncio
 from contextlib import contextmanager
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 import datetime
 from functools import wraps
@@ -10,7 +12,7 @@ import traceback
 from typing import Any, Callable, Generator, Optional
 
 from fastapi import Response
-from nicegui import app, events, ui, binding
+from nicegui import app, events, ui, binding, run
 from nicegui.storage import PersistentDict
 import pyperclip
 
@@ -231,17 +233,31 @@ def handle_errors(func: Callable) -> Callable:
     #   ui.button(on_click=_do_stuff)
     # Lambdas:
     #   ui.button(on_click=handle_errors(lambda ...))
-    @wraps(func)
-    def _wrapped_func(*args, **kwargs) -> Any:
+    @contextmanager
+    def _catch_errors():
         try:
-            return func(*args, **kwargs)
+            yield
         except ParseInputError as pie:
             error(msg=f"Error parsing {pie.input_id} value: {pie.value!r}", exc=pie.exc, context=pie.context, data=pie.value)
         except PrettyError as pe:
             error(msg=pe.msg, exc=pe.exc, context=pe.context, data=pe.data)
+        except BrokenProcessPool as bpe:
+            error(msg="Sound library error occurred. I am waiting for a fix for that. In the meantime, avoid this function.", exc=bpe)
+            run.process_pool = run.ProcessPoolExecutor()  # attempt to restore process pool
         except Exception as exc:
             error(msg="Unexpected error. Please report this by clicking the report button in the top-right and sending me the report.", exc=exc)
-    return _wrapped_func
+
+    if asyncio.iscoroutinefunction(func):
+        @wraps(func)
+        async def _wrapped_async_func(*args, **kwargs) -> Any:
+            with _catch_errors():
+                return await func(*args, **kwargs)
+        return _wrapped_async_func
+    @wraps(func)
+    def _wrapped_sync_func(*args, **kwargs) -> Any:
+        with _catch_errors():
+            return func(*args, **kwargs)
+    return _wrapped_sync_func
 
 # wrappers, for when I decide to use the browser clipboard
 def read_clipboard() -> str:

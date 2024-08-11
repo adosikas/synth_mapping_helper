@@ -763,16 +763,18 @@ class SynthFile:
             else:
                 self.errors[d] = e
 
-    def add_silence(self, *, before_start_ms: int|None = 0, after_end_ms: int|None = 0) -> None:
+    def with_added_silence(self, *, before_start_ms: int|None = 0, after_end_ms: int|None = 0) -> "SynthFile":
         if not before_start_ms and not after_end_ms:
             return
         if before_start_ms is None:
             before_start_ms = 0
         if after_end_ms is None:
             after_end_ms = 0
-        self.audio.add_silence(before_start_s=before_start_ms/1000, after_end_s=after_end_ms/1000)
+        new_audio = self.audio.with_silence(before_start_s=before_start_ms/1000, after_end_s=after_end_ms/1000)
+        output = dataclasses.replace(self, audio=new_audio)
         if before_start_ms:
-            self.offset_everything(delta_s=before_start_ms/1000)
+            output.offset_everything(delta_s=before_start_ms/1000)
+        return output
 
 # basic coordinate
 def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":

@@ -176,7 +176,7 @@ def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
     out_pos = []
     out_vel = []
     out_acc = []
-    current_curve = []
+    current_curve: list[tuple[float, float, float]] = []
 
     def _append_section():
         interp_pos = rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP)
@@ -199,7 +199,7 @@ def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
         this_b = (bi/CURVE_INTERP)
         if last_b is not None and (this_b - last_b) > window_b:
             _append_section()
-        current_curve.append([x/w,y/w,this_b])
+        current_curve.append((x/w,y/w,this_b))
         last_b = this_b
     if current_curve:
         _append_section()

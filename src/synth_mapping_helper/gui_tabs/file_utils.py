@@ -205,14 +205,13 @@ def _file_utils_tab() -> None:
             self.info_card.refresh()
             self.stats_card.refresh()
 
+        @handle_errors
         async def add_silence(self, before_start_ms: int=0, after_end_ms: int=0) -> None:
             if self.data is None:
                 return
             self.bpm_scan_data = {"state": "Waiting"}
             self._bpm_card.refresh()
-            # note: this edits the object, so it cannot easily be offloaded to another process
-            # but io_bound is just another thread, which is fine
-            await run.io_bound(self.data.add_silence, before_start_ms=before_start_ms, after_end_ms=after_end_ms)
+            self.data = await run.cpu_bound(self.data.with_added_silence, before_start_ms=before_start_ms, after_end_ms=after_end_ms)
             self._audio_info.refresh()
             ui.timer(0.01, self._calc_bpm, once=True)
 
@@ -251,7 +250,7 @@ def _file_utils_tab() -> None:
                 ui.separator().props("vertical")
                 ui.button("<½", on_click=lambda _: _shift_offset(-0.5), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Subtract half a beat from offset")
                 ui.button(">½", on_click=lambda _: _shift_offset(0.5), color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add half a beat to offset")
-            with ui.row().classes("pt-2"):
+            with ui.row():
                 def _reset_bpm():
                     self.output_bpm = self.data.bpm
                     self.output_offset = self.data.offset_ms
@@ -313,6 +312,7 @@ def _file_utils_tab() -> None:
                     pad_dialog.update()
                 ui.button(icon="settings_ethernet", color="info", on_click=_open_pad_dialog).props("dense").classes("w-8 my-auto").tooltip("Pad or trim audio")
                 ui.separator().props("vertical")
+                @handle_errors
                 async def _add_clicks(e: events.ClickEventArguments):
                     if self.data is None:
                         return
@@ -326,11 +326,8 @@ def _file_utils_tab() -> None:
                         return
                     btn: ui.button = e.sender  # type: ignore
                     btn.props('color="grey"').classes("cursor-wait")  # turn grey and indicate wait
-                    try:
-                        data = await run.cpu_bound(audio_format.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
-                        preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(data).decode())
-                    except Exception as exc:
-                        error("Generating click audio failed", exc=exc, data={"bpm":bpm, "offset_ms": offset})
+                    data = await run.cpu_bound(audio_format.audio_with_clicks, raw_audio_data=self.data.audio.raw_data, duration=self.data.audio.duration, bpm=bpm, offset_ms=offset)
+                    preview_audio.set_source("data:audio/ogg;base64,"+base64.b64encode(data).decode())
                     btn.props('color="positive"').classes(remove="cursor-wait")  # reset visuals
                 ui.button(icon="timer", on_click=_add_clicks, color="positive").props("dense outline").classes("w-8 my-auto").tooltip("Add or update clicks in preview")
                 ui.button(icon="timer_off", on_click=lambda _: preview_audio.set_source(default_source), color="negative").props("dense outline").classes("w-8 my-auto").tooltip("Remove clicks from preview")
@@ -340,6 +337,7 @@ def _file_utils_tab() -> None:
                 ui.label("Load a map to show info")
                 return
             ui.markdown("**Edit metadata**")
+            ui.separator()
             meta = self.data.meta
             with ui.row():
                 with ui.column().classes("w-40"):
@@ -347,11 +345,14 @@ def _file_utils_tab() -> None:
                     ui.input("Artist").props("dense").classes("h-8").bind_value(meta, "artist")
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
+                ui.separator().props("vertical")
                 with ui.upload(label="Replace Cover" if meta.cover_data else "Set Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
                     ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).tooltip(meta.cover_name)
-                with ui.upload(label="Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-80").add_slot("list"):
+                ui.separator().props("vertical")
+                with ui.upload(label="Edit / Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-80").add_slot("list"):
                     self._audio_info()
 
+        @handle_errors
         async def _calc_bpm(self):
             sd = self.bpm_scan_data  # create a pointer to avoid messing up data when it gets replaced during calc
             sd["state"] = "Loading Audio"
@@ -558,18 +559,22 @@ def _file_utils_tab() -> None:
                 )
             ui.plotly(onset_fig).classes("w-full h-96")
 
+        @handle_errors
         async def _calc_wden(self):
             self.wall_densities = await run.cpu_bound(analysis.all_wall_densities, diffs=self.data.difficulties)
             self.stats_card.refresh()
 
+        @handle_errors
         async def _calc_nden(self):
             self.note_densities = await run.cpu_bound(analysis.all_note_densities, diffs=self.data.difficulties)
             self.stats_card.refresh()
 
+        @handle_errors
         async def _calc_hcurve(self):
             self.hand_curves = await run.cpu_bound(analysis.all_hand_curves, diffs=self.data.difficulties)
             self.stats_card.refresh()
 
+        @handle_errors
         async def _calc_warn(self):
             self.warnings = await run.cpu_bound(
                 analysis.all_warnings,
@@ -639,7 +644,7 @@ def _file_utils_tab() -> None:
                         )
             ui.plotly(nfig).classes("w-full h-128")
 
-        def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE], warnings: list[analysis.Warning]) -> None:
+        def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE]|None, warnings: list[analysis.Warning]|None) -> None:
             xfig = go.Figure(
                 layout=go.Layout(
                     yaxis=go.layout.YAxis(title="X: right (+) <-> left (-)", range=(7,-7)),
@@ -710,8 +715,6 @@ def _file_utils_tab() -> None:
                         any_acc = True
             if warnings is not None:
                 for w in warnings:
-                    if w.type == "head_area":
-                        continue
                     color = NOTE_COLORS.get(w.note_type, "black")
                     for fn, fig in [("x", xfig), ("y", yfig)]:
                         if fn in w.figure:
@@ -852,22 +855,26 @@ def _file_utils_tab() -> None:
                 with ui.tab_panel("bpm"):
                     with ui.element().classes("w-full min-h-screen"):
                         self._bpm_card()
-                with ui.tab_panel("hands"):
-                    def _change_diff(vce: events.ValueChangeEventArguments):
+                with ui.tab_panel("hands") as hpanel:
+                    @handle_errors
+                    def _change_hdiff(vce: events.ValueChangeEventArguments):
                         if vce.value is not None:
                             self._hands_card.refresh("wait")
                         ui.timer(0.01, lambda: self._hands_card.refresh(vce.value), once=True)
-                    ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty", on_change=_change_diff).bind_value(app.storage.user, "fileutils_stats_diff").classes("w-32")
+                    hsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_hands_diff").classes("w-32")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._hands_card(None)
-                with ui.tab_panel("density"):
-                    def _change_diff(vce: events.ValueChangeEventArguments):
+                        self._hands_card(app.storage.user.get("fileutils_hands_diff"))
+                    hsel.on_value_change(_change_hdiff)
+                with ui.tab_panel("density") as dpanel:
+                    @handle_errors
+                    def _change_ddiff(vce: events.ValueChangeEventArguments):
                         if vce.value is not None:
                             self._density_card.refresh("wait")
                         ui.timer(0.01, lambda: self._density_card.refresh(vce.value), once=True)
-                    ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty", on_change=_change_diff).bind_value(app.storage.user, "fileutils_stats_diff").classes("w-32")
+                    dsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_density_diff").classes("w-32")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._density_card(None)
+                        self._density_card(app.storage.user.get("fileutils_density_diff"))
+                    dsel.on_value_change(_change_ddiff)
         def __repr__(self) -> str:
             return type(self).__name__  # avoid spamming logs with binary data
 
@@ -907,20 +914,22 @@ def _file_utils_tab() -> None:
     ui.button("What can I do here?", icon="help", color="info", on_click=help_dialog.open)
     
     with ui.row().classes("mb-4"):
-        with ui.card().classes("mb-4"):
+        with ui.card().classes("mb-4 w-72"):
+            ui.markdown("**Base Map**")
+            ui.separator()
             with ui.upload(label="Select a .synth or audio file ->", auto_upload=True, on_upload=fi.upload).props('accept=".synth,audio/*,*"').classes("w-full").add_slot("list"):
                 ui.tooltip("Select a file first").bind_visibility_from(fi, "is_valid", backward=lambda v: not v).classes("bg-red")
                 ui.input("Output Filename").props("dense").bind_value(fi, "output_filename").bind_enabled_from(fi, "is_valid")
                 with ui.switch("Finalize Walls").bind_value(fi, "output_finalize").bind_enabled_from(fi, "is_valid").classes("my-auto"):
                     ui.tooltip("Shifts some walls down, such that they look ingame as they do in the editor")
                 with ui.row():
-                    ui.button("clear", icon="clear", color="negative", on_click=fi.clear).props("dense").classes("w-24").bind_enabled_from(fi, "is_valid")
-                    ui.button("save", icon="save", color="positive", on_click=fi.save).props("dense").classes("w-24").bind_enabled_from(fi, "is_valid")
+                    ui.button("clear", icon="clear", color="negative", on_click=fi.clear).props("dense").classes("w-28").bind_enabled_from(fi, "is_valid")
+                    ui.button("save", icon="save", color="positive", on_click=fi.save).props("dense").classes("w-28 ml-auto").bind_enabled_from(fi, "is_valid")
         with ui.card().classes("w-100").bind_visibility(fi, "is_valid"):
             fi.info_card()
-
         with ui.card().bind_visibility(fi, "is_valid"):
             ui.markdown("**Merge files into base**")
+            ui.separator()
             merge_bookmarks = ui.switch("Merge Bookmarks", value=True).classes("w-full").bind_value(app.storage.user, "merge_bookmarks").tooltip("Disable this if you merge maps that contain the same bookmarks")
             with ui.upload(label="One or more files", multiple=True, auto_upload=True, on_upload=fi.upload_merge).props('color="positive" accept=".synth,*"').classes("w-full").add_slot("list"):
                 ui.markdown("""

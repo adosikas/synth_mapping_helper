@@ -34,7 +34,7 @@ class AudioData:
             duration=info.duration,
         )
 
-    def add_silence(self, before_start_s: float = 0, after_end_s: float = 0) -> None:
+    def with_silence(self, before_start_s: float = 0, after_end_s: float = 0) -> "AudioData":
         if not before_start_s and not after_end_s:
             return
         data, sr = soundfile.read(BytesIO(self.raw_data))
@@ -48,8 +48,12 @@ class AudioData:
         if after_end_s > 0:
             p = np.zeros_like(data, shape=(librosa.time_to_samples(after_end_s, sr=sr), *data.shape[1:]))
             data = np.concatenate((data, p))
-        self.raw_data = export_ogg(data.T, samplerate=sr)
-        self.duration = librosa.samples_to_time(data.shape[0], sr=sr)
+        return AudioData(
+            raw_data=export_ogg(data.T, samplerate=sr),
+            sample_rate=sr,
+            channels=data.shape[1],
+            duration=librosa.samples_to_time(data.shape[0], sr=sr),
+        )
 
 def load_for_analysis(raw_data: bytes) -> tuple["numpy array (f,)", int]:
     data, sr = librosa.load(BytesIO(raw_data))  # load with default samplerate and as mono
@@ -61,7 +65,7 @@ def export_ogg(data: "numpy array (c, s)|(s,)", samplerate: int = 22050) -> byte
     bio = BytesIO()
     # saving as ogg segfauls if the chunks are to bug, so chunk the writes
     # based on https://github.com/bastibe/python-soundfile/issues/426#issuecomment-2150934383
-    chunk_size = 0x100000
+    chunk_size = 0x40000
     if data.ndim == 1:
         channels = 1
     else:
