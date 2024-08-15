@@ -829,7 +829,7 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
         "time": round_tick_for_json(wall[0, 2] * 64),  # time as 1/64
         "slideType": wall_type,
         "position": pos,
-        "zRotation": wall[0, 4] % 360,  # note: crouch walls cannot be rotated, this will be ignored for them
+        "zRotation": round(wall[0, 4] % 360, 3),  # note: crouch walls cannot be rotated, this will be ignored for them
         "initialized": True,  # no idea what this is for
     }
     # crouch, square and triangle are not in the "slides" list, each has their own list and they do not use the "slideType" key
