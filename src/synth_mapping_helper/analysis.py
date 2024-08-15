@@ -230,6 +230,15 @@ def sections_from_bools(bools: "numpy array (n,)") -> Generator[tuple[int, int],
         yield idx[start], idx[-1]
 
 
+# type: icon, text
+WARNING_TYPES: dict[str, tuple[str, str]] = {
+    "end_padding": ("🔚", "Close to end of song when accounting for offset.<br>This may cause issues."),
+    "straight_rail": ("📏", "Long rail without intermediate nodes.<br>This may be unplayable in spiral."),
+    "spiral_distortion": ("🌀<br>⚠️", "Somewhat far from hand neutral position.<br>This may look distorted in spiral."),
+    "spiral_breakdown": ("🌀<br>💀", "Far away from hand neutral position.<br>This will be massively misplaced in spiral."),
+    "head_area": ("🙈" , "Inside head area.<br>This may block line of sight")
+}
+
 @dataclass
 class Warning:
     type: Literal["straight_rail", "end_padding", "spiral_distortion", "spiral_breakdown", "head_area"]
@@ -241,23 +250,11 @@ class Warning:
 
     @property
     def icon(self) -> str:
-        return {
-            "straight_rail": "📏",
-            "end_padding": "🔚",
-            "spiral_distortion": "🌀<br>⚠️",
-            "spiral_breakdown": "🌀<br>💀",
-            "head_area": "🙈",
-        }[self.type]
+        return WARNING_TYPES[self.type][0]
     
     @property
     def text(self) -> str:
-        return {
-            "straight_rail": "Long rail without intermediate nodes.<br>This may be unplayable in spiral.",
-            "end_padding": "Close to end of song when accounting for offset.<br>This may cause issues.",
-            "spiral_distortion": "Somewhat far from hand neutral position.<br>This may look distorted in spiral.",
-            "spiral_breakdown": "Far away from hand neutral position.<br>This will be massively misplaced in spiral.",
-            "head_area": "Inside head area.<br>This may block line of sight",
-        }[self.type]
+        return WARNING_TYPES[self.type][1]
 
 def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
     last_safe_beat = last_beat - utils.second_to_beat(END_PADDING, bpm=data.bpm)
@@ -340,7 +337,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
-    return out
+    return sorted(out, key=lambda w: w.start_beat)
 
 def all_warnings(diffs: dict[str, DataContainer], last_beat: float) -> dict[str, list[tuple[str, str, float, float, str]]:]:
     return {

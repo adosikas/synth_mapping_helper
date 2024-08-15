@@ -17,6 +17,8 @@ from synth_mapping_helper import synth_format, movement, analysis, audio_format,
 
 NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "yellow", "combined": "black"}
 
+WARNING_MAX = 100  # Tab stops working if there are too many
+
 def circmedian(values: "numpy array (n,)", high: float) -> float:
     # doing statistics on "circular data" (ie 0-beat_time) is hard, but we can treat each value as "angle" (0-2pi, ie 0-360 deg)
     # see also: scipy.stats.circmean
@@ -475,7 +477,7 @@ def _file_utils_tab() -> None:
                     hovermode="x unified",
                 ),
             )
-            bpmfig.add_scatter(
+            bpmfig.add_scattergl(
                 x=librosa.times_like(peak_bpms, sr=sr), y=peak_bpms,
                 name="BPM",
             )
@@ -502,18 +504,18 @@ def _file_utils_tab() -> None:
                     hovermode="x unified",
                 ),
             )
-            onset_fig.add_scatter(
+            onset_fig.add_scattergl(
                 x=librosa.times_like(onsets, sr=sr), y=onsets,
                 name="Note onsets",
                 legendgroup="common",
                 legendgrouptitle=dict(text="Common"),
             )
-            onset_fig.add_scatter(
+            onset_fig.add_scattergl(
                 x=librosa.times_like(peak_values, sr=sr), y=peak_values,
                 name="BPM confidence",
                 legendgroup="common",
             )
-            onset_fig.add_scatter(
+            onset_fig.add_scattergl(
                 x=librosa.times_like(pulse, sr=sr), y=pulse,
                 name="Pulse curve",
                 visible="legendonly",  # hide by default
@@ -528,7 +530,7 @@ def _file_utils_tab() -> None:
                     annotation=go.layout.Annotation(text=f"Section {i+1}<br>{section_bpm} bpm<br>{section_offset} ms", yanchor="bottom", yref="paper", font=dict(color=color), bgcolor="white"),
                     annotation_position="bottom",
                 )
-                onset_fig.add_scatter(
+                onset_fig.add_scattergl(
                     # just vertical lines
                     x=beats.repeat(3), y=[0,1,None]*len(beats),
                     name="Actual Beats",
@@ -540,7 +542,7 @@ def _file_utils_tab() -> None:
                 )
                 beat_time = 60/section_bpm
                 stable_beats = np.arange((start_time-start_time%beat_time)-(section_offset/1000)%beat_time+beat_time, end_time, beat_time)
-                onset_fig.add_scatter(
+                onset_fig.add_scattergl(
                     # just vertical lines
                     x=stable_beats.repeat(3), y=[0,1,None]*len(stable_beats),
                     name="Stable BPM",
@@ -549,7 +551,7 @@ def _file_utils_tab() -> None:
                     visible="legendonly",  # hide by default
                     legendgroup=f"sec_{i+1}",
                 )
-                onset_fig.add_scatter(
+                onset_fig.add_scattergl(
                     x=beats,
                     y=offset_error,
                     name="Offset Error",
@@ -609,7 +611,7 @@ def _file_utils_tab() -> None:
             for wt in ("combined", *synth_format.WALL_TYPES):
                 pdc = den_dict[wt]
                 if pdc.max_value:
-                    wfig.add_scatter(
+                    wfig.add_scattergl(
                         x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{wt} [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
                         showlegend=True,
                         # start with only combined visible and single only when above PC limit
@@ -634,7 +636,7 @@ def _file_utils_tab() -> None:
                 den_subdict = den_dict[nt]
                 for sub_t, pdc in den_subdict.items():
                     if pdc.max_value:
-                        nfig.add_scatter(
+                        nfig.add_scattergl(
                             x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{nt} {sub_t}s [max {round(pdc.max_value)}]",
                             showlegend=True,
                             legendgroup=nt,
@@ -687,19 +689,19 @@ def _file_utils_tab() -> None:
                 any_acc = False
                 acc_mult = synth_format.GRID_SCALE * (beat_to_second(analysis.CURVE_INTERP, self.data.bpm)**2)
                 for nt, (pos, vel, all) in curves.items():
-                    xfig.add_scatter(
+                    xfig.add_scattergl(
                         x=pos[:,2], y=pos[:,0], name=nt,
                         showlegend=True,
                         line={"color": NOTE_COLORS[nt]}
                     )
-                    yfig.add_scatter(
+                    yfig.add_scattergl(
                         x=pos[:,2], y=pos[:,1], name=nt,
                         showlegend=True,
                         line={"color": NOTE_COLORS[nt]}
                     )
                     if not np.isnan(vel).all():
                         v_mag = np.sqrt(vel[:,0]**2 + vel[:,1]**2) * vel_mult
-                        vfig.add_scatter(
+                        vfig.add_scattergl(
                             x=vel[:,2], y=vel[:,0], name=nt,
                             showlegend=True,
                             line={"color": NOTE_COLORS[nt]}
@@ -707,16 +709,18 @@ def _file_utils_tab() -> None:
                         any_vel = True
                     if not np.isnan(vel).all():
                         v_mag = np.sqrt(vel[:,0]**2 + vel[:,1]**2) * acc_mult
-                        afig.add_scatter(
+                        afig.add_scattergl(
                             x=vel[:,2], y=vel[:,0], name=nt,
                             showlegend=True,
                             line={"color": NOTE_COLORS[nt]}
                         )
                         any_acc = True
             if warnings is not None:
-                for w in warnings:
+                if len(warnings) > WARNING_MAX:
+                    ui.label(f"Too many warnings, marking first {WARNING_MAX} only. See the warnings table for the rest.")
+                for w in warnings[:WARNING_MAX]:
                     color = NOTE_COLORS.get(w.note_type, "black")
-                    for fn, fig in [("x", xfig), ("y", yfig)]:
+                    for fn, fig in zip("xy", (xfig, yfig)):
                         if fn in w.figure:
                             if w.start_beat == w.end_beat:
                                 fig.add_vline(
@@ -813,6 +817,43 @@ def _file_utils_tab() -> None:
                 self._hcurve_content(self.hand_curves.get(difficulty), self.warnings.get(difficulty))
 
         @ui.refreshable
+        def _warnings_card(self, difficulty: str|None, warning_types: list[str], note_types: list[str]) -> None:
+            if difficulty is None:
+                ui.label("Select a difficulty")
+            elif difficulty == "wait" or self.data is None or self.warnings is None:
+                ui.spinner(size="xl")
+            elif (difficulty not in self.warnings or not self.warnings[difficulty]):
+                ui.label("No data").classes("h-32")
+            else:
+                ui.table(
+                    columns=[
+                        {"name": "icon", "label": "Icon", "field": "icon", "align": "left", "sortable": True},
+                        {"name": "start", "label": "Start", "field": "start", "align": "left", "sortable": True},
+                        {"name": "start_pretty", "label": "Start", "field": "start_pretty", "align": "left"},
+                        {"name": "end", "label": "End", "field": "end", "align": "left"},
+                        {"name": "obj_type", "label": "Type", "field": "obj_type", "align": "left", "sortable": True},
+                        {"name": "axis", "label": "Axis", "field": "axis", "align": "left", "sortable": True},
+                        {"name": "message", "label": "Warning", "field": "message", "align": "left"},
+                    ],
+                    rows=[
+                        {
+                            "icon": w.icon.replace("<br>", " "),
+                            "start": round(w.start_beat, 3),
+                            "start_pretty": pretty_fraction(np.floor(w.start_beat*64)/64),
+                            "end": pretty_fraction(np.ceil(w.end_beat*64)/64),
+                            "obj_type": f"{w.note_type} {w.note_rail}",
+                            "axis": w.figure,
+                            "message": w.text.replace("<br>", " "),
+                        }
+                        for w in self.warnings[difficulty]
+                        if w.type in warning_types
+                        if w.note_type in note_types
+                    ],
+                    row_key="start",
+                    pagination=25,
+                )
+
+        @ui.refreshable
         def _density_card(self, difficulty: str|None) -> None:
             if difficulty is None:
                 ui.label("Select a difficulty")
@@ -856,6 +897,7 @@ def _file_utils_tab() -> None:
             with ui.tabs() as tabs:
                 ui.tab("bpm", label="BPM", icon="speed")
                 ui.tab("hands", label="Hands", icon="accessibility")
+                ui.tab("warnings", label="Warnings", icon="warning")
                 ui.tab("density", label="Density", icon="analytics")
 
             with ui.tab_panels(tabs, value="bpm").bind_value(app.storage.user, "fileutils_stats_type").classes("w-full"):
@@ -868,19 +910,44 @@ def _file_utils_tab() -> None:
                         if vce.value is not None:
                             self._hands_card.refresh("wait")
                         ui.timer(0.01, lambda: self._hands_card.refresh(vce.value), once=True)
-                    hsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_hands_diff").classes("w-32")
+                    hsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_diff").classes("w-32")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._hands_card(app.storage.user.get("fileutils_hands_diff"))
+                        self._hands_card(app.storage.user.get("fileutils_diff"))
                     hsel.on_value_change(_change_hdiff)
+                with ui.tab_panel("warnings") as hpanel:
+                    @handle_errors
+                    def _change_w(vce: events.ValueChangeEventArguments):
+                        if app.storage.user.get("fileutils_warnings_diff") is not None:
+                            self._warnings_card.refresh("wait", [], [])
+                        ui.timer(0.01, lambda: self._warnings_card.refresh(app.storage.user.get("fileutils_diff"), app.storage.user.get("fileutils_warnings_types"), app.storage.user.get("fileutils_warnings_notetypes")), once=True)
+                    with ui.row():
+                        wsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_diff").classes("w-32")
+                        ntypesel = ui.select(
+                            list(synth_format.NOTE_TYPES),
+                            value=list(synth_format.NOTE_TYPES),
+                            label="Note types",
+                            multiple=True,
+                        ).bind_value(app.storage.user, "fileutils_warnings_notetypes").classes("w-48")
+                        wtypesel = ui.select(
+                            list(analysis.WARNING_TYPES),
+                            value=list(analysis.WARNING_TYPES),
+                            label="Warning types",
+                            multiple=True,
+                        ).bind_value(app.storage.user, "fileutils_warnings_types").classes("w-auto")
+                    with ui.element().classes("w-full min-h-screen"):
+                        self._warnings_card(app.storage.user.get("fileutils_diff"), app.storage.user.get("fileutils_warnings_types"), app.storage.user.get("fileutils_warnings_notetypes"))
+                    wsel.on_value_change(_change_w)
+                    wtypesel.on_value_change(_change_w)
+                    ntypesel.on_value_change(_change_w)
                 with ui.tab_panel("density") as dpanel:
                     @handle_errors
                     def _change_ddiff(vce: events.ValueChangeEventArguments):
                         if vce.value is not None:
                             self._density_card.refresh("wait")
                         ui.timer(0.01, lambda: self._density_card.refresh(vce.value), once=True)
-                    dsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_density_diff").classes("w-32")
+                    dsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_diff").classes("w-32")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._density_card(app.storage.user.get("fileutils_density_diff"))
+                        self._density_card(app.storage.user.get("fileutils_diff"))
                     dsel.on_value_change(_change_ddiff)
         def __repr__(self) -> str:
             return type(self).__name__  # avoid spamming logs with binary data
