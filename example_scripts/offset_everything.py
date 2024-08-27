@@ -13,20 +13,15 @@ offset = [0, 1, 1/16]  # move everything up by one square and back by 1/16 of a 
 # if you want to offset by time in seconds (eg. 250ms), you can use: 0.25/60*bpm
 
 # looks for a "my_map.synth" exists in the current working directory
-in_file = Path("my_map.synth").absolute()  # make absolute to show what the above means
-out_file = Path("my_map_offset.synth").absolute()
+in_file = Path("my_map.synth")  # this can be None to take a command line argument instead
+save_suffix = "_offset"  # output is saved as my_map_offset.synth
 
 # END OF CONFIG
 
 # load file
-print(f"Loading {in_file}")
-f = synth_mapping_helper.synth_format.import_file(in_file)
+with synth_format.file_data(in_file, save_suffix=save_suffix) as f:
+    # loop over all difficulty levels
+    for diff_name, data in f.difficulties.items():
+        # apply offset to every wall, note and rail
+        data.apply_for_all(synth_mapping_helper.movement.offset, offset)
 
-# loop over all difficulty levels
-for diff_name, data in f.difficulties.items():
-    # apply offset to every wall, note and rail
-    data.apply_for_all(synth_mapping_helper.movement.offset, offset)
-
-# save to output file
-f.save_as(out_file)
-print(f"Saved output to {out_file}")

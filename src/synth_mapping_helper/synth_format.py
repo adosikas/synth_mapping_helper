@@ -12,6 +12,7 @@ import re
 import time
 from typing import Any, Generator, Union
 import zipfile
+import sys
 
 import numpy as np
 import pyperclip
@@ -26,13 +27,11 @@ from synth_mapping_helper.utils import second_to_beat, beat_to_second
 
 INDEX_SCALE = 64  # index = measure * INDEX_SCALE
 GRID_SCALE = 0.1365  # xy_coord = xy_grid * GRID_SCALE
+TIME_SCALE = 20  # z_coord = second * TIME_SCALE
 
 # Apparently the editor grid snap is off by a small amount...
 X_OFFSET = 0.002
 Y_OFFSET = 0.0012
-
-# The game stores Z position as 20th of seconds for some reason...
-Z_MULTIPLIER = 20
 
 NOTE_TYPES = ("right", "left", "single", "both")
 NOTE_TYPE_STRINGS = ("RightHanded", "LeftHanded", "OneHandSpecial", "BothHandsSpecial")
@@ -109,6 +108,13 @@ WALLS = dict[float, "numpy array (1, 5)"]    # x,y,t, type, angle
 BEATMAP_JSON_FILE = "beatmap.meta.bin"
 METADATA_JSON_FILE = "track.data.json"
 DIFFICULTIES = ("Easy", "Normal", "Hard", "Expert", "Master", "Custom")
+DIFFICULTY_SPEEDS = {
+    "Easy": 1,
+    "Normal": 1,
+    "Hard": 1,
+    "Export": 1.25,
+    "Master": 1.5,
+}
 META_KEYS = ("Name", "Author", "Beatmapper", "CustomDifficultyName", "BPM")
 
 BETA_WARNING_SHOWN = False
@@ -154,18 +160,72 @@ def round_tick_for_json_index(time: float) -> float | int:
         return int(time)
     return round_tick_for_json(time)
 
-# Hacky classes used to trick ZipFile._open_to_write
-class _TrueInt(int):
-    # this makes it think there are already flags, so it doesn't add "permissions: ?rw-------"
-    def __bool__(self):
-        return True
-class _NonAsciiStr(str):
-    # this makes it think the filename is not ascii, so it adds the UTF8 flag
-    def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
-        if encoding == "ascii":
-            raise UnicodeEncodeError(encoding, self, 0, 0, "dummy error to trick ZipFile._open_to_write")
-        return super().encode(encoding=encoding, errors=errors)
-    
+# basic coordinate
+def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":
+    try:
+        return np.array([
+            (coord[0] - X_OFFSET) / GRID_SCALE,
+            (coord[1] - Y_OFFSET) / GRID_SCALE,
+            # convert absolute coordinate to number of beats since start
+            round_time_to_fractions(second_to_beat(coord[2] / TIME_SCALE, bpm) - startMeasure / 64),
+        ])
+    except (ValueError, TypeError) as exc:
+        raise JSONParseError(coord, c_type) from exc
+
+def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
+    return [
+        round((coord[0] * GRID_SCALE) + X_OFFSET, 11),
+        round((coord[1] * GRID_SCALE) + Y_OFFSET, 11),
+        round(beat_to_second(round_time_to_fractions(coord[2]), bpm) * TIME_SCALE, 11),
+    ]
+
+# full note dict
+def note_from_synth(bpm: float, startMeasure: float, note_dict: dict) -> tuple[int, "numpy array (n, 3)"]:
+    start = coord_from_synth(bpm, startMeasure, note_dict["Position"], "note" if note_dict["Segments"] is None else "rail head")
+    note_type = note_dict["Type"]
+    if note_dict["Segments"] is None:
+        return note_type, start[np.newaxis]  # just add new axis
+    else:
+        return note_type, np.stack((start,) + tuple(coord_from_synth(
+            bpm, startMeasure, node, f"rail node #{i} of rail starting at json index {startMeasure + start[2]*64}"
+        ) for i, node in enumerate(note_dict["Segments"])))
+
+def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> dict:
+    return {
+        "Position": coord_to_synth(bpm, nodes[0]),
+        "Segments": [coord_to_synth(bpm, node) for node in nodes[1:]] if nodes.shape[0] > 1 else None,
+        "Type": note_type,
+    }
+
+# full wall dict
+def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> "numpy array (1, 5)":
+    if wall_type not in WALL_LOOKUP:
+        raise JSONParseError(wall_dict, "wall") from ValueError(f"Unexpected wall type ({wall_type})")
+    return np.concatenate((
+        coord_from_synth(bpm, startMeasure, wall_dict["position"], f"{WALL_LOOKUP[wall_type]} wall") + WALL_OFFSETS[wall_type],
+        (wall_type, wall_dict.get("zRotation", 0.0))
+    ))[np.newaxis]
+
+def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
+    wall_type = int(wall[0, 3])
+    pos = coord_to_synth(bpm, wall[0, :3] - WALL_OFFSETS[wall_type])
+    wall_dict = {
+        "time": round_tick_for_json(wall[0, 2] * 64),  # time as 1/64
+        "slideType": wall_type,
+        "position": pos,
+        "zRotation": round(wall[0, 4] % 360, 3),  # note: crouch walls cannot be rotated, this will be ignored for them
+        "initialized": True,  # no idea what this is for
+    }
+    # crouch, square and triangle are not in the "slides" list, each has their own list and they do not use the "slideType" key
+    if wall_type < 100:  # we gave crouch, square and triangle the types 100, 101 and 102
+        dest_list = "slides"
+    else:
+        dest_list = WALL_LOOKUP[wall_type] + "s"
+        del wall_dict["slideType"]
+        if wall_type == WALL_TYPES["crouch"][0]:
+            # cannot rotate crouch walls
+            del wall_dict["zRotation"]
+    return dest_list, wall_dict
 
 @dataclasses.dataclass
 class DataContainer:
@@ -411,6 +471,18 @@ class ClipboardDataContainer(DataContainer):
             # ClipboardDataContainer
             original_json=original_json, selection_length=second_to_beat(clipboard["lenght"]/1000, bpm),
         )
+
+# Hacky classes used to trick ZipFile._open_to_write
+class _TrueInt(int):
+    # this makes it think there are already flags, so it doesn't add "permissions: ?rw-------"
+    def __bool__(self):
+        return True
+class _NonAsciiStr(str):
+    # this makes it think the filename is not ascii, so it adds the UTF8 flag
+    def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+        if encoding == "ascii":
+            raise UnicodeEncodeError(encoding, self, 0, 0, "dummy error to trick ZipFile._open_to_write")
+        return super().encode(encoding=encoding, errors=errors)
 
 @dataclasses.dataclass
 class SynthFileMeta:
@@ -776,84 +848,18 @@ class SynthFile:
             output.offset_everything(delta_s=before_start_ms/1000)
         return output
 
-# basic coordinate
-def coord_from_synth(bpm: float, startMeasure: float, coord: list[float], c_type: str = "unlabeled") -> "numpy array (3)":
-    try:
-        return np.array([
-            (coord[0] - X_OFFSET) / GRID_SCALE,
-            (coord[1] - Y_OFFSET) / GRID_SCALE,
-            # convert absolute coordinate to number of beats since start
-            round_time_to_fractions(second_to_beat(coord[2] / 20, bpm) - startMeasure / 64),
-        ])
-    except (ValueError, TypeError) as exc:
-        raise JSONParseError(coord, c_type) from exc
+# convenience wrappers
 
-def coord_to_synth(bpm: float, coord: "numpy array (3)") -> list[float]:
-    return [
-        round((coord[0] * GRID_SCALE) + X_OFFSET, 11),
-        round((coord[1] * GRID_SCALE) + Y_OFFSET, 11),
-        round(beat_to_second(round_time_to_fractions(coord[2]), bpm) * 20, 11),
-    ]
-
-# full note dict
-def note_from_synth(bpm: float, startMeasure: float, note_dict: dict) -> tuple[int, "numpy array (n, 3)"]:
-    start = coord_from_synth(bpm, startMeasure, note_dict["Position"], "note" if note_dict["Segments"] is None else "rail head")
-    note_type = note_dict["Type"]
-    if note_dict["Segments"] is None:
-        return note_type, start[np.newaxis]  # just add new axis
-    else:
-        return note_type, np.stack((start,) + tuple(coord_from_synth(
-            bpm, startMeasure, node, f"rail node #{i} of rail starting at json index {startMeasure + start[2]*64}"
-        ) for i, node in enumerate(note_dict["Segments"])))
-
-def note_to_synth(bpm: float, note_type: int, nodes: "numpy array (n, 3)") -> dict:
-    return {
-        "Position": coord_to_synth(bpm, nodes[0]),
-        "Segments": [coord_to_synth(bpm, node) for node in nodes[1:]] if nodes.shape[0] > 1 else None,
-        "Type": note_type,
-    }
-
-# full wall dict
-def wall_from_synth(bpm: float, startMeasure: float, wall_dict: dict, wall_type: int) -> "numpy array (1, 5)":
-    if wall_type not in WALL_LOOKUP:
-        raise JSONParseError(wall_dict, "wall") from ValueError(f"Unexpected wall type ({wall_type})")
-    return np.concatenate((
-        coord_from_synth(bpm, startMeasure, wall_dict["position"], f"{WALL_LOOKUP[wall_type]} wall") + WALL_OFFSETS[wall_type],
-        (wall_type, wall_dict.get("zRotation", 0.0))
-    ))[np.newaxis]
-
-def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
-    wall_type = int(wall[0, 3])
-    pos = coord_to_synth(bpm, wall[0, :3] - WALL_OFFSETS[wall_type])
-    wall_dict = {
-        "time": round_tick_for_json(wall[0, 2] * 64),  # time as 1/64
-        "slideType": wall_type,
-        "position": pos,
-        "zRotation": round(wall[0, 4] % 360, 3),  # note: crouch walls cannot be rotated, this will be ignored for them
-        "initialized": True,  # no idea what this is for
-    }
-    # crouch, square and triangle are not in the "slides" list, each has their own list and they do not use the "slideType" key
-    if wall_type < 100:  # we gave crouch, square and triangle the types 100, 101 and 102
-        dest_list = "slides"
-    else:
-        dest_list = WALL_LOOKUP[wall_type] + "s"
-        del wall_dict["slideType"]
-        if wall_type == WALL_TYPES["crouch"][0]:
-            # cannot rotate crouch walls
-            del wall_dict["zRotation"]
-    return dest_list, wall_dict
-
-# legacy/convenience wrappers
-
-# clipboard
+# clipboard json
 def import_clipboard_json(original_json: str, use_original: bool = False) -> ClipboardDataContainer:
     return ClipboardDataContainer.from_json(clipboard_json=original_json, use_original=use_original)
 
-def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
-    return import_clipboard_json(pyperclip.paste(), use_original)
-
 def export_clipboard_json(data: DataContainer, realign_start: bool = True) -> str:
     return data.to_clipboard_json(realign_start=realign_start)
+
+# direct clipboard
+def import_clipboard(use_original: bool = False) -> ClipboardDataContainer:
+    return import_clipboard_json(pyperclip.paste(), use_original)
 
 def export_clipboard(data: DataContainer, realign_start: bool = True):
     pyperclip.copy(export_clipboard_json(data, realign_start))
@@ -870,3 +876,20 @@ def clipboard_data(use_original: bool = False, realign_start: bool = True) -> Ge
 # file
 def import_file(file_path: Union[Path, BytesIO]) -> SynthFile:
     return SynthFile.from_synth(file_path)
+
+@contextmanager
+def file_data(filename: str|Path = None, save_suffix: str|None = "_out") -> Generator[SynthFile, None, None]:
+    if filename is None and len(sys.args) == 2 and sys.args[1].endswith(".synth") and Path(sys.args[1]).is_file():
+        # if given a single command line argument that is a .synth file, use that
+        fp = Path(sys.args[1])
+    elif filename is not None:
+        fp = Path(filename)
+    else:
+        raise ValueError("No filename provided")
+    print(f"Loading {fp.absolute()}")
+    f = SynthFile.from_synth(fp)
+    yield f
+    if save_suffix is not None:
+        fp_out = fp.with_stem(f"{fp.stem}{save_suffix}")
+        print(f"Saving {fp_out.absolute()}")
+        f.save_as(fp_out)
