@@ -6,13 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "synth_mapping_helper"
 dependencies = [
     "numpy==1.26.4",
-    "scipy==1.14",
-    "matplotlib==3.9.0",
+    "scipy==1.14.1",
+    "matplotlib==3.9.2",
     "plotly==5.23.0",
     "pyperclip==1.9.0",
-    "watchdog==4.0.1",
+    "watchdog==4.0.2",
     "requests==2.32.3",
-    "nicegui==1.4.30",
+    "nicegui==1.4.36",
     "librosa==0.10.2.post1",
     "soundfile==0.12.1",
     "pywin32==306; sys_platform=='win32'",
