@@ -1,7 +1,7 @@
 from typing import Literal
 
 import numpy as np
-from scipy.interpolate import CubicHermiteSpline
+from scipy.interpolate import CubicHermiteSpline, pchip_interpolate
 
 from .synth_format import DataContainer, SINGLE_COLOR_NOTES
 from .utils import bounded_arange_plusminus
@@ -14,6 +14,13 @@ def interpolate_linear(data: "numpy array (n, m)", new_z: "numpy array (x)", *, 
     return np.stack((
         np.interp(new_z, data[:, 2], data[:, 0]),
         np.interp(new_z, data[:, 2], data[:, 1]),
+        new_z,
+    ), axis=-1)
+
+def interpolate_hermite(data: "numpy array (n, m)", new_z: "numpy array (x)", *, direction: int = 1) -> "numpy array (x, 3)":
+    return np.stack((
+        pchip_interpolate(data[:, 2], data[:, 0], new_z),
+        pchip_interpolate(data[:, 2], data[:, 1], new_z),
         new_z,
     ), axis=-1)
 
@@ -232,7 +239,7 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
     return out
 
 def interpolate_nodes(
-    data: "numpy array (n, 3)", mode: Literal["spline", "linear"], interval: float, *, direction: int = 1
+    data: "numpy array (n, 3)", mode: Literal["spline", "hermite", "linear"], interval: float, *, direction: int = 1
 ) -> "numpy array (n, 3)":
     """places nodes at defined interval along the rail, interpolating between existing nodes. Can be negative to start from end."""
     if data.shape[0] == 1:  # ignore single nodes
@@ -241,6 +248,8 @@ def interpolate_nodes(
 
     if mode == "spline":
         return interpolate_spline(data, new_z)
+    elif mode == "hermite":
+        return interpolate_hermite(data, new_z)
     elif mode == "linear":
         return interpolate_linear(data, new_z)
     else:

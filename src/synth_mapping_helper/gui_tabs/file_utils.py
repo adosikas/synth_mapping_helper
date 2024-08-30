@@ -13,9 +13,9 @@ import plotly.graph_objects as go
 
 from synth_mapping_helper.gui_tabs.utils import *
 from synth_mapping_helper.utils import pretty_list, pretty_fraction, beat_to_second, second_to_beat
-from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__
+from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__, rails
 
-NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "yellow", "combined": "black"}
+NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "orange", "combined": "black"}
 
 WARNING_MAX = 100  # Tab stops working if there are too many
 
@@ -646,7 +646,7 @@ def _file_utils_tab() -> None:
                         )
             ui.plotly(nfig).classes("w-full h-128")
 
-        def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE]|None, warnings: list[analysis.Warning]|None) -> None:
+        def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE]|None, warnings: list[analysis.Warning]|None, diff_data: synth_format.DataContainer) -> None:
             xfig = go.Figure(
                 layout=go.Layout(
                     yaxis=go.layout.YAxis(title="X: right (+) <-> left (-)", range=(7,-7)),
@@ -685,34 +685,103 @@ def _file_utils_tab() -> None:
 
             if curves is not None:
                 any_vel = False
-                vel_mult = synth_format.GRID_SCALE * beat_to_second(analysis.CURVE_INTERP, self.data.bpm)
+                vel_mult = synth_format.GRID_SCALE / beat_to_second(1/analysis.CURVE_INTERP, self.data.bpm)
                 any_acc = False
-                acc_mult = synth_format.GRID_SCALE * (beat_to_second(analysis.CURVE_INTERP, self.data.bpm)**2)
-                for nt, (pos, vel, all) in curves.items():
+                acc_mult = synth_format.GRID_SCALE / beat_to_second(1/analysis.CURVE_INTERP, self.data.bpm)
+                for nt, (pos, vel, acc) in curves.items():
                     xfig.add_scattergl(
-                        x=pos[:,2], y=pos[:,0], name=nt,
+                        x=pos[:,2], y=pos[:,0], name="curve",
                         showlegend=True,
-                        line={"color": NOTE_COLORS[nt]}
+                        legendrank=1,
+                        line={"color": NOTE_COLORS[nt], "width": 1, "dash": "dash"}
                     )
                     yfig.add_scattergl(
-                        x=pos[:,2], y=pos[:,1], name=nt,
+                        x=pos[:,2], y=pos[:,1], name="curve",
                         showlegend=True,
-                        line={"color": NOTE_COLORS[nt]}
+                        legendrank=1,
+                        line={"color": NOTE_COLORS[nt], "width": 1, "dash": "dash"}
                     )
-                    if not np.isnan(vel).all():
-                        v_mag = np.sqrt(vel[:,0]**2 + vel[:,1]**2) * vel_mult
-                        vfig.add_scattergl(
-                            x=vel[:,2], y=vel[:,0], name=nt,
+                    if not np.isnan(pos).all():
+                        note_list = []
+                        rail_list = []
+                        for _, nodes in diff_data.get_object_dict(nt).items():
+                            note_list.append(nodes[:1])
+                            if nodes.shape[0] > 1:
+                                rail_list.append(rails.interpolate_nodes(nodes, "spline", 1/analysis.CURVE_INTERP))
+                                rail_list.append(np.full((1,3,), np.nan))
+                        note_array = np.concatenate(note_list)
+                        xfig.add_scattergl(
+                            x=note_array[:,2], y=note_array[:,0], name="notes",
                             showlegend=True,
+                            legendrank=2,
+                            mode="markers",
+                            marker={"color": NOTE_COLORS[nt]}
+                        )
+                        yfig.add_scattergl(
+                            x=note_array[:,2], y=note_array[:,1], name="notes",
+                            showlegend=True,
+                            legendrank=2,
+                            mode="markers",
+                            marker={"color": NOTE_COLORS[nt]}
+                        )
+                        if rail_list:
+                            rail_array = np.concatenate(rail_list)
+                            xfig.add_scattergl(
+                                x=rail_array[:,2], y=rail_array[:,0], name="rails",
+                                showlegend=True,
+                                legendrank=2,
+                                line={"color": NOTE_COLORS[nt]}
+                            )
+                            yfig.add_scattergl(
+                                x=rail_array[:,2], y=rail_array[:,1], name="rails",
+                                showlegend=True,
+                                legendrank=2,
+                                line={"color": NOTE_COLORS[nt]}
+                            )
+                    if not np.isnan(vel).all():
+                        v_mag = np.sqrt((vel[:,0]**2) + (vel[:,1]**2)) * vel_mult
+                        vfig.add_scattergl(
+                            x=vel[:,2], y=v_mag, name="",
+                            showlegend=True,
+                            legendrank=1,
                             line={"color": NOTE_COLORS[nt]}
                         )
-                        any_vel = True
-                    if not np.isnan(vel).all():
-                        v_mag = np.sqrt(vel[:,0]**2 + vel[:,1]**2) * acc_mult
-                        afig.add_scattergl(
-                            x=vel[:,2], y=vel[:,0], name=nt,
+                        vfig.add_scattergl(
+                            x=vel[:,2], y=vel[:,0] * vel_mult, name="x",
                             showlegend=True,
+                            legendrank=2,
+                            line={"color": NOTE_COLORS[nt]},
+                            visible="legendonly",
+                        )
+                        vfig.add_scattergl(
+                            x=vel[:,2], y=vel[:,1] * vel_mult, name="y",
+                            showlegend=True,
+                            legendrank=2,
+                            line={"color": NOTE_COLORS[nt]},
+                            visible="legendonly",
+                        )
+                        any_vel = True
+                    if not np.isnan(acc).all():
+                        a_mag = np.sqrt((acc[:,0]**2) + (acc[:,1]**2)) * acc_mult
+                        afig.add_scattergl(
+                            x=acc[:,2], y=a_mag, name="",
+                            showlegend=True,
+                            legendrank=1,
                             line={"color": NOTE_COLORS[nt]}
+                        )
+                        afig.add_scattergl(
+                            x=acc[:,2], y=acc[:,0] * acc_mult, name="x",
+                            showlegend=True,
+                            legendrank=2,
+                            line={"color": NOTE_COLORS[nt]},
+                            visible="legendonly",
+                        )
+                        afig.add_scattergl(
+                            x=acc[:,2], y=acc[:,1] * acc_mult, name="y",
+                            showlegend=True,
+                            legendrank=2,
+                            line={"color": NOTE_COLORS[nt]},
+                            visible="legendonly",
                         )
                         any_acc = True
             if warnings is not None:
@@ -746,10 +815,8 @@ def _file_utils_tab() -> None:
             ui.plotly(xfig).classes("w-full h-48")
             ui.plotly(yfig).classes("w-full h-48")
             if any_vel:
-                ui.label("Velocity")
                 ui.plotly(vfig).classes("w-full h-48")
             if any_acc:
-                ui.label("Acceleration")
                 ui.plotly(afig).classes("w-full h-48")
 
         @ui.refreshable
@@ -814,7 +881,7 @@ def _file_utils_tab() -> None:
                 ui.label("No data").classes("h-32")
             else:
                 ui.label("Hand curves and warnings")
-                self._hcurve_content(self.hand_curves.get(difficulty), self.warnings.get(difficulty))
+                self._hcurve_content(self.hand_curves.get(difficulty), self.warnings.get(difficulty), self.data.difficulties.get(difficulty))
 
         @ui.refreshable
         def _warnings_card(self, difficulty: str|None, warning_types: list[str], note_types: list[str]) -> None:

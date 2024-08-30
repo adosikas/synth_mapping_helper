@@ -16,8 +16,10 @@ QUEST_WIREFRAME_LIMIT = 200  # combined
 QUEST_RENDER_LIMIT = 500  # combined
 PC_TYPE_DESPAWN = 80  # for each type
 
+RAIL_NODE_DIST = 2.0  # warn for long rails without intermediate nodes
+
 HEAD_POSITION = np.array([0.0,2.0])
-HEAD_RADIUS_SQ = 1.5 ** 2  # squared, such that we can skip the sqrt in sqrt(x**2+y**2) < HEAD_RADIUS_SQ
+HEAD_RADIUS_SQ = 1.5 ** 2  # pre-squared, such that we can skip the sqrt in sqrt(x**2+y**2) < HEAD_RADIUS
 
 # the game uses some formula like out = in - (in^3) to scale X and Y in spieral, which is not monotonic and breaks down as the coordinates approach 1m
 SPIRAL_APEX = 0.65 / GRID_SCALE  # 65 cm away from the center the notes stop getting further out
@@ -30,10 +32,11 @@ SPIRAL_NEUTRAL_OFFSET: dict[str, "numpy array (2,)"] = {
     "both": np.zeros(2),
 }
 
+CURVE_WINDOW_S = 1.0  # time between notes for break in curve
 CURVE_INTERP = 192  # 192 bins per beat
 RAIL_WEIGHT = 0.3  # rails have a lower weight than notes
 RAIL_TAIL_WEIGHT = 0.1  # last 20% of rail
-HAND_CURVE_TYPE = tuple["numpy array (n, 2)", "numpy array (n, 2)", "numpy array (n, 2)"]  # position, velocity, acceleration
+HAND_CURVE_TYPE = tuple["numpy array (n, 2)", "numpy array (n, 2)", "numpy array (n, 2)"]  # curve, velocity, acceleration
 
 END_PADDING = 1.0  # notes should not be in the last second to avoid them not showing up at all
 
@@ -173,15 +176,16 @@ def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
                 else:
                     data_points[tb+bi] += wxy
     # step 2: locate continguous sections and interpolate over the averaged locations
-    out_pos = []
+    out_rails = []
+    out_curve = []
     out_vel = []
     out_acc = []
     current_curve: list[tuple[float, float, float]] = []
 
     def _append_section():
-        interp_pos = rails.interpolate_nodes(np.array(current_curve), mode="spline", interval=1/CURVE_INTERP)
-        out_pos.append(interp_pos)
-        out_pos.append(np.full((1,3), np.nan))  # add NaN spacers between sections
+        interp_pos = rails.interpolate_nodes(np.array(current_curve), mode="hermite", interval=1/CURVE_INTERP)
+        out_curve.append(interp_pos)
+        out_curve.append(np.full((1,3), np.nan))  # add NaN spacers between sections
 
         if interp_pos.shape[0] > 1:
             section_vel = np.diff(interp_pos[:, :2], axis=0)
@@ -204,11 +208,11 @@ def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
     if current_curve:
         _append_section()
     # put it all together
-    return np.concatenate(out_pos), np.concatenate(out_vel), np.concatenate(out_acc)
+    return np.concatenate(out_curve), np.concatenate(out_vel), np.concatenate(out_acc)
 
 def hand_curves(data: DataContainer) -> dict[str, HAND_CURVE_TYPE]:
     return {
-        nt: hand_curve(getattr(data, nt), window_b=2.0)
+        nt: hand_curve(getattr(data, nt), window_b=utils.second_to_beat(CURVE_WINDOW_S, bpm=data.bpm))
         for nt in NOTE_TYPES
         if getattr(data, nt)
     }
@@ -269,7 +273,8 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                 nr = "rail"
 
                 rail_deltas = np.diff(nodes[:,2])
-                for s_idx, e_idx in sections_from_bools(rail_deltas > 2.0):  # nodes more than 2 beats apart
+                # nodes more than X beats apart
+                for s_idx, e_idx in sections_from_bools(rail_deltas > RAIL_NODE_DIST):
                     out.append(Warning(
                         type="straight_rail",
                         figure="xy",
@@ -278,7 +283,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                         start_beat=crv[s_idx, 2],
                         end_beat=crv[e_idx, 2],
                     ))
-
+            # notes/rails near end
             if nodes[-1, 2] >= last_safe_beat:
                 out.append(Warning(
                     type="end_padding",
@@ -290,6 +295,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                 ))
 
             spiral_delta = np.abs((crv[:,:1] - SPIRAL_NEUTRAL_OFFSET[nt]))
+            # delta x between apex and flip
             for s_idx, e_idx in sections_from_bools(np.logical_and(spiral_delta[:,0] > SPIRAL_APEX, spiral_delta[:,0] <= SPIRAL_FLIP)):
                 out.append(Warning(
                     type="spiral_distortion",
@@ -299,6 +305,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
+            # delta y between apex and flip
             for s_idx, e_idx in sections_from_bools(np.logical_and(spiral_delta[:,1] > SPIRAL_APEX, spiral_delta[:,1] <= SPIRAL_FLIP)):
                 out.append(Warning(
                     type="spiral_distortion",
@@ -308,6 +315,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
+            # delta x beyond flip
             for s_idx, e_idx in sections_from_bools(spiral_delta[:,0] > SPIRAL_FLIP):
                 out.append(Warning(
                     type="spiral_breakdown",
@@ -317,6 +325,7 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                     start_beat=crv[s_idx, 2],
                     end_beat=crv[e_idx, 2],
                 ))
+            # delta x beyond flip
             for s_idx, e_idx in sections_from_bools(spiral_delta[:,1] > SPIRAL_FLIP):
                 out.append(Warning(
                     type="spiral_breakdown",
@@ -328,7 +337,8 @@ def warnings(data: DataContainer, last_beat: float) -> list[Warning]:
                 ))
 
             head_delta = (crv[:,:2] - HEAD_POSITION)
-            for s_idx, e_idx in sections_from_bools(head_delta[:,0]**2+head_delta[:,1]**2 <= HEAD_RADIUS_SQ):  # distance to head < radius
+            # distance to head less than keepout radius
+            for s_idx, e_idx in sections_from_bools(head_delta[:,0]**2+head_delta[:,1]**2 <= HEAD_RADIUS_SQ):
                 out.append(Warning(
                     type="head_area",
                     figure="xy",
