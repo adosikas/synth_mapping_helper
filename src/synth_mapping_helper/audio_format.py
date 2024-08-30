@@ -5,6 +5,9 @@ import librosa
 import numpy as np
 import soundfile
 
+
+OGG_WRITE_CHUNK_SIZE = 0x10000
+
 class AudioNotOggError(RuntimeError):
     def __init__(self, detected_format: str) -> None:
         self.detected_format = detected_format
@@ -63,15 +66,14 @@ def export_ogg(data: "numpy array (c, s)|(s,)", samplerate: int = 22050) -> byte
     # librosa uses channels x samples instead of samples x channels, so transpose
     data = data.T
     bio = BytesIO()
-    # saving as ogg segfauls if the chunks are to bug, so chunk the writes
+    # saving as ogg segfauls if the chunks are too big, so chunk the writes
     # based on https://github.com/bastibe/python-soundfile/issues/426#issuecomment-2150934383
-    chunk_size = 0x40000
     if data.ndim == 1:
         channels = 1
     else:
         channels = data.shape[1]
     with soundfile.SoundFile(bio, 'w', samplerate=samplerate, channels=channels, format="ogg") as f:
-        num_chunks = (len(data) + chunk_size - 1) // chunk_size
+        num_chunks = (len(data) + OGG_WRITE_CHUNK_SIZE - 1) // OGG_WRITE_CHUNK_SIZE
         for chunk in np.array_split(data, num_chunks, axis=0):
             f.write(chunk)
 

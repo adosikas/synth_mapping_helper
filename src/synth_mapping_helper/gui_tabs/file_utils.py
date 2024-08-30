@@ -1,6 +1,7 @@
 import asyncio
 import base64
 from io import BytesIO
+from concurrent.futures.process import BrokenProcessPool
 import dataclasses
 from pathlib import Path
 from typing import Optional
@@ -98,7 +99,7 @@ def _file_utils_tab() -> None:
                 ui.timer(0.2, self._calc_wden, once=True)
                 ui.timer(0.3, self._calc_nden, once=True)
                 ui.timer(0.4, self._calc_hcurve, once=True)
-                ui.timer(1, self._calc_bpm, once=True)
+                ui.timer(1.0, self._calc_bpm, once=True)
 
             self.refresh()
 
@@ -275,7 +276,7 @@ def _file_utils_tab() -> None:
                             pad_dialog.close()
                             ui.notify(f"Padding audio. This may take a few seconds.", type="info")
                             await self.add_silence(before_start_ms=before_ms.value, after_end_ms=after_ms.value)
-                        ui.timer(0.01, self._calc_bpm, once=True)
+                            await self._calc_bpm
                         ui.button(icon="settings_ethernet", color="positive", on_click=_pad_audio).props("dense").classes("my-auto").tooltip("Add silence to start and end")
                         after_ms = ui.number("After", value=0, suffix="ms").props("dense").classes("w-24").tooltip("Amount to add. Negative trims instead.")
                     ui.separator()
@@ -357,25 +358,38 @@ def _file_utils_tab() -> None:
         @handle_errors
         async def _calc_bpm(self):
             sd = self.bpm_scan_data  # create a pointer to avoid messing up data when it gets replaced during calc
-            sd["state"] = "Loading Audio"
-            data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=self.data.audio.raw_data)
-            sd["data"] = data
-            sd["sr"] = sr
-            sd["state"] = "Detecting Onsets"
-            onsets = await run.cpu_bound(analysis.calculate_onsets, data=data, sr=sr)
-            sd["onsets"] = onsets
-            sd["state"] = "Finding BPM"
-            peak_bpms, peak_values, pulse = await run.cpu_bound(analysis.find_bpm, onsets=onsets, sr=sr)
-            sd["peak_bpms"] = peak_bpms
-            sd["peak_values"] = peak_values
-            sd["pulse"] = pulse
-            best_bpm, bpm_sections = analysis.group_bpm(peak_bpms, peak_values)
-            sd["bpm_sections"] = bpm_sections
-            sd["best_bpm"] = best_bpm
-            sd["bpm_override"] = None
-            if id(self.bpm_scan_data) == id(sd):
-                # only continue when the pointer is still identical
-                await self._calc_beats()
+            if app.storage.user.get("fileutils_bpm_error_count", 0) >= 3:
+                ui.notify("BPM calculation skipped due to persistent errors. I am not sure what causes this, and it only affects some computers...", type="warning")
+                sd["state"] = "Disabled"
+                self._bpm_card.refresh()
+                return
+            try:
+                sd["state"] = "Loading Audio"
+                data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=self.data.audio.raw_data)
+                sd["data"] = data
+                sd["sr"] = sr
+                sd["state"] = "Detecting Onsets"
+                onsets = await run.cpu_bound(analysis.calculate_onsets, data=data, sr=sr)
+                sd["onsets"] = onsets
+                sd["state"] = "Finding BPM"
+                peak_bpms, peak_values, pulse = await run.cpu_bound(analysis.find_bpm, onsets=onsets, sr=sr)
+                sd["peak_bpms"] = peak_bpms
+                sd["peak_values"] = peak_values
+                sd["pulse"] = pulse
+                best_bpm, bpm_sections = analysis.group_bpm(peak_bpms, peak_values)
+                sd["bpm_sections"] = bpm_sections
+                sd["best_bpm"] = best_bpm
+                sd["bpm_override"] = None
+                if id(self.bpm_scan_data) == id(sd):
+                    # only continue when the pointer is still identical
+                    await self._calc_beats()
+            except:
+                sd["state"] = "Error"
+                app.storage.user["fileutils_bpm_error_count"] = app.storage.user.get("fileutils_bpm_error_count", 0) + 1
+                self._bpm_card.refresh()
+                raise
+            # success: clear error counter
+            app.storage.user["fileutils_bpm_error_count"] = 0
 
         async def _calc_beats(self):
             # have this seperate so it could be updated seperately later
@@ -417,6 +431,17 @@ def _file_utils_tab() -> None:
                 ui.label("No BPM data")
                 return
             if self.bpm_scan_data["state"] != "Done":
+                if self.bpm_scan_data["state"] in ("Error", "Disabled"):
+                    ui.label(f"BPM Calcuation {self.bpm_scan_data["state"]} (Last {app.storage.user["fileutils_bpm_error_count"]} attempts failed). You may retry below").classes("my-auto")
+                    @handle_errors
+                    async def _retry_bpm_calc():
+                        if app.storage.user["fileutils_bpm_error_count"] >=3:
+                            app.storage.user["fileutils_bpm_error_count"] = 0
+                        self.bpm_scan_data = {"state": "Waiting"}
+                        self._bpm_card.refresh()
+                        await self._calc_bpm()
+                    ui.button("Retry", on_click=_retry_bpm_calc)
+                    return
                 with ui.row():
                     ui.spinner(size="xl")
                     ui.label().classes("my-auto").bind_text_from(self.bpm_scan_data, "state", backward=lambda s: s + " (this may take a few seconds)")
