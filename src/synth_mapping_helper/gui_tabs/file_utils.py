@@ -718,20 +718,22 @@ def _file_utils_tab() -> None:
                         x=pos[:,2], y=pos[:,0], name="curve",
                         showlegend=True,
                         legendrank=1,
-                        line={"color": NOTE_COLORS[nt], "width": 1, "dash": "dash"}
+                        line={"color": NOTE_COLORS[nt], "width": 1}
                     )
                     yfig.add_scattergl(
                         x=pos[:,2], y=pos[:,1], name="curve",
                         showlegend=True,
                         legendrank=1,
-                        line={"color": NOTE_COLORS[nt], "width": 1, "dash": "dash"}
+                        line={"color": NOTE_COLORS[nt], "width": 1}
                     )
                     if not np.isnan(pos).all():
                         note_list = []
                         rail_list = []
+                        node_list = []
                         for _, nodes in diff_data.get_object_dict(nt).items():
                             note_list.append(nodes[:1])
                             if nodes.shape[0] > 1:
+                                node_list.append(nodes[1:])
                                 rail_list.append(rails.interpolate_nodes(nodes, "spline", 1/analysis.CURVE_INTERP))
                                 rail_list.append(np.full((1,3,), np.nan))
                         note_array = np.concatenate(note_list)
@@ -740,14 +742,14 @@ def _file_utils_tab() -> None:
                             showlegend=True,
                             legendrank=2,
                             mode="markers",
-                            marker={"color": NOTE_COLORS[nt]}
+                            marker={"color": NOTE_COLORS[nt], "size": 8},
                         )
                         yfig.add_scattergl(
                             x=note_array[:,2], y=note_array[:,1], name="notes",
                             showlegend=True,
                             legendrank=2,
                             mode="markers",
-                            marker={"color": NOTE_COLORS[nt]}
+                            marker={"color": NOTE_COLORS[nt], "size": 8},
                         )
                         if rail_list:
                             rail_array = np.concatenate(rail_list)
@@ -755,18 +757,33 @@ def _file_utils_tab() -> None:
                                 x=rail_array[:,2], y=rail_array[:,0], name="rails",
                                 showlegend=True,
                                 legendrank=2,
-                                line={"color": NOTE_COLORS[nt]}
+                                line={"color": NOTE_COLORS[nt], "width": 2}
                             )
                             yfig.add_scattergl(
                                 x=rail_array[:,2], y=rail_array[:,1], name="rails",
                                 showlegend=True,
                                 legendrank=2,
-                                line={"color": NOTE_COLORS[nt]}
+                                line={"color": NOTE_COLORS[nt], "width": 2}
+                            )
+                            node_array = np.concatenate(node_list)
+                            xfig.add_scattergl(
+                                x=node_array[:,2], y=node_array[:,0], name="nodes",
+                                showlegend=True,
+                                legendrank=2,
+                                mode="markers",
+                                marker={"color": NOTE_COLORS[nt], "size": 4},
+                            )
+                            yfig.add_scattergl(
+                                x=node_array[:,2], y=node_array[:,1], name="nodes",
+                                showlegend=True,
+                                legendrank=2,
+                                mode="markers",
+                                marker={"color": NOTE_COLORS[nt], "size": 4},
                             )
                     if not np.isnan(vel).all():
                         v_mag = np.sqrt((vel[:,0]**2) + (vel[:,1]**2)) * vel_mult
                         vfig.add_scattergl(
-                            x=vel[:,2], y=v_mag, name="",
+                            x=vel[:,2], y=v_mag, name="total",
                             showlegend=True,
                             legendrank=1,
                             line={"color": NOTE_COLORS[nt]}
@@ -789,7 +806,7 @@ def _file_utils_tab() -> None:
                     if not np.isnan(acc).all():
                         a_mag = np.sqrt((acc[:,0]**2) + (acc[:,1]**2)) * acc_mult
                         afig.add_scattergl(
-                            x=acc[:,2], y=a_mag, name="",
+                            x=acc[:,2], y=a_mag, name="total",
                             showlegend=True,
                             legendrank=1,
                             line={"color": NOTE_COLORS[nt]}
