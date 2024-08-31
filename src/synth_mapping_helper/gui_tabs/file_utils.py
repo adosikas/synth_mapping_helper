@@ -432,7 +432,7 @@ def _file_utils_tab() -> None:
                 return
             if self.bpm_scan_data["state"] != "Done":
                 if self.bpm_scan_data["state"] in ("Error", "Disabled"):
-                    ui.label(f"BPM Calcuation {self.bpm_scan_data["state"]} (Last {app.storage.user["fileutils_bpm_error_count"]} attempts failed). You may retry below").classes("my-auto")
+                    ui.label(f'BPM Calcuation {self.bpm_scan_data["state"]} (Last {app.storage.user["fileutils_bpm_error_count"]} attempts failed). You may retry below').classes("my-auto")
                     @handle_errors
                     async def _retry_bpm_calc():
                         if app.storage.user["fileutils_bpm_error_count"] >=3:

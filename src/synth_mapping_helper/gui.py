@@ -58,7 +58,7 @@ def entrypoint():
 
     if not args.dev_mode and __name__ == "__main__":  # don't check in dev mode or when spawned as child process
         try:
-            resp = requests.get(f"http://{args.host}:{args.port}/version")
+            resp = requests.get(f"http://{args.host}:{args.port}/version", timeout=1)
             resp.raise_for_status()
             print(f"ERROR: {resp.json()} is already running on http://{args.host}:{args.port}")
             sys.exit(-1)
