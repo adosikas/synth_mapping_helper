@@ -5,7 +5,7 @@ on:
     types: [created]
 
 jobs:
-  build_windows:
+  build_windows_exe:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
@@ -20,9 +20,14 @@ jobs:
           Remove-Item -Recurse -Force build
       - name: Build exe
         run: |
-          nicegui-pack --name=smh-gui_${GITHUB_REF#refs/tags/} --onefile src/synth_mapping_helper/gui.py
+          nicegui-pack --name=smh-gui_${{ github.ref_name }} --onefile src/synth_mapping_helper/gui.py
+      - name: Upload math result for job 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows_exe
+          path: dist
   deploy:
-    needs: build_windows
+    needs: build_windows_exe
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -36,11 +41,15 @@ jobs:
           pip3 install setuptools build wheel twine
       - name: Package Windows helpers
         run: |
-          zip -r windows_helpers.zip windows_helpers
+          zip -r windows_helpers.zip windows_helpers:
+      - name: Download windows_exe
+        uses: actions/download-artifact@v4
+        with:
+          name: windows_exe
       - name: Upload Artifacts
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "dist/smh-gui_${GITHUB_REF#refs/tags/}.exe,windows_helpers.zip,windows_helpers/install.bat,windows_helpers/smh_gui.bat"
+          artifacts: "dist/smh-gui_${{ github.ref_name }}.exe,windows_helpers.zip,windows_helpers/install.bat,windows_helpers/smh_gui.bat"
           allowUpdates: true
           omitBodyDuringUpdate: true
           omitDraftDuringUpdate: true
