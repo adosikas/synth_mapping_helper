@@ -2,13 +2,13 @@ from io import BytesIO
 from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import datetime
-from typing import Generator, Literal
+from typing import Any, Generator, Literal
 
 import numpy as np
 import librosa
 import soundfile
 
-from synth_mapping_helper import rails, utils
+from synth_mapping_helper import rails, utils, audio_format
 from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES, NOTE_TYPES, WALL_TYPES, AudioData, GRID_SCALE
 
 RENDER_WINDOW = 4.0  # the game always renders 4 seconds ahead
@@ -422,3 +422,53 @@ def group_bpm(bpms: "numpy array (m,)", bpm_strengths: "numpy array (m,)", max_j
 def locate_beats(onsets: "numpy array (m,)", sr: int, bpm: float) -> "numpy array (t,)":
     _, beats = librosa.beat.beat_track(onset_envelope=onsets, bpm=bpm, sr=sr, trim=False)
     return beats
+
+def circmedian(values: "numpy array (n,)", high: float) -> float:
+    # doing statistics on "circular data" (ie 0-beat_time) is hard, but we can treat each value as "angle" (0-2pi, ie 0-360 deg)
+    # see also: scipy.stats.circmean
+    # via median of sine and cosine, we get the "median angle" and transform that back
+    # we get the median instead of mean, to avoid outliers influencing the result
+    scaling = 2*np.pi/high
+    sines = np.sin(values*scaling)
+    cosines = np.cos(values*scaling)
+    return (np.arctan2(np.median(sines), np.median(cosines)) / scaling + high)%high
+
+def circerror(values: "numpy array (n,)", target: float, high: float) -> "numpy array (n,)":
+    # shift the delta such that equal -> h/2  and opposite -> 0 or h
+    shifted_delta = (values - target + high*1.5) % high
+    # now get the delta from high/2, and transform into 0 (equal) to 1 (opposite)
+    return np.abs(shifted_delta-high/2) / (high/2)
+
+def find_offsets(onsets: "numpy array (m,)", sr: int, bpm_sections: list[tuple[int, int, float, float]]) -> list[tuple[int, int, "numpy array (n,)", float, int, "numpy array (n,)"]]:
+    offset_sections = []
+    for i, (section_start, section_end, section_bpm, _) in enumerate(bpm_sections):
+        beats = locate_beats(onsets=onsets[section_start:section_end], sr=sr, bpm=section_bpm)
+        if not beats.any():
+            # ignore sections without detected beats
+            continue
+        # not sure why, but a 22ms offset seems to be required...
+        beats = librosa.frames_to_time(beats + section_start, sr=sr) - 0.022
+        beat_time = 60/section_bpm
+        median_offset = circmedian(beats % beat_time, high=beat_time)
+        offset_error = circerror(beats % beat_time, median_offset, high=beat_time)
+        offset_ms = int((beat_time - median_offset)*1000)  # the game offsets the audio, so negate offset
+        offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms, offset_error))
+    return offset_sections
+
+def bpm_aio(raw_data: bytes) -> dict[str, Any]:
+    data, sr = audio_format.load_for_analysis(raw_data)
+    onsets = calculate_onsets(data=data, sr=sr)
+    peak_bpms, peak_values, pulse = find_bpm(onsets=onsets, sr=sr)
+    best_bpm, bpm_sections = group_bpm(bpms=peak_bpms, bpm_strengths=peak_values)
+    offset_sections = find_offsets(onsets=onsets, sr=sr, bpm_sections=bpm_sections)
+    return {
+        "data": data,
+        "sr": sr,
+        "onsets": onsets,
+        "peak_bpms": peak_bpms,
+        "peak_values": peak_values,
+        "pulse": pulse,
+        "best_bpm": best_bpm,
+        "bpm_sections": bpm_sections,
+        "offset_sections": offset_sections,
+    }

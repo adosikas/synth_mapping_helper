@@ -20,22 +20,6 @@ NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "orang
 
 WARNING_MAX = 100  # Tab stops working if there are too many
 
-def circmedian(values: "numpy array (n,)", high: float) -> float:
-    # doing statistics on "circular data" (ie 0-beat_time) is hard, but we can treat each value as "angle" (0-2pi, ie 0-360 deg)
-    # see also: scipy.stats.circmean
-    # via median of sine and cosine, we get the "median angle" and transform that back
-    # we get the median instead of mean, to avoid outliers influencing the result
-    scaling = 2*np.pi/high
-    sines = np.sin(values*scaling)
-    cosines = np.cos(values*scaling)
-    return (np.arctan2(np.median(sines), np.median(cosines)) / scaling + high)%high
-
-def circerror(values: "numpy array (n,)", target: float, high: float) -> "numpy array (n,)":
-    # shift the delta such that equal -> h/2  and opposite -> 0 or h
-    shifted_delta = (values - target + high*1.5) % high
-    # now get the delta from high/2, and transform into 0 (equal) to 1 (opposite)
-    return np.abs(shifted_delta-high/2) / (high/2)
-
 def _file_utils_tab() -> None:
     @dataclasses.dataclass
     class FileInfo:
@@ -364,25 +348,12 @@ def _file_utils_tab() -> None:
                 self._bpm_card.refresh()
                 return
             try:
-                sd["state"] = "Loading Audio"
-                data, sr = await run.cpu_bound(audio_format.load_for_analysis, raw_data=self.data.audio.raw_data)
-                sd["data"] = data
-                sd["sr"] = sr
-                sd["state"] = "Detecting Onsets"
-                onsets = await run.cpu_bound(analysis.calculate_onsets, data=data, sr=sr)
-                sd["onsets"] = onsets
-                sd["state"] = "Finding BPM"
-                peak_bpms, peak_values, pulse = await run.cpu_bound(analysis.find_bpm, onsets=onsets, sr=sr)
-                sd["peak_bpms"] = peak_bpms
-                sd["peak_values"] = peak_values
-                sd["pulse"] = pulse
-                best_bpm, bpm_sections = analysis.group_bpm(peak_bpms, peak_values)
-                sd["bpm_sections"] = bpm_sections
-                sd["best_bpm"] = best_bpm
+                sd["state"] = "Processing audio..."
+                self._bpm_card.refresh()
                 sd["bpm_override"] = None
-                if id(self.bpm_scan_data) == id(sd):
-                    # only continue when the pointer is still identical
-                    await self._calc_beats()
+                sd |= await run.cpu_bound(analysis.bpm_aio, raw_data=self.data.audio.raw_data)
+                sd["state"] = "Done"
+                self._bpm_card.refresh()
             except:
                 sd["state"] = "Error"
                 app.storage.user["fileutils_bpm_error_count"] = app.storage.user.get("fileutils_bpm_error_count", 0) + 1
@@ -391,7 +362,7 @@ def _file_utils_tab() -> None:
             # success: clear error counter
             app.storage.user["fileutils_bpm_error_count"] = 0
 
-        async def _calc_beats(self):
+        async def _recalc_beats(self):
             # have this seperate so it could be updated seperately later
             sd = self.bpm_scan_data
             sr = sd["sr"]
@@ -401,27 +372,9 @@ def _file_utils_tab() -> None:
                 bpm_sections = sd["bpm_sections"]
             else:
                 bpm_sections = [(0, onsets.shape[-1], bpm_override, 1)]
-            sd["state"] = f"Processing {len(bpm_sections)} sections"
+            sd["state"] = "Recalculating offset"
             self._bpm_card.refresh()
-            offset_sections = []
-            beat_results = await asyncio.gather(
-                *[
-                    run.cpu_bound(analysis.locate_beats, onsets=onsets[section_start:section_end], sr=sr, bpm=section_bpm)
-                    for section_start, section_end, section_bpm, _ in bpm_sections
-                ]
-            )
-            for i, ((section_start, section_end, section_bpm, _), beats) in enumerate(zip(bpm_sections, beat_results)):
-                if not beats.any():
-                    # ignore sections without detected beats
-                    continue
-                # not sure why, but a 22ms offset seems to be required...
-                beats = librosa.frames_to_time(beats + section_start, sr=sr) - 0.022
-                beat_time = 60/section_bpm
-                median_offset = circmedian(beats % beat_time, high=beat_time)
-                offset_error = circerror(beats % beat_time, median_offset, high=beat_time)
-                offset_ms = int((beat_time - median_offset)*1000)  # the game offsets the audio, so negate offset
-                offset_sections.append((section_start, section_end, beats, section_bpm, offset_ms, offset_error))
-            sd["offset_sections"] = offset_sections
+            sd["offset_sections"] = await run.cpu_bound(analysis.find_offsets, onsets=onsets, sr=sr, bpm_sections=bpm_sections)
             sd["state"] = "Done"
             self._bpm_card.refresh()
 
@@ -460,12 +413,12 @@ def _file_utils_tab() -> None:
             with ui.row():
                 async def _reset_bpm():
                     self.bpm_scan_data["bpm_override"] = None
-                    await self._calc_beats()
+                    await self._recalc_beats()
                 if bpm_override is not None:
                     ui.button(icon="undo", on_click=_reset_bpm, color="warning").props("dense outline").classes("my-auto").tooltip("Reset back to detected BPM")
                 async def _override_bpm():
                     self.bpm_scan_data["bpm_override"] = self.output_bpm
-                    await self._calc_beats()
+                    await self._recalc_beats()
                 ui.button("BPM Override", icon="south", on_click=_override_bpm, color="warning").props("dense outline").tooltip("Override detected BPM with current BPM and recalculate beats and offset")
                 with ui.dropdown_button("Apply", auto_close=True, icon="auto_fix_high").props("dense outline").tooltip("Apply detected BPM and offset"):
                     for i, (_, _, _, section_bpm, section_offset, _) in enumerate(offset_sections):

@@ -39,7 +39,7 @@ class AudioData:
 
     def with_silence(self, before_start_s: float = 0, after_end_s: float = 0) -> "AudioData":
         if not before_start_s and not after_end_s:
-            return
+            return self
         data, sr = soundfile.read(BytesIO(self.raw_data))
         if before_start_s < 0:
             data = data[librosa.time_to_samples(-before_start_s, sr=sr):]
