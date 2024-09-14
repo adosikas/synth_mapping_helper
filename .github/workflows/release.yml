@@ -17,7 +17,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           pip3 install . pyinstaller
-          Remove-Item -Recurse -Force build, dist
+          Remove-Item -Recurse -Force build
       - name: Build exe
         run: |
           nicegui-pack --name=smh-gui_${GITHUB_REF#refs/tags/} --onefile src/synth_mapping_helper/gui.py
