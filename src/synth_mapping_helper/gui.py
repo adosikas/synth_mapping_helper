@@ -1,17 +1,15 @@
 from multiprocessing import freeze_support
 freeze_support()
 
-from argparse import ArgumentParser, ArgumentError
-from io import BytesIO
+from argparse import ArgumentParser
 from pathlib import Path
 import logging
 import sys
-from typing import Optional
 
-from nicegui import app, ui, events
+from nicegui import app, ui
 import requests
 
-from synth_mapping_helper import synth_format, cli, __version__
+from synth_mapping_helper import __version__
 from synth_mapping_helper.gui_tabs.utils import *
 from synth_mapping_helper.gui_tabs.commands import command_tab
 from synth_mapping_helper.gui_tabs.file_utils import file_utils_tab
