@@ -5,7 +5,22 @@ on:
     types: [created]
 
 jobs:
+  build_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python3 -m pip install --upgrade pip
+          pip3 install .
+          pip3 install pyinstaller
+          nicegui-pack --name=smh-gui_${GITHUB_REF#refs/tags/} --onefile src/synth_mapping_helper/gui.py
   deploy:
+    needs: build_windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -20,10 +35,10 @@ jobs:
       - name: Package Windows helpers
         run: |
           zip -r windows_helpers.zip windows_helpers
-      - name: Upload Windows helpers
+      - name: Upload Artifacts
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "windows_helpers.zip,windows_helpers/install.bat,windows_helpers/smh_gui.bat"
+          artifacts: "dist/smh-gui_${GITHUB_REF#refs/tags/}.exe,windows_helpers.zip,windows_helpers/install.bat,windows_helpers/smh_gui.bat"
           allowUpdates: true
           omitBodyDuringUpdate: true
           omitDraftDuringUpdate: true
