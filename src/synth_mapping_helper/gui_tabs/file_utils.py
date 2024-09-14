@@ -23,6 +23,7 @@ WARNING_MAX = 100  # Tab stops working if there are too many
 def _file_utils_tab() -> None:
     @dataclasses.dataclass
     class FileInfo:
+        storage = app.storage.user
         data: Optional[synth_format.SynthFile] = None
         output_filename: str = "No file selected"
         output_bpm: float = 0.0
@@ -542,17 +543,17 @@ def _file_utils_tab() -> None:
         @handle_errors
         async def _calc_wden(self):
             self.wall_densities = await run.cpu_bound(analysis.all_wall_densities, diffs=self.data.difficulties)
-            self.stats_card.refresh()
+            self._density_card.refresh()
 
         @handle_errors
         async def _calc_nden(self):
             self.note_densities = await run.cpu_bound(analysis.all_note_densities, diffs=self.data.difficulties)
-            self.stats_card.refresh()
+            self._density_card.refresh()
 
         @handle_errors
         async def _calc_hcurve(self):
             self.hand_curves = await run.cpu_bound(analysis.all_hand_curves, diffs=self.data.difficulties)
-            self.stats_card.refresh()
+            self._hands_card.refresh()
 
         @handle_errors
         async def _calc_warn(self):
@@ -562,6 +563,7 @@ def _file_utils_tab() -> None:
                 last_beat=second_to_beat(self.data.audio.duration-self.data.offset_ms/1000, bpm=self.data.bpm)
             )
             self._stats_table.refresh()
+            self._warnings_card.refresh()
 
         def _wden_content(self, den_dict: dict[str, analysis.PlotDataContainer]) -> None:
             wfig = go.Figure(
@@ -864,10 +866,11 @@ def _file_utils_tab() -> None:
             }).classes("w-full h-auto").on("cellClicked", _stats_notify)
 
         @ui.refreshable
-        def _hands_card(self, difficulty: str|None) -> None:
+        def _hands_card(self) -> None:
+            difficulty = self.storage.get("fileutils_hdiff")
             if difficulty is None:
-                ui.label("Select a difficulty")
-            elif difficulty == "wait" or self.data is None or self.hand_curves is None or self.warnings is None:
+                return
+            elif self.data is None or self.hand_curves is None or self.warnings is None:
                 ui.spinner(size="xl")
             elif (
                 (difficulty not in self.hand_curves or all(np.isnan(pos).all() for pos, _, _ in self.hand_curves[difficulty].values()))
@@ -879,10 +882,13 @@ def _file_utils_tab() -> None:
                 self._hcurve_content(self.hand_curves.get(difficulty), self.warnings.get(difficulty), self.data.difficulties.get(difficulty))
 
         @ui.refreshable
-        def _warnings_card(self, difficulty: str|None, warning_types: list[str], note_types: list[str]) -> None:
+        def _warnings_card(self) -> None:
+            difficulty = self.storage.get("fileutils_wdiff")
+            warning_types = self.storage.get("fileutils_warnings_types")
+            note_types = self.storage.get("fileutils_warnings_notetypes")
             if difficulty is None:
-                ui.label("Select a difficulty")
-            elif difficulty == "wait" or self.data is None or self.warnings is None:
+                return
+            elif self.data is None or self.warnings is None:
                 ui.spinner(size="xl")
             elif (difficulty not in self.warnings or not self.warnings[difficulty]):
                 ui.label("No data").classes("h-32")
@@ -916,14 +922,10 @@ def _file_utils_tab() -> None:
                 )
 
         @ui.refreshable
-        def _density_card(self, difficulty: str|None) -> None:
+        def _density_card(self) -> None:
+            difficulty = self.storage.get("fileutils_ddiff")
             if difficulty is None:
-                ui.label("Select a difficulty")
                 return
-            elif difficulty == "wait":
-                ui.spinner(size="xl")
-                return
-            
             ui.label("Wall density")
             if self.wall_densities is None:
                 ui.spinner(size="xl")
@@ -968,22 +970,18 @@ def _file_utils_tab() -> None:
                         self._bpm_card()
                 with ui.tab_panel("hands") as hpanel:
                     @handle_errors
-                    def _change_hdiff(vce: events.ValueChangeEventArguments):
-                        if vce.value is not None:
-                            self._hands_card.refresh("wait")
-                        ui.timer(0.01, lambda: self._hands_card.refresh(vce.value), once=True)
-                    hsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_diff").classes("w-32")
+                    async def _change_hdiff(vce: events.ValueChangeEventArguments):
+                        await run.io_bound(self._hands_card.refresh)
+                    hsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_hdiff").classes("w-40")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._hands_card(app.storage.user.get("fileutils_diff"))
+                        self._hands_card()
                     hsel.on_value_change(_change_hdiff)
                 with ui.tab_panel("warnings") as hpanel:
                     @handle_errors
-                    def _change_w(vce: events.ValueChangeEventArguments):
-                        if app.storage.user.get("fileutils_warnings_diff") is not None:
-                            self._warnings_card.refresh("wait", [], [])
-                        ui.timer(0.01, lambda: self._warnings_card.refresh(app.storage.user.get("fileutils_diff"), app.storage.user.get("fileutils_warnings_types"), app.storage.user.get("fileutils_warnings_notetypes")), once=True)
+                    async def _change_w(vce: events.ValueChangeEventArguments):
+                        await run.io_bound(self._warnings_card.refresh)
                     with ui.row():
-                        wsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_diff").classes("w-32")
+                        wsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_wdiff").classes("w-40")
                         ntypesel = ui.select(
                             list(synth_format.NOTE_TYPES),
                             value=list(synth_format.NOTE_TYPES),
@@ -997,19 +995,17 @@ def _file_utils_tab() -> None:
                             multiple=True,
                         ).bind_value(app.storage.user, "fileutils_warnings_types").classes("w-auto")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._warnings_card(app.storage.user.get("fileutils_diff"), app.storage.user.get("fileutils_warnings_types"), app.storage.user.get("fileutils_warnings_notetypes"))
+                        self._warnings_card()
                     wsel.on_value_change(_change_w)
                     wtypesel.on_value_change(_change_w)
                     ntypesel.on_value_change(_change_w)
                 with ui.tab_panel("density") as dpanel:
                     @handle_errors
-                    def _change_ddiff(vce: events.ValueChangeEventArguments):
-                        if vce.value is not None:
-                            self._density_card.refresh("wait")
-                        ui.timer(0.01, lambda: self._density_card.refresh(vce.value), once=True)
-                    dsel = ui.select([d for d in synth_format.DIFFICULTIES if d in self.data.difficulties], label="Difficulty").bind_value(app.storage.user, "fileutils_diff").classes("w-32")
+                    async def _change_ddiff(vce: events.ValueChangeEventArguments):
+                        await run.io_bound(self._density_card.refresh)
+                    dsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_ddiff").classes("w-40")
                     with ui.element().classes("w-full min-h-screen"):
-                        self._density_card(app.storage.user.get("fileutils_diff"))
+                        self._density_card()
                     dsel.on_value_change(_change_ddiff)
         def __repr__(self) -> str:
             return type(self).__name__  # avoid spamming logs with binary data

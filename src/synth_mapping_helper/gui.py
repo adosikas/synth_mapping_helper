@@ -1,3 +1,6 @@
+from multiprocessing import freeze_support
+freeze_support()
+
 from argparse import ArgumentParser, ArgumentError
 from io import BytesIO
 from pathlib import Path
@@ -8,16 +11,16 @@ from typing import Optional
 from nicegui import app, ui, events
 import requests
 
-from . import synth_format, cli, __version__
-from .gui_tabs.utils import *
-from .gui_tabs.commands import command_tab
-from .gui_tabs.file_utils import file_utils_tab
-from .gui_tabs.dashboard import dashboard_tab
-from .gui_tabs.autobackup import autobackup_tab
-from .gui_tabs.version import version_tab
-from .gui_tabs.stacking import stacking_tab
-from .gui_tabs.text_gen import text_gen_tab
-from .gui_tabs.wall_art import wall_art_tab
+from synth_mapping_helper import synth_format, cli, __version__
+from synth_mapping_helper.gui_tabs.utils import *
+from synth_mapping_helper.gui_tabs.commands import command_tab
+from synth_mapping_helper.gui_tabs.file_utils import file_utils_tab
+from synth_mapping_helper.gui_tabs.dashboard import dashboard_tab
+from synth_mapping_helper.gui_tabs.autobackup import autobackup_tab
+from synth_mapping_helper.gui_tabs.version import version_tab
+from synth_mapping_helper.gui_tabs.stacking import stacking_tab
+from synth_mapping_helper.gui_tabs.text_gen import text_gen_tab
+from synth_mapping_helper.gui_tabs.wall_art import wall_art_tab
 
 tab_list: list[GUITab] = [
     dashboard_tab,
