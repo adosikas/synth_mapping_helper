@@ -49,7 +49,7 @@ jobs:
       - name: Upload Artifacts
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "dist/smh-gui_${{ github.ref_name }}.exe,windows_helpers.zip,windows_helpers/install.bat,windows_helpers/smh_gui.bat"
+          artifacts: "smh-gui_${{ github.ref_name }}.exe,windows_helpers.zip,windows_helpers/install.bat,windows_helpers/smh_gui.bat"
           allowUpdates: true
           omitBodyDuringUpdate: true
           omitDraftDuringUpdate: true
