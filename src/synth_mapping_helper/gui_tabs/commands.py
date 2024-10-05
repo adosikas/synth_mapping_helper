@@ -1,4 +1,5 @@
 from argparse import ArgumentError
+import shlex
 
 from nicegui import app, events, ui
 
@@ -6,39 +7,59 @@ from .utils import *
 from .. import cli
 
 DEFAULT_PRESETS = {
-    "Merge Rails": "--merge-rails",
-    "Split Rails": "--split-rails",
+    "Merge Rails": """
+        # NOTE: You can do this via the Dashboard too: Merge sequential rails
+        --merge-rails""",
+    "Split Rails": """
+        # NOTE: You can do this via the Dashboard too: Split rails at single notes
+        --split-rails""",
     "Spikify": """
+        # NOTE: You can do this via the Dashboard too: Spikes, Angle=180
         # add up-down spikes every 1/4 beat to a rail
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Rail-Options#spikes
         --interpolate=1/4 --spikes=2 --radius=2 --start-angle=90""",
     "Spiralize": """
+        # NOTE: You can do this via the Dashboard too: Spiral, Angle=45
         # turn a rail into a spiral around the original path, with one rotation per beat and starting top/right
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Rail-Options#spiral
         --interpolate=1/8 --spiral=8 --radius=2 --start-angle=45""",
     "Parallels": """
+        # NOTE: You can do this via the Dashboard too: Parallel, Spacing=2
         # create parallel rails to the input, with 2 sq distance. left/right notes are added additionally to the left/right of the right/left notes, single/both notes are "split"
         # There will be conflicts when you have multiple notes or start of rails at the same time. Check the wiki on how it decides on priority or just avoid that.
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Pre--and-Post-Processing-Options#create-parallel-patterns
         --parallels=2""",
     "Autostack circular": """
+        # NOTE: You can do this via the Stacking Tab too: Pick button in "Rotatation" card, then stack 15x
         # automatically detect rotation & outset between the first two objects of the same type and continue the pattern for a total of 16 (first + 15 stacked copies)
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Movement-options#autostacking
         --autostack=OUTSET --stack-count=15""",
     "Autostack linear": """
+        # NOTE: You can do this via the Stacking Tab too: Pick button in "Offset" card, then stack for 8b
         # automatically detect offset between the first two objects of the same type and continue the pattern for 8 measures
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Movement-options#autostacking
         --autostack=OFFSET --stack-duration=8""",
     "Autostack spiral walls": """
+        # NOTE: You can do this via the Stacking Tab too: Pick button in "All" card, then stack for 8b
         # automatically detect spiral shape from first two walls and continue the patterns for 8 measures
         # you can have notes and other walls in the pattern, but ensure the first PAIR of objects is walls
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Movement-options#autostacking
         --autostack=SPIRAL --stack-duration=8""",
     "Rail to notestack": """
+        # NOTE: You can do this via the Dashboard too: "Interpolate rail nodes", then "Rail to notestack (delete rail)" (or keep rail)
         # convert rails to notestacks with 1/16 spacing
         # you can also do "--rails-to-singles=1" to KEEP the rail instead of removing it
         # See https://github.com/adosikas/synth_mapping_helper/wiki/Pre--and-Post-Processing-Options#convert-rails-into-single-notes
         --interpolate=1/16 --rails-to-singles""",
+    "Oops! All rails": """
+        # NOTE: You can do this via the Dashboard too: "Rail nodes to notes (delete rail)", then "Connect notes"
+        # convert everything that is no more than 1 beat apart to a single rail 
+        --rails-to-singles
+        --connect-singles=1""",
+    "Stack with green rail": """
+        # stack the selection 4 times with 1/4 spacing, rotating with a green (single handed special) rail (but not also stacking that rail itself)
+        --offset=0,0,1/4 --stack-count=4 --rotate-with=single  --filter=single --invert-filter
+        """,
 }
 
 # strip newlines and tabs
@@ -88,7 +109,7 @@ def _command_tab() -> None:
         for i, line in enumerate(commands):
             if line.startswith("#"):
                 continue
-            args = line.split(" ")
+            args = shlex.split(line)
             if not count and use_orig_cb.value:
                 args.append("--use-original")
             if mirror_left_cb.value:
@@ -99,7 +120,7 @@ def _command_tab() -> None:
             except ArgumentError as ae:
                 raise PrettyError(msg=f"Error parsing line {i+1}", exc=ae, data=line) from ae
             if remaining:
-                raise PrettyError(msg=f"Unknown arguments in line {i+1}", data=remaining)
+                raise PrettyError(msg=f"Unknown arguments in line {i+1}", data=remaining, exc=ValueError(remaining))
             try:
                 cli.main(opts)
             except RuntimeError as re:
