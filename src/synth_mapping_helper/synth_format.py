@@ -878,10 +878,10 @@ def import_file(file_path: Union[Path, BytesIO]) -> SynthFile:
     return SynthFile.from_synth(file_path)
 
 @contextmanager
-def file_data(filename: str|Path = None, save_suffix: str|None = "_out") -> Generator[SynthFile, None, None]:
-    if filename is None and len(sys.args) == 2 and sys.args[1].endswith(".synth") and Path(sys.args[1]).is_file():
+def file_data(filename: str|Path|None = None, save_suffix: str|None = "_out") -> Generator[SynthFile, None, None]:
+    if filename is None and len(sys.argv) == 2 and sys.argv[1].endswith(".synth") and Path(sys.argv[1]).is_file():
         # if given a single command line argument that is a .synth file, use that
-        fp = Path(sys.args[1])
+        fp = Path(sys.argv[1])
     elif filename is not None:
         fp = Path(filename)
     else:

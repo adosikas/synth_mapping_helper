@@ -211,13 +211,14 @@ def flatten_mirror_card(action_btn_cls: Any) -> None:
                         
             with action_btn_cls(
                 tooltip="Mirror with custom angle. Depending on coordinate mode, the mirror line passes through grid center, object center or pivot",
-                icon="",
+                icon=None,
                 func=_do_mirror,
-            ):
+            ).add_slot("default"):
                 mirror_icon = ui.icon("flip").style(f"rotate: {90-mirror_angle.parsed_value}deg")
-            def _rotate_mirror_icon(ang: float) -> None:
-                mirror_icon.style(f"rotate: {90-ang}deg")
-            mirror_angle.on_parsed_value_change = _rotate_mirror_icon
+            @handle_errors
+            def _rotate_mirror_icon() -> None:
+                mirror_icon.style(f"rotate: {90-mirror_angle.parsed_value}deg")
+            mirror_angle.on_value_change(_rotate_mirror_icon)
             mirror_stack = make_input("Stack time", 0, "mirror_stack", suffix="b", tooltip="Instead of just mirroring, stack a mirrored copy onto the input using this as interval. 0=disabled.")
 
 def rotate_outset_card(action_btn_cls: Any) -> None:
@@ -542,7 +543,7 @@ def _dashboard_tab():
             apply_args: Callable[[], dict[str, ...]]|dict[str, ...]|None=None,
             **kwargs
         ):
-            super().__init__(icon=icon if not icon_angle else "", on_click=self.do_action, **kwargs)
+            super().__init__(icon=icon if not icon_angle else None, on_click=self.do_action, **kwargs)
             self._tooltip = tooltip
             if (func is not None) == (apply_func is not None):
                 raise TypeError("Specify either func OR apply_func")
@@ -556,11 +557,12 @@ def _dashboard_tab():
             self.classes("w-12 h-10")
             with self:
                 ui.tooltip(tooltip)
-                if icon_angle:
-                    # create dedicated object, which can rotate independently from button
-                    ui.icon(icon).style(f"rotate: {icon_angle}deg")
                 if wiki_ref is not None:
                     wiki_reference(wiki_ref, True).props("floating")
+            if icon_angle:
+                with self.add_slot("default"):
+                    # create dedicated object, which can rotate independently from button
+                    ui.icon(icon).style(f"rotate: {icon_angle}deg")
 
         @handle_errors
         def do_action(self):

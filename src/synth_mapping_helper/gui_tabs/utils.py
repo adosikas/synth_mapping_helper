@@ -63,14 +63,12 @@ class SMHInput(ui.input):
         tooltip: Optional[str] = None,
         suffix: Optional[str] = None,
         negate_icons: dict[int, str]|None = None,
-        on_parsed_value_change: Optional[Callable[[float], None]] = None,
         tab_id: Optional[str] = None,
         width: int = 12,
         height: int = 10,
         **input_kwargs: Any,
     ):
-        self.on_parsed_value_change = on_parsed_value_change
-        super().__init__(label=label, value=str(default_value), **input_kwargs)
+        super().__init__(label=label, value=str(default_value), validation=self._validate, **input_kwargs)
         if storage_id is not None:
             if tab_id is not None:
                 storage_id = f"{tab_id}_{storage_id}"
@@ -111,15 +109,12 @@ class SMHInput(ui.input):
         with self.add_slot("error"):
             ui.element().style("visiblity: hidden")
 
-    def _handle_value_change(self, value: Any) -> None:
-        super()._handle_value_change(value)
+    def _validate(self, value: Any) -> None|str:
         try:
             v = utils.parse_number(value)
-            if self.on_parsed_value_change is not None:
-                self.on_parsed_value_change(v)
-            self.props(remove="error")
+            return None
         except ValueError:
-            self.props(add="error")
+            return ""
 
     @property
     def parsed_value(self) -> float:

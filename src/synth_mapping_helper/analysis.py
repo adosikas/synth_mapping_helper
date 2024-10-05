@@ -11,7 +11,8 @@ import soundfile
 from synth_mapping_helper import rails, utils, audio_format
 from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES, NOTE_TYPES, WALL_TYPES, AudioData, GRID_SCALE
 
-RENDER_WINDOW = 4.0  # the game always renders 4 seconds ahead
+RENDER_WINDOW_WALL = 4.0  # the game always renders walls 4 seconds ahead
+RENDER_WINDOW_NOTES = 3.5  # the game always renders notes 3.5 seconds ahead
 QUEST_WIREFRAME_LIMIT = 200  # combined
 QUEST_RENDER_LIMIT = 500  # combined
 PC_TYPE_DESPAWN = 80  # for each type
@@ -98,7 +99,7 @@ def wall_mode(highest_density: float, *, combined: bool) -> str:
     return f"{mode}, max {round(highest_density)}"
 
 def note_densities(data: DataContainer) -> dict[str, dict[str, PlotDataContainer]]:
-    window_b = utils.second_to_beat(RENDER_WINDOW, bpm=data.bpm)
+    window_b = utils.second_to_beat(RENDER_WINDOW_NOTES, bpm=data.bpm)
     out = {}
     for nt in NOTE_TYPES:
         # time, node_count
@@ -131,7 +132,7 @@ def all_note_densities(diffs: dict[str, DataContainer]) -> dict[str, dict[str, d
     }
 
 def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
-    window_b = RENDER_WINDOW*data.bpm/60
+    window_b = RENDER_WINDOW_WALL*data.bpm/60
     out = {
         wt: density(times=[t for t, w in data.walls.items() if w[0,3] == tid], window=window_b)
         for wt, (tid, *_) in WALL_TYPES.items()
