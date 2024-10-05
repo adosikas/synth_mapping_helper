@@ -400,6 +400,8 @@ def _wall_art_tab() -> None:
                 elif key_name == "Y":
                     undo.redo()
             # CTRL: No
+            elif key_name == "C":
+                _reset_camera()
             elif e.key.escape:
                 selection.select(set(), "set")
             elif key_name == "R":
@@ -496,6 +498,9 @@ def _wall_art_tab() -> None:
                     scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
                     time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
                     frame_length = make_input("Frame Length", "2", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
+                with ui.row():
+                    cam_distance = make_input("Camera Distance", "1", "cam_distance", tab_id="preview", suffix="b", tooltip="Default camera distance")
+                    cam_height = make_input("Camera Height", "2", "cam_height", tab_id="preview", suffix="sq", tooltip="Default camera height")
                 ui.separator()
                 with ui.element():
                     ui.tooltip("Display a reference image to align wall art. A low time scale (e.g. 1) is recommended to avoid distortion due to perspective, but may cause display issues.")
@@ -565,6 +570,16 @@ def _wall_art_tab() -> None:
                 preview_scene.render(wall_data, preview_settings)
 
         @handle_errors
+        def _reset_camera() -> None:
+            if preview_scene is None:
+                return
+            preview_scene.move_camera(
+                0, -cam_distance.parsed_value*time_scale.parsed_value, cam_height.parsed_value,
+                0,0,0,
+                duration=0,
+            )
+
+        @handle_errors
         def _on_click(e: events.SceneClickEventArguments) -> None:
             if preview_scene is None:
                 return
@@ -600,7 +615,7 @@ def _wall_art_tab() -> None:
             l = int(frame_length.parsed_value)
             t = time_scale.parsed_value
             preview_scene = MapScene(width=w, height=h, frame_length=l, time_scale=t, on_click=_on_click, on_drag_start=_on_dstart, on_drag_end=_on_dend)
-            preview_scene.move_camera(0,-t,0,0,0,0)
+            _reset_camera()
             _soft_refresh()
 
         with ui.row():
@@ -613,7 +628,8 @@ def _wall_art_tab() -> None:
                     ui.markdown("""
                         ## Camera
                         Use left mouse to rotate the camera, right mouse to move. Scroll wheel zooms.  
-                        To turn the camera *without* deselecting, hold down ALT.
+                        To turn the camera *without* deselecting, hold down ALT.  
+                        🇨 resets the camera to the position configured in the settings. 
 
                         Click on a wall to select it. Multiple walls can be selected by CTRL-Click (to add), or SHIFT-Click (expand selection to clicked wall).
                         Then drag it around using left mouse and/or use one of the edit keys below.  
@@ -784,6 +800,9 @@ def _wall_art_tab() -> None:
                     ui.tooltip("Blend wall patterns (effects all walls)")
             draw_preview_scene()
             with ui.column():
+                with ui.button(icon="camera_indoor", on_click=_reset_camera).style("width: 36px"):
+                    ui.tooltip("Reset camera position (C), can be adjusted in preview settings")
+                ui.separator()
                 with ui.button(icon="delete", color="negative", on_click=selection.delete).style("width: 36px").bind_enabled_from(selection, "sources", backward=bool):
                     ui.tooltip("Delete selection (Delete/Backspace)")
                 for k, (i, t) in enumerate(sorted(synth_format.WALL_LOOKUP.items())):
