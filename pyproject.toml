@@ -15,7 +15,7 @@ dependencies = [
     "nicegui==2.3.0",
     "librosa==0.10.2.post1",
     "soundfile==0.12.1",
-    "pywin32==306; sys_platform=='win32'",
+    "pywin32==307; sys_platform=='win32'",
 ]
 requires-python = ">=3.10"
 authors = [{"name"="adosikas"}]
