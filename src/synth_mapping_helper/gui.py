@@ -105,7 +105,7 @@ def entrypoint():
                 ui.button(icon="dark_mode", on_click=dark.enable).bind_visibility_from(dark, "value", backward=lambda v: v is not True).props('text-color=white')
                 ui.button(icon="light_mode", on_click=dark.disable).bind_visibility_from(dark, "value", backward=lambda v: v is not False).props('text-color=white')
 
-            with ui.button(icon="question_mark", color="white", on_click=lambda _:ui.open(wiki_base, new_tab=True)).props("text-color=primary"):
+            with ui.button(icon="question_mark", color="white", on_click=lambda _:navigate.to(wiki_base, new_tab=True)).props("text-color=primary"):
                 ui.tooltip("Open wiki")
             with ui.button(icon="close", color="red", on_click=stop) as close_button:
                 ui.tooltip("Quit")

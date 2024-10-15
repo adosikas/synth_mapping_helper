@@ -173,7 +173,7 @@ def wiki_reference(page: str, invert_colors: bool = False) -> ui.badge:
     if invert_colors:
         b.props("color=white text-color=primary")
     # .stop to stop event bubbling up to containers (ie button or switch)
-    b.on("click.stop", lambda _ : ui.open(f"{wiki_base}/{page}", new_tab=True))
+    b.on("click.stop", lambda _ : ui.navigate.to(f"{wiki_base}/{page}", new_tab=True))
     with b:
         ui.tooltip(f"Open wiki: {page}")
     return b
