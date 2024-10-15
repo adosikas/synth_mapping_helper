@@ -417,9 +417,9 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
             spiral_start = make_input("Start", 0, "spiral_start", suffix="°", tooltip="Angle of first node: 0=right, 90=up, 180=left, 270/-90=down")
             spiral_radius = make_input("Radius", 1, "spiral_radius", suffix="sq", tooltip="Radius of spiral / Length of spikes")
         with ui.row():
-            with ui.switch("Interpolate", value=True).classes("w-28").bind_value(app.storage.user, "spiral_do_interpolate") as spiral_do_interpolate:
+            with ui.switch("Interpolate", value=True).classes("w-28").bind_value(app.storage.user, "dashboard_spiral_do_interpolate") as spiral_do_interpolate:
                 ui.tooltip("Interpolate rail before adding spiral/spikes. Enable this for consistent spacing.")
-            spiral_interpolation = make_input("Interval", "1/16", "spiral_interpolation", suffix="b", tooltip="Distance between rail nodes").bind_enabled(spiral_do_interpolate, "value")
+            spiral_interpolation = make_input("Interval", "1/16", "spiral_interpolation", suffix="b", tooltip="Time between spiral nodes/spikes").bind_enabled(spiral_do_interpolate, "value")
         with ui.label("Spiral"):
             wiki_reference("Rail-Options#spiral")
         with ui.row():
@@ -457,7 +457,7 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
             @handle_errors
             def _add_spikes(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1) -> "numpy array (n, 3)":
                 if spiral_do_interpolate.value:
-                    nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolate_interval.parsed_value)
+                    nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
                 return pattern_generation.add_spikes(
                     nodes,
                     fidelity=fid_dir*360*_safe_inverse(spiral_angle.parsed_value),

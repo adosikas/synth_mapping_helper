@@ -20,6 +20,12 @@ NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "orang
 
 WARNING_MAX = 100  # Tab stops working if there are too many
 
+def _in_slot(func, slot):
+    def _handler():
+        with slot:
+            return func()
+    return _handler
+
 def _file_utils_tab() -> None:
     @dataclasses.dataclass
     class FileInfo:
@@ -782,8 +788,10 @@ def _file_utils_tab() -> None:
                         )
                         any_acc = True
             if warnings is not None:
+                warning_types = self.storage.get("fileutils_warnings_types")
+                warnings = [w for w in warning_types if w.type in warning_types]
                 if len(warnings) > WARNING_MAX:
-                    ui.label(f"Too many warnings, marking first {WARNING_MAX} only. See the warnings table for the rest.")
+                    ui.label(f"Too many warnings ({len(warnings)}), marking first {WARNING_MAX} only. See the warnings table for the rest.")
                 for w in warnings[:WARNING_MAX]:
                     color = NOTE_COLORS.get(w.note_type, "black")
                     for fn, fig in zip("xy", (xfig, yfig)):
@@ -969,17 +977,14 @@ def _file_utils_tab() -> None:
                     with ui.element().classes("w-full min-h-screen"):
                         self._bpm_card()
                 with ui.tab_panel("hands") as hpanel:
+                    hsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_hdiff").classes("w-40")
+                    with ui.element().classes("w-full min-h-screen") as elem:
+                        self._hands_card()
                     @handle_errors
                     async def _change_hdiff(vce: events.ValueChangeEventArguments):
-                        await run.io_bound(self._hands_card.refresh)
-                    hsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_hdiff").classes("w-40")
-                    with ui.element().classes("w-full min-h-screen"):
-                        self._hands_card()
+                        await run.io_bound(_in_slot(self._hands_card.refresh, elem))
                     hsel.on_value_change(_change_hdiff)
                 with ui.tab_panel("warnings") as hpanel:
-                    @handle_errors
-                    async def _change_w(vce: events.ValueChangeEventArguments):
-                        await run.io_bound(self._warnings_card.refresh)
                     with ui.row():
                         wsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_wdiff").classes("w-40")
                         ntypesel = ui.select(
@@ -994,18 +999,21 @@ def _file_utils_tab() -> None:
                             label="Warning types",
                             multiple=True,
                         ).bind_value(app.storage.user, "fileutils_warnings_types").classes("w-auto")
-                    with ui.element().classes("w-full min-h-screen"):
+                    with ui.element().classes("w-full min-h-screen") as elem:
                         self._warnings_card()
+                    @handle_errors
+                    async def _change_w(vce: events.ValueChangeEventArguments):
+                        await run.io_bound(_in_slot(self._warnings_card.refresh, elem))
                     wsel.on_value_change(_change_w)
                     wtypesel.on_value_change(_change_w)
                     ntypesel.on_value_change(_change_w)
                 with ui.tab_panel("density") as dpanel:
+                    dsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_ddiff").classes("w-40")
+                    with ui.element().classes("w-full min-h-screen") as elem:
+                        self._density_card()
                     @handle_errors
                     async def _change_ddiff(vce: events.ValueChangeEventArguments):
-                        await run.io_bound(self._density_card.refresh)
-                    dsel = ui.select({None:"select difficulty"}|{d:d for d in synth_format.DIFFICULTIES if d in self.data.difficulties}, label="Difficulty").bind_value(app.storage.user, "fileutils_ddiff").classes("w-40")
-                    with ui.element().classes("w-full min-h-screen"):
-                        self._density_card()
+                        await run.io_bound(_in_slot(self._density_card.refresh, elem))
                     dsel.on_value_change(_change_ddiff)
         def __repr__(self) -> str:
             return type(self).__name__  # avoid spamming logs with binary data
