@@ -126,15 +126,15 @@ def _text_gen_tab() -> None:
                 letter_rotation = make_input("Angle", "-10", "letter_rotation", suffix="°")
     with ui.card():
         with ui.row():
-            with ui.expansion("Settings", icon="settings").props("dense"):
+            with ui.expansion("Preview Settings", icon="palette").props("dense"):
+                sp = SettingsPanel()
+                ui.separator()
                 with ui.row():
+                    ui.icon("preview", size="3em").tooltip("Change size and scaling of preview")
                     scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px")
                     scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
-                with ui.row():
                     time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
                     frame_length = make_input("Frame Length", "2", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
-            with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
-                sp = SettingsPanel()
             apply_button = ui.button("Apply").props("outline")
             def _soft_refresh(copy:bool = True):
                 data = synth_format.ClipboardDataContainer()

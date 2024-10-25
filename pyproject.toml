@@ -12,7 +12,7 @@ dependencies = [
     "pyperclip==1.9.0",
     "watchdog==5.0.3",
     "requests==2.32.3",
-    "nicegui==2.3.0",
+    "nicegui==2.5.0",
     "librosa==0.10.2.post1",
     "soundfile==0.12.1",
     "pywin32==308; sys_platform=='win32'",

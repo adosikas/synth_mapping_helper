@@ -434,16 +434,17 @@ def _stacking_tab() -> None:
                 ui.label("Clipboard Preview").classes("my-auto")
                 with ui.button(icon="sync", on_click=_soft_refresh, color="positive").props("outline"):
                     ui.tooltip("Preview current clipboard")
-            with ui.expansion("Settings", icon="settings").props("dense"):
-                with ui.row():
-                    scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px")
-                    scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
-                with ui.row():
-                    time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
-                    frame_length = make_input("Frame Length", "16", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
-                apply_button = ui.button("Apply").props("outline")
-            with ui.expansion("Colors & Sizes", icon="palette").props("dense"):
+            with ui.expansion("Preview Settings", icon="palette").props("dense"):
                 sp = SettingsPanel()
+                ui.separator()
+                with ui.row():
+                    ui.icon("preview", size="3em").tooltip("Change size and scaling of preview")
+                    scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px", width=20)
+                    scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px", width=20)
+                    time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time", width=20)
+                    frame_length = make_input("Frame Length", "16", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for", width=20)
+                apply_button = ui.button("Apply").props("outline")
+
         @ui.refreshable
         @handle_errors
         def draw_preview_scene():

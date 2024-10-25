@@ -44,6 +44,7 @@ class SettingsPanel(ui.element):
     def __init__(self) -> None:
         super().__init__()
         with self:
+            ui.label("Note: These settings only affect the preview.").tooltip("The game does not allow maps to override colors.")
             with ui.row():
                 self.wall_size = make_input("Wall Depth", pretty_fraction(DEFAULT_SETTINGS.wall.size), "wall_size", suffix="b")
                 ui.separator().props("vertical")

@@ -1,3 +1,4 @@
+from base64 import b64decode, b64encode
 from dataclasses import dataclass, field
 from io import BytesIO
 from time import time
@@ -11,7 +12,7 @@ import pyperclip
 import requests
 
 from .map_render import MapScene, SettingsPanel
-from .utils import GUITab, SMHInput, ParseInputError, PreventDefaultKeyboard, handle_errors, info, error, safe_clipboard_data
+from .utils import GUITab, SMHInput, PrettyError, ParseInputError, PreventDefaultKeyboard, handle_errors, info, error, safe_clipboard_data
 from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
@@ -31,10 +32,9 @@ class LargeSwitch(ui.switch):
         if tooltip is not None:
             self.tooltip(tooltip)
 
-@app.get("/image_proxy")
-def image_proxy(url:str) -> Response:
-    r = requests.get(url)
-    return Response(content=r.content)
+@ui.page("/wall_art_ref_image")
+def image_proxy() -> Response:
+    return Response(content=b64decode(app.storage.user.get("wall_art_ref_image", "")))
 
 def _wall_art_tab() -> None:
     preview_scene: MapScene|None = None
@@ -482,10 +482,52 @@ def _wall_art_tab() -> None:
                     return f"{stack_str}Symmetry: {', '.join(enabled) or 'off'}"
                 for inp in (mirror_x, mirror_y, rotsym_direction, rotate_first, turbostack):
                     inp.bind_value_to(sym_exp, "text", forward=_update_symex)
+            with ui.expansion("Reference", icon="image").props("dense"):
+                ui.tooltip("Display a reference image to align wall art.")
+                refimg_url = ui.input("Reference Image URL").props("dense").classes("w-full").bind_value(app.storage.user, "wall_art_ref_image_url").tooltip("Direct URL to image file. Press the download button below to download.")
+                with ui.row():
+                    def _clear_image() -> None:
+                        app.storage.user["wall_art_ref_image"] = ""
+                        ui.notify("Reference image cleared. Click APPLY to apply.", type="positive")
+                    ui.button(icon="clear", on_click=_clear_image, color="negative").props("outline").tooltip("Clear image data").classes("w-10")
+                    @handle_errors
+                    def _download_image() -> None:
+                        url = refimg_url.value
+                        if not url:
+                            raise PrettyError(msg="Set an URL above")
+                        else:
+                            try:
+                                r = requests.get(url)
+                                r.raise_for_status()
+                            except requests.RequestException as req_exc:
+                                raise PrettyError(msg="Downloading image failed", exc=req_exc, data=url) from req_exc
+                            data = r.content
+                            app.storage.user["wall_art_ref_image"] = b64encode(data).decode()
+                            ui.notify(f"Downloaded reference image ({len(data)/1024:.1f} KiB). Click APPLY to apply.", type="positive")
+                    ui.button(icon="cloud_download", on_click=_download_image, color="positive").props("outline").tooltip("Download image from URL").classes("w-10")
+                    def _upload_image(e: events.UploadEventArguments) -> None:
+                        upl: ui.upload = e.sender  # type:ignore
+                        upl.reset()
+                        data = e.content.read()
+                        app.storage.user["wall_art_ref_image"] = b64encode(data).decode()
+                        ui.notify(f"Uploaded reference image ({len(data)/1024:.1f} KiB). Click APPLY to apply.", type="positive")
+                    refimg_upload = ui.upload(label="Upload File", multiple=True, auto_upload=True, on_upload=_upload_image).props('outline color="positive" accept="image/*"').classes("w-28")
+                    with refimg_upload.add_slot("list"):
+                        pass
+                with ui.row():
+                    refimg_width = make_input("Width", "16", "ref_width", suffix="sq", tooltip="Width of the reference image in sq")
+                    refimg_height = make_input("Height", "12", "height", suffix="sq", tooltip="Height of the reference image in sq")
+                    refimg_opacity = make_input("Opacity", "0.5", "ref_opacity", tooltip="Opacity of the image (0-1). 1=completely opaque, 0=completely transparent")
+                with ui.row():
+                    refimg_x = make_input("X", "0", "ref_x", suffix="sq", tooltip="Center X of the reference image in sq")
+                    refimg_y = make_input("Y", "0", "ref_y", suffix="sq", tooltip="Center Y of the reference image in sq")
+                    refimg_t = make_input("Time", "1/4", "ref_time", suffix="b", tooltip="Time of the reference image in beats")
+                refimg_apply_button = ui.button("Apply").props("outline")
             with ui.expansion("Preview setttings", icon="palette").props("dense"):
                 sp = SettingsPanel()
                 ui.separator()
                 with ui.row():
+                    ui.icon("highlight_alt", size="3em").tooltip("Appearance of selected walls")
                     move_color = ui.color_input("Move", value="#888888", preview=True).props("dense").classes("w-28").bind_value(app.storage.user, "wall_art_move_color")
                     move_color.button.style("color: black")
                     move_opacity = make_input("Opacity", "0.5", "move_opacity")
@@ -494,26 +536,18 @@ def _wall_art_tab() -> None:
                     copy_opacity = make_input("Opacity", "0.5", "copy_opacity")
                 ui.separator()
                 with ui.row():
+                    ui.icon("preview", size="3em").tooltip("Change size and scaling of preview")
                     scene_width = make_input("Width", "800", "width", tab_id="preview", suffix="px", tooltip="Width of the preview in px")
                     scene_height = make_input("Height", "600", "height", tab_id="preview", suffix="px", tooltip="Height of the preview in px")
                     time_scale = make_input("Time Scale", "64", "time_scale", tab_id="preview", tooltip="Ratio between XY and time")
                     frame_length = make_input("Frame Length", "2", "frame_length", tab_id="preview", suffix="b", tooltip="Number of beats to draw frames for")
-                with ui.row():
-                    cam_distance = make_input("Camera Distance", "1", "cam_distance", tab_id="preview", suffix="b", tooltip="Default camera distance")
-                    cam_height = make_input("Camera Height", "2", "cam_height", tab_id="preview", suffix="sq", tooltip="Default camera height")
                 ui.separator()
-                with ui.element():
-                    ui.tooltip("Display a reference image to align wall art. A low time scale (e.g. 1) is recommended to avoid distortion due to perspective, but may cause display issues.")
-                    refimg_url = ui.input("Reference Image URL").props("dense").classes("w-full").bind_value(app.storage.user, "wall_art_ref_url")
-                    with ui.row():
-                        refimg_width = make_input("Width", "16", "ref_width", suffix="sq", tooltip="Width of the reference image in sq")
-                        refimg_height = make_input("Height", "12", "height", suffix="sq", tooltip="Height of the reference image in sq")
-                        refimg_opacity = make_input("Opacity", "0.1", "ref_opacity")
-                    with ui.row():
-                        refimg_x = make_input("X", "0", "ref_x", suffix="sq", tooltip="Center X of the reference image in sq")
-                        refimg_y = make_input("Y", "0", "ref_y", suffix="sq", tooltip="Center Y of the reference image in sq")
-                        refimg_t = make_input("Time", "1/4", "ref_time", suffix="b", tooltip="Time of the reference image in beats")
-                apply_button = ui.button("Apply").props("outline")
+                with ui.row():
+                    ui.icon("camera_indoor", size="3em").tooltip("Change home position of camera")
+                    cam_height = make_input("Cam Height", "2", "cam_height", tab_id="preview", suffix="sq", tooltip="Default camera height")
+                    cam_time = make_input("Cam Time", "1/2", "cam_time", tab_id="preview", suffix="b", tooltip="Default camera time center")
+                    cam_distance = make_input("Cam Distance", "1", "cam_distance", tab_id="preview", suffix="b", tooltip="Default camera distance from center")
+                preview_apply_button = ui.button("Apply").props("outline")
         def _find_free_slot(t: float) -> float:
             while t in walls:
                 t = np.round(t/time_step.parsed_value + 1)*time_step.parsed_value
@@ -556,6 +590,7 @@ def _wall_art_tab() -> None:
             preview_settings = sp.parse_settings()
             if preview_scene is None:
                 draw_preview_scene.refresh()
+                _reset_camera()
             if refimg_obj is not None:
                 refimg_obj.delete()
                 refimg_obj = None
@@ -565,7 +600,9 @@ def _wall_art_tab() -> None:
                         coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
                         pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
                         opacity = refimg_opacity.parsed_value
-                        refimg_obj = preview_scene.texture(f"/image_proxy?url={refimg_url.value}",coords.tolist()).move(*pos).material(opacity=opacity)
+                        if app.storage.user.get("wall_art_ref_image"):
+                            # add parameter to bypass cache
+                            refimg_obj = preview_scene.texture(f"/wall_art_ref_image?nocache={time()}", coords.tolist()).move(*pos).material(opacity=opacity)
                 wall_data = synth_format.DataContainer(walls=walls)
                 preview_scene.render(wall_data, preview_settings)
 
@@ -574,8 +611,8 @@ def _wall_art_tab() -> None:
             if preview_scene is None:
                 return
             preview_scene.move_camera(
-                0, -cam_distance.parsed_value*time_scale.parsed_value, cam_height.parsed_value,
-                0,0,0,
+                0, (cam_time.parsed_value-cam_distance.parsed_value)*time_scale.parsed_value, cam_height.parsed_value,
+                0, cam_time.parsed_value*time_scale.parsed_value, cam_height.parsed_value,
                 duration=0,
             )
 
@@ -819,8 +856,9 @@ def _wall_art_tab() -> None:
                             </svg>
                         '''
                         ui.html(content)
-            
-        apply_button.on("click", draw_preview_scene.refresh)
+
+        refimg_apply_button.on("click", draw_preview_scene.refresh)
+        preview_apply_button.on("click", draw_preview_scene.refresh)
 
 wall_art_tab = GUITab(
     name="wall_art",
