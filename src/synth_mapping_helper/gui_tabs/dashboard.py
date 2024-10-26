@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any, Callable, Optional, List
 
 import numpy as np
@@ -176,50 +177,67 @@ def flatten_mirror_card(action_btn_cls: Any) -> None:
             )
         ui.separator()
         ui.label("Mirror").tooltip("Just scaling, but with -1")
-        with ui.grid(columns=3):
+        with ui.row():
+            def _do_mirror_axis(data: synth_format.DataContainer, axis: int, **kwargs):
+                # work on copy when stacking, else directly on data
+                tmp = data.filtered() if mirror_do_stack.value else data
+                scale_3d = np.ones((3,))
+                scale_3d[axis] = -1
+                tmp.apply_for_all(movement.scale, scale_3d=scale_3d, **kwargs)
+                if mirror_do_stack.value:
+                    interval = mirror_stack_interval.parsed_value
+                    if axis != 2 and not interval:
+                        raise PrettyError("Stacked copy with interval 0 would just override input.")
+                    tmp.apply_for_all(movement.offset, [0,0,interval])
+                    data.merge(tmp)
             action_btn_cls(
                 tooltip="Mirror X (left<->right)",
                 icon="align_horizontal_center",
-                apply_func=movement.scale, 
-                apply_args=dict(scale_3d=np.array([-1,1,1])),
+                func=partial(_do_mirror_axis, axis=0),
             )
             action_btn_cls(
                 tooltip="Mirror Y (up<->down)",
                 icon="align_vertical_center",
-                apply_func=movement.scale, 
-                apply_args=dict(scale_3d=np.array([1,-1,1])),
+                func=partial(_do_mirror_axis, axis=1),
             )
             action_btn_cls(
-                tooltip="Mirror time (reverse)",
+                tooltip="Mirror time (reverse). Enabling 'Realign Start' at the top is recommended.",
                 icon="fast_rewind",
-                apply_func=movement.scale, 
-                apply_args=dict(scale_3d=np.array([1,1,-1])),
+                func=partial(_do_mirror_axis, axis=2),
             )
-        ui.separator()
-        with ui.grid(columns=3):
-            mirror_angle = make_input("Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0=-, ±90=|, +45=/, -45=\\")
-            def _do_mirror(data: synth_format.DataContainer, **kwargs):
+        with ui.row():
+            mirror_angle = make_input("Custom Mirror Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0: -- ±90: | +45: / -45: \\", width=28)
+            def _do_mirror_custom(data: synth_format.DataContainer, **kwargs):
                     # work on copy when stacking, else directly on data
-                    tmp = data.filtered() if mirror_stack.parsed_value else data
+                    tmp = data.filtered() if mirror_do_stack.value else data
                     # subtract rotation, mirror, add back rotation
                     tmp.apply_for_all(movement.rotate, angle=-mirror_angle.parsed_value, **kwargs)
                     tmp.apply_for_all(movement.scale, scale_3d=np.array([1,-1,1]), **kwargs)
                     tmp.apply_for_all(movement.rotate, angle=mirror_angle.parsed_value, **kwargs)
-                    if mirror_stack.parsed_value:
-                        tmp.apply_for_all(movement.offset, [0,0,mirror_stack.parsed_value])
+                    if mirror_do_stack.value:
+                        tmp.apply_for_all(movement.offset, [0,0,mirror_stack_interval.parsed_value])
                         data.merge(tmp)
-                        
-            with action_btn_cls(
-                tooltip="Mirror with custom angle. Depending on coordinate mode, the mirror line passes through grid center, object center or pivot",
+            custom_mirror_btn = action_btn_cls(
+                tooltip="",
                 icon=None,
-                func=_do_mirror,
-            ).add_slot("default"):
-                mirror_icon = ui.icon("flip").style(f"rotate: {90-mirror_angle.parsed_value}deg")
+                func=_do_mirror_custom,
+            )
             @handle_errors
             def _rotate_mirror_icon() -> None:
-                mirror_icon.style(f"rotate: {90-mirror_angle.parsed_value}deg")
+                try:
+                    ang = mirror_angle.parsed_value
+                except ParseInputError:
+                    ang = 0
+                mirror_icon.style(f"rotate: {90-ang}deg")
+            with custom_mirror_btn.add_slot("default"):
+                ui.tooltip("Mirror with custom angle. Depending on coordinate mode, the mirror line passes through grid center, object center or pivot")
+                mirror_icon = ui.icon("flip")
+                _rotate_mirror_icon()
             mirror_angle.on_value_change(_rotate_mirror_icon)
-            mirror_stack = make_input("Stack time", 0, "mirror_stack", suffix="b", tooltip="Instead of just mirroring, stack a mirrored copy onto the input using this as interval. 0=disabled.")
+        with ui.row():
+            with ui.switch("Stacking", value=False).props('size="xs"').classes("w-28 my-auto").bind_value(app.storage.user, "dashboard_mirror_do_stack") as mirror_do_stack:
+                ui.tooltip("Instead of simply mirroring the input, stack the mirrored copy behind it.")
+            mirror_stack_interval = make_input("Interval", 0, "mirror_stack_interval", suffix="b", tooltip="Interval for stacked copy. When reversing time, this should either be 0 (to mirror across cursor) or double the pattern length (to mirror from back).").bind_enabled_from(mirror_do_stack, "value")
 
 def rotate_outset_card(action_btn_cls: Any) -> None:
     with ui.card():
@@ -327,52 +345,76 @@ def rails_card(action_btn_cls: Any) -> None:
                 wiki_ref="Pre--and-Post-Processing-Options#merge-rails",
             )
         ui.separator()
+        with ui.switch("Start from end", value=False).props('size="xs"').classes("my-auto").bind_value(app.storage.user, "dashboard_rail_from_back") as rail_from_back:
+            ui.tooltip("Start operation from the end instead of the start, so e.g. shorten would cut from start instead of end and extending looks at previous instead of next.")
         with ui.grid(columns=3):
-            rail_interval = make_input("Interval", "1/16", "rail_interval", suffix="b", tooltip="Can be negative to start from end")
             action_btn_cls(
-                tooltip="Split rail into intervals",
+                tooltip="Split rail at time intervals",
                 icon="format_line_spacing"+"link_off",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.segment_rail, max_length=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.segment_rail, max_length=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
             )
+            rail_interval = make_input("Interval", "1/16", "rail_interval", suffix="b")
             action_btn_cls(
                 tooltip="Interpolate rail nodes",
                 icon="format_line_spacing"+"commit",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.interpolate_nodes, mode="spline", interval=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.interpolate_nodes, mode="spline", interval=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
                 wiki_ref="Rail-Options#interpolate",
             )
 
             action_btn_cls(
                 tooltip="Rail to notestack (delete rail)",
                 icon="animation",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value, keep_rail=False, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=False, types=types),
             )
             action_btn_cls(
                 tooltip="Rail to notestack (keep rail)",
                 icon="animation"+"show_chart",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value, keep_rail=True, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=True, types=types),
             )
             action_btn_cls(
-                tooltip="Shorten rail (cuts from start if negative)",
+                tooltip="Shorten rail from the end",
                 icon="content_cut",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.shorten_rail, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.shorten_rail, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
                 wiki_ref="Rail-Options#shorten-rails",
             )
 
             action_btn_cls(
                 tooltip="Extend level",
                 icon="swipe_right_alt" + "horizontal_rule",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_level, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_level, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
             )
             action_btn_cls(
                 tooltip="Extend directional / straight",
                 icon="swipe_right_alt" + "double_arrow",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_straight, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_straight, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
             )
             action_btn_cls(
                 tooltip="Extend pointing to next",
                 icon="swipe_right_alt" + "swipe_right_alt",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value, types=types),
+                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
             )
+
+def smoothing_card(action_btn_cls: Any) -> None:
+    with ui.card():
+        ui.label("Smoothing")
+        with ui.row():
+            smooth_iterations = make_input("Iterations", "3", "smooth_interations", tooltip="Number of smoothing iterations. Higher number leads to more smoothing.")
+            smooth_resistance = make_input("Resist", "1", "smooth_resistance", tooltip="Resistance of original rail against smoothing. Higher values results in smaller changes.")
+            action_btn_cls(
+                tooltip="Smooth rail nodes. Single notes coinciding with rail nodes will act as anchors.",
+                icon="switch_access_shortcut",
+                icon_angle=90,
+                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.reinterpolation_smoothing, 
+                    iterations=int(smooth_iterations.parsed_value),
+                    resistance=smooth_resistance.parsed_value,
+                    remove_anchors=smooth_remove_anchors.value,
+                    types=types,
+                ),
+            )
+        with ui.row().classes("w-full"):
+            with ui.switch("Remove anchors", value=False).props('size="xs"').classes("my-auto").bind_value(app.storage.user, "dashboard_smooth_remove_anchors") as smooth_remove_anchors:
+                ui.tooltip("Remove single notes that acted as anchors after smoothing.")
+
 
 def color_card(action_btn_cls: Any) -> None:
     with ui.card():
@@ -417,13 +459,12 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
             spiral_start = make_input("Start", 0, "spiral_start", suffix="°", tooltip="Angle of first node: 0=right, 90=up, 180=left, 270/-90=down")
             spiral_radius = make_input("Radius", 1, "spiral_radius", suffix="sq", tooltip="Radius of spiral / Length of spikes")
         with ui.row():
-            with ui.switch("Interpolate", value=True).classes("w-28").bind_value(app.storage.user, "dashboard_spiral_do_interpolate") as spiral_do_interpolate:
+            with ui.switch("Interpolate", value=True).props('size="xs"').classes("my-auto").bind_value(app.storage.user, "dashboard_spiral_do_interpolate") as spiral_do_interpolate:
                 ui.tooltip("Interpolate rail before adding spiral/spikes. Enable this for consistent spacing.")
             spiral_interpolation = make_input("Interval", "1/16", "spiral_interpolation", suffix="b", tooltip="Time between spiral nodes/spikes").bind_enabled(spiral_do_interpolate, "value")
         with ui.label("Spiral"):
             wiki_reference("Rail-Options#spiral")
         with ui.row():
-            @handle_errors
             def _add_spiral(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1) -> "numpy array (n, 3)":
                 if spiral_do_interpolate.value:
                     nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
@@ -508,6 +549,7 @@ card_funcs: list[Callable[[Any], None]] = [
     flatten_mirror_card,
     rotate_outset_card,
     rails_card,
+    smoothing_card,
     color_card,
     spiral_spike_card,
     wall_spacing_card,
@@ -563,14 +605,14 @@ def _dashboard_tab():
                 self._func = lambda data, **kwargs: data.apply_for_all(apply_func, **kwargs, **(apply_args() if callable(apply_args) else apply_args))
 
             self.classes("w-12 h-10")
-            with self:
+            with (self.add_slot("default") if icon_angle else self):
                 ui.tooltip(tooltip)
                 if wiki_ref is not None:
                     wiki_reference(wiki_ref, True).props("floating")
-            if icon_angle:
-                with self.add_slot("default"):
+                if icon_angle:
                     # create dedicated object, which can rotate independently from button
                     ui.icon(icon).style(f"rotate: {icon_angle}deg")
+                
 
         @handle_errors
         def do_action(self):

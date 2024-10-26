@@ -331,7 +331,7 @@ def extend_straight(
 
 def extend_to_next(
     notes: SINGLE_COLOR_NOTES, distance: float, *, direction: int = 1
-) -> "numpy array (n, 3)":
+) -> SINGLE_COLOR_NOTES:
     """Add a rail section at the end pointing to next note/rail. Vice-versa for negative. Turns single notes into rails."""
     if len(notes) < 2 or not distance:  # ignore when there is nothing to work with
         return notes
@@ -359,7 +359,7 @@ def extend_to_next(
 
 def segment_rail(
     notes: SINGLE_COLOR_NOTES, max_length: float, *, direction: int = 1
-) -> "numpy array (n, 3)":
+) -> SINGLE_COLOR_NOTES:
     """Segment rails into multiple range of maximum length. Can be negative to segment from end"""
     out: SINGLE_COLOR_NOTES = {}
     for time in sorted(notes):
@@ -372,4 +372,52 @@ def segment_rail(
         new_z = np.union1d(nodes[:,2], steps)
         for start in steps[:-1]:
             out[start] = interpolate_spline(nodes, new_z=new_z[np.logical_and(new_z>=start, new_z<=(start+abs(max_length)))])
+    return out
+
+def reinterpolation_smoothing(notes: SINGLE_COLOR_NOTES, iterations: int = 3, resistance: float = 1.0, remove_anchors: bool = False, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
+    # The idea here is that we alternate between which nodes get reinterpolated
+    # To constrain this, start and end of the rail, optionally all single notes act as anchors which the output must pass through
+    # Below, SNE are the anchor nodes, and _ are the nodes that get reinterpolated during the alternating A and B steps
+    # A: S_a_aN_a_E
+    # B: Sb_b_Nb_bE
+    if resistance < 0:
+        raise ValueError("Smoothing resistance must not be negative")
+    singles: SINGLE_COLOR_NOTES = {}
+    # split out rails and single notes
+    rails: list["numpy array (n, 3)"] = []
+    for time in sorted(notes):
+        if notes[time].shape[0] == 1:
+            singles[time] = notes[time]
+        else:
+            rails.append(notes[time])
+    # singles are output as usual
+    out = singles.copy()
+    for rail_nodes in rails:
+        rail_t = rail_nodes[:,2]
+        a_idx = []
+        b_idx = []
+        last_pivot = 0
+        for n, t in enumerate(rail_t):
+            # rail start and end, and singles are anchors
+            if n in (0, len(rail_t)-1) or t in singles:
+                a_idx.append(n)
+                b_idx.append(n)
+                last_pivot = n
+                if t in singles:
+                    rail_nodes[n] = singles[t][0]  # snap rail to single note
+                    if remove_anchors and t in out:
+                        del out[t]  # remove single notes that acted as anchor
+            # sort even ones in the A set (moves during B), and odd ones in the B set (moves during A)
+            elif (n - last_pivot) % 2 == 0:
+                a_idx.append(n)
+            else:
+                b_idx.append(n)
+        for i in range(iterations):
+            # interpolate nodes that are not in the A set for even iterations or B for odd
+            new = interpolate_spline(rail_nodes[a_idx if i % 2 == 0 else b_idx], rail_t)
+            # weighted average, with weight <resistance> for existing nodes and 1 for interpolated ones
+            rail_nodes = (rail_nodes*resistance + new)/(resistance + 1)
+        # output smoothed rail
+        out[rail_nodes[0,2]] = rail_nodes
+
     return out

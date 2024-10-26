@@ -789,7 +789,7 @@ def _file_utils_tab() -> None:
                         any_acc = True
             if warnings is not None:
                 warning_types = self.storage.get("fileutils_warnings_types")
-                warnings = [w for w in warning_types if w.type in warning_types]
+                warnings = [w for w in warnings if w.type in warning_types]
                 if len(warnings) > WARNING_MAX:
                     ui.label(f"Too many warnings ({len(warnings)}), marking first {WARNING_MAX} only. See the warnings table for the rest.")
                 for w in warnings[:WARNING_MAX]:
