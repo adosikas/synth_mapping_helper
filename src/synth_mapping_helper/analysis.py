@@ -150,7 +150,7 @@ def all_wall_densities(diffs: dict[str, DataContainer]) -> dict[str, dict[str, P
 
 def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
     if not notes:
-        return np.full((1,3), np.nan)
+        return np.full((1,3), np.nan), np.full((1,3), np.nan), np.full((1,3), np.nan)
     # step 1: find average positions for each time "bin", by weighted average of notes and (interpolated) rails
     data_points: dict[int, "numpy array (3,)"] = {}  # t//i: weight,x,y
     for _, nodes in sorted(notes.items()):
@@ -209,7 +209,11 @@ def hand_curve(notes: SINGLE_COLOR_NOTES, window_b: float) -> HAND_CURVE_TYPE:
     if current_curve:
         _append_section()
     # put it all together
-    return np.concatenate(out_curve), np.concatenate(out_vel), np.concatenate(out_acc)
+    return (
+        np.concatenate(out_curve),
+        np.concatenate(out_vel) if out_vel else np.full((1,3), np.nan),
+        np.concatenate(out_acc) if out_acc else np.full((1,3), np.nan)
+    )
 
 def hand_curves(data: DataContainer) -> dict[str, HAND_CURVE_TYPE]:
     return {

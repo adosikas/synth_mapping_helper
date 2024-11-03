@@ -30,6 +30,7 @@ __all__ = [
 logger = logging.getLogger("SMH-GUI")
 wiki_base = "https://github.com/adosikas/synth_mapping_helper/wiki"
 
+start_time = datetime.datetime.now(datetime.timezone.utc)
 last_errors: list[tuple[str, Exception|None, Any, Any, datetime.datetime]] = []
 
 @dataclass
@@ -131,9 +132,11 @@ class PrettyJSONResponse(Response):
 
 @app.get("/error_report", response_class=PrettyJSONResponse)
 def error_report():
+    now = datetime.datetime.now(datetime.timezone.utc)
     out = {
         "version": __version__,
-        "report_time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
+        "report_time": now.strftime("%Y-%m-%dT%H-%M-%SZ"),
+        "runtime": str(datetime.timedelta(seconds=round((now-start_time).total_seconds()))),  # rounded to full seconds
         "errors": [],
     }
     for msg, exc, context, data, time in last_errors:

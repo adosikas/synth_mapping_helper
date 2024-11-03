@@ -498,9 +498,9 @@ class SynthFileMeta:
 
     def get_safe_name(self, audio_data: bytes) -> str:
         # editor tracks spectrum data by filename, so just append sha256 of content to filename
-        sha256_hash = sha256(audio_data).hexdigest()
-        # <name>_<hash:64 hexdigits>.<ext> or <name>.<ext>
-        m = re.match(r"(.*?)(?:_[0-9a-fA-F]{64})*\.([^.]*)$", self.audio_name)
+        sha256_hash = sha256(audio_data).hexdigest()[:8]
+        # <name>_<hash:8 to 64 hexdigits>.<ext> or <name>.<ext>
+        m = re.match(r"(.*?)(?:_[0-9a-fA-F]{8,64})*\.([^.]*)$", self.audio_name)
         if m:
             name, ext = m[1], m[2]
         else:  # should only happen if there is no dot in the filename
