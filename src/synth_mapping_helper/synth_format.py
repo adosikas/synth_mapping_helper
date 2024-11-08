@@ -506,7 +506,9 @@ class SynthFileMeta:
         else:  # should only happen if there is no dot in the filename
             name = self.audio_name
             ext = "ogg"
-        return f"{name}_{sha256_hash}.{ext}"
+        # cap name to 16 chars, so the filename is not longer than 16+1+8+4=29 chars
+        name = "".join(filter(str.isidentifier, name))
+        return f"{name[:16]}_{sha256_hash}.{ext}"
 
 @dataclasses.dataclass
 class SynthFile:
