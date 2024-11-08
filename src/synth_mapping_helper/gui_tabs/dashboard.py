@@ -401,19 +401,27 @@ def smoothing_card(action_btn_cls: Any) -> None:
             smooth_iterations = make_input("Iterations", "3", "smooth_interations", tooltip="Number of smoothing iterations. Higher number leads to more smoothing.")
             smooth_resistance = make_input("Resist", "1", "smooth_resistance", tooltip="Resistance of original rail against smoothing. Higher values results in smaller changes.")
             action_btn_cls(
-                tooltip="Smooth rail nodes. Single notes coinciding with rail nodes will act as anchors.",
+                tooltip="Smooth rail nodes",
                 icon="switch_access_shortcut",
                 icon_angle=90,
                 func=lambda data, types, **kwargs: data.apply_for_note_types(rails.reinterpolation_smoothing, 
                     iterations=int(smooth_iterations.parsed_value),
                     resistance=smooth_resistance.parsed_value,
-                    remove_anchors=smooth_remove_anchors.value,
+                    singles_mode=smooth_singlesmode.value,
                     types=types,
                 ),
             )
         with ui.row().classes("w-full"):
-            with ui.switch("Remove anchors", value=False).props('size="xs"').classes("my-auto").bind_value(app.storage.user, "dashboard_smooth_remove_anchors") as smooth_remove_anchors:
-                ui.tooltip("Remove single notes that acted as anchors after smoothing.")
+            smooth_singlesmode = ui.radio({"snap":"", "anchor":"", "temp_anchor":""}, value="anchor").props("dense inline").bind_value(app.storage.user, "dashboard_smooth_singlesmode")
+            with ui.teleport(f"#c{smooth_singlesmode.id} > div:nth-child(1)"):
+                ui.tooltip("Snap single notes to smoothed rail")
+                ui.icon("moving", size="sm")
+            with ui.teleport(f"#c{smooth_singlesmode.id} > div:nth-child(2)"):
+                ui.tooltip("Single notes anchor rail for smoothing")
+                ui.icon("anchor", size="sm")
+            with ui.teleport(f"#c{smooth_singlesmode.id} > div:nth-child(3)"):
+                ui.tooltip("Remove anchors notes after smoothing (if you placed them as tempoary anchors)")
+                ui.icon("delete", size="sm")
 
 
 def color_card(action_btn_cls: Any) -> None:

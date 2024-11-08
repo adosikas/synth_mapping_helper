@@ -374,7 +374,7 @@ def segment_rail(
             out[start] = interpolate_spline(nodes, new_z=new_z[np.logical_and(new_z>=start, new_z<=(start+abs(max_length)))])
     return out
 
-def reinterpolation_smoothing(notes: SINGLE_COLOR_NOTES, iterations: int = 3, resistance: float = 1.0, remove_anchors: bool = False, *, direction: int = 1) -> SINGLE_COLOR_NOTES:
+def reinterpolation_smoothing(notes: SINGLE_COLOR_NOTES, iterations: int = 3, resistance: float = 1.0, singles_mode: Literal["snap", "anchor", "temp_anchor"] = "anchor", *, direction: int = 1) -> SINGLE_COLOR_NOTES:
     # The idea here is that we alternate between which nodes get reinterpolated
     # To constrain this, start and end of the rail, optionally all single notes act as anchors which the output must pass through
     # Below, SNE are the anchor nodes, and _ are the nodes that get reinterpolated during the alternating A and B steps
@@ -390,23 +390,20 @@ def reinterpolation_smoothing(notes: SINGLE_COLOR_NOTES, iterations: int = 3, re
             singles[time] = notes[time]
         else:
             rails.append(notes[time])
-    # singles are output as usual
-    out = singles.copy()
+    out = singles.copy() if singles_mode == "anchor" else {}
     for rail_nodes in rails:
         rail_t = rail_nodes[:,2]
         a_idx = []
         b_idx = []
         last_pivot = 0
         for n, t in enumerate(rail_t):
-            # rail start and end, and singles are anchors
-            if n in (0, len(rail_t)-1) or t in singles:
+            # rail start and end, and singles are optionally anchors
+            if n in (0, len(rail_t)-1) or (singles_mode in ("anchor", "temp_anchor") and t in singles):
                 a_idx.append(n)
                 b_idx.append(n)
                 last_pivot = n
                 if t in singles:
                     rail_nodes[n] = singles[t][0]  # snap rail to single note
-                    if remove_anchors and t in out:
-                        del out[t]  # remove single notes that acted as anchor
             # sort even ones in the A set (moves during B), and odd ones in the B set (moves during A)
             elif (n - last_pivot) % 2 == 0:
                 a_idx.append(n)
@@ -420,4 +417,6 @@ def reinterpolation_smoothing(notes: SINGLE_COLOR_NOTES, iterations: int = 3, re
         # output smoothed rail
         out[rail_nodes[0,2]] = rail_nodes
 
+    if singles_mode == "snap":
+        return snap_singles_to_rail(notes = out | singles, direction=direction)
     return out
