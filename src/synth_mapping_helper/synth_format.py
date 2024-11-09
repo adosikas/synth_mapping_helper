@@ -340,6 +340,18 @@ class DataContainer:
             if wall[0, 3] == wall_type
         }
 
+    def find_first(self, types: tuple[str, ...] = ALL_TYPES) -> tuple[str, "numpy array (3+)"] | None:
+        # type, data
+        first: tuple[str, "numpy array (3+)"] | None = None
+        for t in types:
+            ty_objs = sorted(self.get_object_dict(t).items())
+            if not ty_objs:
+                continue
+            _, ty_first = ty_objs[0]
+            if first is None or ty_first[0,2] < first[1][2]:
+                first = t, ty_first[0]
+        return first
+
     def to_clipboard_json(self, realign_start: bool = True) -> str:
         clipboard: dict[str, Any] = {
             "BPM": self.bpm,
@@ -358,38 +370,42 @@ class DataContainer:
         if isinstance(self, ClipboardDataContainer) and self.original_json:
             clipboard["original_json"] = self.original_json
 
-        first = 99999.0
-        last = -99999.0
+        first = None
+        last = None
         for note_type, notes in enumerate((self.right, self.left, self.single, self.both)):
             type_notes = {}  # buffer single type to avoid multiple of the same type at the same time
             for time_index, nodes in notes.items(): 
                 type_notes[round_tick_for_json(time_index * 64)] = note_to_synth(self.bpm, note_type, nodes)
-                if nodes[0, 2] < first:
+                if first is None or nodes[0, 2] < first:
                     first = nodes[0, 2]
-                if nodes[-1, 2] > last:
+                if last is None or nodes[-1, 2] > last:
                     last = nodes[-1, 2]
             for time_tick, synth_dict in sorted(type_notes.items()):
                 clipboard["notes"].setdefault(time_tick, []).append(synth_dict)
         for _, wall in self.walls.items():
-            if wall[0, 2] < first:
+            if first is None or wall[0, 2] < first:
                 first = wall[0, 2]
-            if wall[0, 2] > last:
+            if last is None or wall[0, 2] > last:
                 last = wall[0, 2]
             dest_list, wall_dict = wall_to_synth(self.bpm, wall)
             clipboard[dest_list].append(wall_dict)
 
         for t in self.lights:
-            if t < first:
+            if first is None or t < first:
                 first = t
-            if t > last:
+            if last is None or t > last:
                 last = t
             clipboard["lights"].append(round_tick_for_json(t * 64))
         for t in self.effects:
-            if t < first:
+            if first is None or t < first:
                 first = t
-            if t > last:
+            if last is None or t > last:
                 last = t
             clipboard["effects"].append(round_tick_for_json(t * 64))
+        
+        if first is None or last is None:
+            # completely empty data
+            first = last = 0.0
 
         if realign_start:
             # position of selection start in beats*64 

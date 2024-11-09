@@ -45,19 +45,7 @@ def _clear_button(*inp: ui.input) -> ui.button:
 
 def _find_first(types: tuple[str, ...] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)"]]:
     with safe_clipboard_data(use_original=False, write=False) as d:
-        first_t: Optional[str] = None
-        first: Optional["numpy array (3+)"] = None
-        for t in types:
-            ty_objs = sorted(d.get_object_dict(t).items())
-            if not ty_objs:
-                continue
-            _, ty_first = ty_objs[0]
-            if first is None or ty_first[0,2] < first[2]:
-                first_t = t
-                first = ty_first[0]
-        if first_t is None:
-            return None
-        return first_t, first
+        return d.find_first()
 
 
 def _find_first_pair(types: tuple[str, ...] = synth_format.ALL_TYPES) -> Optional[tuple[str, "numpy array (3)", "numpy array (3)"]]:

@@ -54,6 +54,7 @@ class GUITab:
                 count += 1
                 del app.storage.user[s_id]
         logger.info(f"Deleted {count} settings for {self.label} tab")
+        ui.navigate.reload()
 
 
 class SMHInput(ui.input):

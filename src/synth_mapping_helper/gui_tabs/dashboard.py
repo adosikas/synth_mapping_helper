@@ -7,7 +7,7 @@ import pyperclip
 
 from .utils import *
 from .. import movement, pattern_generation, rails, synth_format
-from ..utils import parse_number, pretty_list
+from ..utils import parse_number, pretty_list, pretty_fraction
 
 def _safe_inverse(v: float) -> float:
     return 0.0 if v == 0 else 1/v
@@ -564,33 +564,36 @@ card_funcs: list[Callable[[Any], None]] = [
 ]
 
 def _dashboard_tab():
-    with ui.row().classes("mb-4"):
-        # with ui.card().classes("h-16"), ui.row():
-        #     with ui.label("Filter").classes("my-auto"):
-        #         wiki_reference("Miscellaneous-Options#filtering")
-        #     with ui.button(icon="filter_alt"):
-        #         ui.badge("0", color="red").props("floating")
-        #     with ui.switch("Delete other"):
-        #         wiki_reference("Pre--and-Post-Processing-Options#delete-everything-not-matching-filter")
-        with ui.card().classes("h-16"), ui.row():
-            with ui.switch("Use original", value=False).bind_value(app.storage.user, "dashboard_use_orig") as sw_use_orig:
-                ui.tooltip("Enable this to quickly try different settings without having to undo and copy the input again")
-                wiki_reference("Miscellaneous-Options#use-original-json")
-            with ui.switch("Mirror for left", value=False).bind_value(app.storage.user, "dashboard_mirror_left") as sw_mirror_left:
-                ui.tooltip("Mirrors the operations for left notes and walls, e.g. offseting right will move those left instead")
-                wiki_reference("Miscellaneous-Options#mirror-operations-for-left-hand")
-            with ui.switch("Realign start", value=False).bind_value(app.storage.user, "dashboard_realign") as sw_realign:
-                ui.tooltip("This will realign the start of the selection to the very first object AFTER the operation")
-                wiki_reference("Pre--and-Post-Processing-Options#keep-selection-alignment")
-        with ui.card().classes("h-16"), ui.row():
-            with ui.label("Coordinates").classes("my-2"):
+    with ui.row():
+        with ui.card().classes("h-14 bg-grey-9").props("dark"), ui.row():
+            sw_use_orig = ui.switch("", value=False).props('dense icon="restore" color="accent" keep-color').bind_value(app.storage.user, "dashboard_use_orig")
+            sw_use_orig.tooltip("Restore original data copied from editor, to quickly try different settings.")
+            sw_mirror_left = ui.switch("", value=False).props('dense icon="flip" color="secondary" keep-color').bind_value(app.storage.user, "dashboard_mirror_left")
+            sw_mirror_left.tooltip("Mirror operations for left notes and left walls, e.g. offseting right will move those left instead")
+            sw_realign = ui.switch("", value=True).props('dense icon="align_horizontal_left" color="orange" keep-color').bind_value(app.storage.user, "dashboard_realign")
+            sw_realign.tooltip("After completion, align the start of the selection to the very first object. Not recommended when shifting in time or shortening rails.")
+
+            ui.separator().props("vertical")
+
+            with ui.label("Coordinates"):
                 wiki_reference("Movement-Options#pivot-and-relative")
-            coordinate_mode = ui.toggle(["absolute", "relative", "pivot"], value="absolute").props('color="grey-7" rounded').bind_value(app.storage.user, "dashboard_coord_mode")
-            with ui.row() as pivot_settings:
-                pivot_x = make_input("X", 0, "pivot_x", suffix="sq")
-                pivot_y = make_input("Y", 0, "pivot_y", suffix="sq")
-                pivot_t = make_input("Time", 0, "pivot_t", suffix="b")
-                pivot_settings.bind_visibility_from(coordinate_mode, "value", backward=lambda v: v=="pivot")        
+            coordinate_mode = ui.radio({"absolute":"", "relative":"", "pivot":""}, value="absolute").props("dense inline dark").bind_value(app.storage.user, "dashboard_coord_mode")
+            with ui.teleport(f"#c{coordinate_mode.id} > div:nth-child(1)"):
+                ui.tooltip("Absolute (grid center)")
+                ui.icon("grid_4x4", size="sm")
+            with ui.teleport(f"#c{coordinate_mode.id} > div:nth-child(2)"):
+                ui.tooltip("Relative (rail head & wall angle)")
+                ui.icon("start", size="sm").classes("rotate-315")
+            with ui.teleport(f"#c{coordinate_mode.id} > div:nth-child(3)"):
+                ui.tooltip("Pivot (custom position)")
+                ui.icon("tune", size="sm")
+            with ui.row().classes("-my-2") as pivot_settings:
+                pivot_settings.bind_visibility_from(coordinate_mode, "value", backward=lambda v: v=="pivot")
+                with ui.row():
+                    ui.tooltip("Pivot position")
+                    pivot_x = make_input("X", 0, "pivot_x", suffix="sq").props("dark")
+                    pivot_y = make_input("Y", 0, "pivot_y", suffix="sq").props("dark")
+                    pivot_t = make_input("Time", 0, "pivot_t", suffix="b").props("dark")
 
     class ActionButton(ui.button):
         def __init__(self,
@@ -620,7 +623,7 @@ def _dashboard_tab():
                 if icon_angle:
                     # create dedicated object, which can rotate independently from button
                     ui.icon(icon).style(f"rotate: {icon_angle}deg")
-                
+
 
         @handle_errors
         def do_action(self):
@@ -651,6 +654,19 @@ def _dashboard_tab():
                 caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
             )
 
+    with pivot_settings:
+        def _pick_pivot(data: synth_format.DataContainer, **kwargs) -> None:
+            first = data.find_first()
+            if first is not None:
+                x, y, t = first[1][:3]
+                pivot_x.value = pretty_fraction(x)
+                pivot_y.value = pretty_fraction(y)
+                pivot_t.value = pretty_fraction(t)
+        ActionButton(
+            tooltip="Pick position of first object",
+            icon="colorize",
+            func=_pick_pivot,
+        ).props("outline").classes(replace="w-10 h-8 my-1")
 
     with ui.row():
         for card_func in card_funcs:

@@ -121,7 +121,7 @@ def entrypoint():
                         ui.label(f"Error loading {t.label} tab: {exc!r}")
                         ui.label("Consider sending me the error report, so this can be avoided in the future.")
                         ui.label("You may try reverting to the default settings below.")
-                        ui.button("Delete settings", icon="delete", color="negative", on_click=lambda: t.delete_settings())
+                        ui.button("Delete settings", icon="delete", color="negative", on_click=t.delete_settings)
 
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s [%(name)s] %(message)s',
