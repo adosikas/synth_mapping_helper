@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from functools import partial
 from typing import Any, Callable, Optional, List
 
@@ -439,25 +440,25 @@ def color_card(action_btn_cls: Any) -> None:
             tooltip="Change to left hand",
             icon="change_circle",
             func=lambda **kwargs: _change_color(new_type="left", **kwargs),
-            color="#009BAA",
+            color="cyan",
         )
         action_btn_cls(
             tooltip="Change to right hand",
             icon="change_circle",
             func=lambda **kwargs: _change_color(new_type="right", **kwargs),
-            color="#E32862",
+            color="pink",
         )
         action_btn_cls(
             tooltip="Change to single hand",
             icon="change_circle",
             func=lambda **kwargs: _change_color(new_type="single", **kwargs),
-            color="#49BB08",
+            color="green",
         )
         action_btn_cls(
             tooltip="Change to both hands",
             icon="change_circle",
             func=lambda **kwargs: _change_color(new_type="both", **kwargs),
-            color="#FB9D10",
+            color="amber",
         )
 
 def spiral_spike_card(action_btn_cls: Any) -> None:
@@ -563,16 +564,100 @@ card_funcs: list[Callable[[Any], None]] = [
     wall_spacing_card,
 ]
 
-def _dashboard_tab():
+def _dashboard_tab() -> None:
     with ui.row():
         with ui.card().classes("h-14 bg-grey-9").props("dark"), ui.row():
-            sw_use_orig = ui.switch("", value=False).props('dense icon="restore" color="accent" keep-color').bind_value(app.storage.user, "dashboard_use_orig")
+            sw_use_orig = ui.switch("", value=False).props('dense size="xl" icon="restore" color="accent" keep-color').bind_value(app.storage.user, "dashboard_use_orig")
             sw_use_orig.tooltip("Restore original data copied from editor, to quickly try different settings.")
-            sw_mirror_left = ui.switch("", value=False).props('dense icon="flip" color="secondary" keep-color').bind_value(app.storage.user, "dashboard_mirror_left")
+            sw_mirror_left = ui.switch("", value=False).props('dense size="xl" icon="flip" color="secondary" keep-color').bind_value(app.storage.user, "dashboard_mirror_left")
             sw_mirror_left.tooltip("Mirror operations for left notes and left walls, e.g. offseting right will move those left instead")
-            sw_realign = ui.switch("", value=True).props('dense icon="align_horizontal_left" color="orange" keep-color').bind_value(app.storage.user, "dashboard_realign")
+            sw_realign = ui.switch("", value=True).props('dense size="xl" icon="align_horizontal_left" color="orange" keep-color').bind_value(app.storage.user, "dashboard_realign")
             sw_realign.tooltip("After completion, align the start of the selection to the very first object. Not recommended when shifting in time or shortening rails.")
 
+            ui.separator().props("vertical")
+
+            with ui.button(icon="filter_alt", color="info").props("dense").classes("w-10 h-8 -my-1"):
+                ui.tooltip("Open filter settings")
+                filter_types: dict[str, bool] = app.storage.user.get("dashboard_filter", {ty: True for ty in synth_format.ALL_TYPES})
+
+                filter_badge = ui.badge(str(sum(filter_types.values())), color="green").props("floating")
+                def _bdg_color(invert_filter: bool) -> None:
+                    filter_badge.props(f'color="{"red" if invert_filter else "green"}"')
+
+                filter_chk: dict[str, ui.checkbox] = {}
+                filter_cats: dict[str, ui.checkbox] = {}
+                ty_lookup = {"notes": synth_format.NOTE_TYPES, "walls": synth_format.WALL_TYPES, "effects": ("lights", "effects")}
+
+                _chk_update = False
+                @contextmanager
+                def _chk_change():
+                    nonlocal _chk_update
+                    if _chk_update:
+                        yield True
+                    else:
+                        _chk_update = True
+                        yield False
+                        _chk_update = False
+                    filter_badge.set_text(str(sum(filter_types.values())))
+
+                def _cat_change(ev: events.ValueChangeEventArguments) -> None:
+                    with _chk_change() as recurse:
+                        if recurse:
+                            return
+                        for g, chk in filter_cats.items():
+                            if chk != ev.sender:
+                                continue
+                            for ty in ty_lookup[g]:
+                                filter_chk[ty].set_value(ev.value)
+
+                def _ty_change(group: str) -> None:
+                    with _chk_change() as recurse:
+                        if recurse:
+                            return
+                        vals = [filter_chk[ty].value for ty in ty_lookup[group]]
+                        if all(val == True for val in vals):
+                            filter_cats[group].set_value(True)
+                        elif all(val == False for val in vals):
+                            filter_cats[group].set_value(False)
+                        else:
+                            filter_cats[group].set_value(None)
+
+                with ui.menu():
+                    with ui.row().classes("p-2 bg-grey-9").props("dark"):
+                        filter_invert = ui.switch("Invert", value=False).props('dense icon="flaky" color="black"').classes("p-2").tooltip("Invert filter (ignore selected)").bind_value(app.storage.user, "dashboard_filter_invert")
+                        filter_invert.on_value_change(lambda ev: _bdg_color(ev.value))
+                        _bdg_color(filter_invert.value)
+                    with ui.row().classes("p-2"):
+                        filter_cats["notes"] = ui.checkbox(text="Notes", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all notes")
+                        ui.separator().props("vertical").classes("m-0 p-0")
+                        filter_chk["left"] = ui.checkbox(value=True).props('dense color="cyan" keep-color').tooltip("Left notes/rails")
+                        filter_chk["right"] = ui.checkbox(value=True).props('dense color="pink" keep-color').tooltip("Right notes/rails")
+                        filter_chk["single"] = ui.checkbox(value=True).props('dense color="green" keep-color').tooltip("Single handed notes/rails")
+                        filter_chk["both"] = ui.checkbox(value=True).props('dense color="amber" keep-color').tooltip("Two-handed notes/rails")
+                    with ui.row().classes("p-2 w-full"):
+                        filter_cats["walls"] = ui.checkbox(text="Walls", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all walls")
+                        ui.separator().props("vertical").classes("m-0 p-0")
+                        with ui.grid(rows=2, columns=4):
+                            filter_chk["wall_left"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="cyan"').tooltip("Left walls")
+                            filter_chk["wall_right"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="pink"').classes("rotate-180 w-5").tooltip("Right walls")
+                            filter_chk["crouch"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="green"').classes("rotate-90 w-5").tooltip("Crouch walls")
+                            filter_chk["square"] = ui.checkbox(value=True).props('dense checked-icon="check_box_outline_blank" unchecked-icon="check_box_outline_blank" color="amber"').tooltip("Square walls")
+                            
+                            filter_chk["angle_left"] = ui.checkbox(value=True).props('dense checked-icon="switch_right" unchecked-icon="switch_right" color="cyan"').tooltip("Left angled walls")
+                            filter_chk["angle_right"] = ui.checkbox(value=True).props('dense checked-icon="switch_left" unchecked-icon="switch_left" color="pink"').tooltip("Right angled walls")
+                            filter_chk["center"] = ui.checkbox(value=True).props('dense checked-icon="unfold_more_double" unchecked-icon="unfold_more_double" color="green"').tooltip("Center walls")
+                            filter_chk["triangle"] = ui.checkbox(value=True).props('dense checked-icon="change_history" unchecked-icon="change_history" color="amber"').tooltip("Triangle walls")
+                    with ui.row().classes("p-2"):
+                        filter_cats["effects"] = ui.checkbox(text="Effects", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all effects")
+                        ui.separator().props("vertical").classes("m-0 p-0")
+                        filter_chk["lights"] = ui.checkbox(value=True).props('dense checked-icon="lightbulb" unchecked-icon="lightbulb" color="yellow"').tooltip("Light effects")
+                        filter_chk["effects"] = ui.checkbox(value=True).props('dense checked-icon="bolt" unchecked-icon="bolt" color="yellow"').tooltip("Flash effects")
+                    for g, tys in ty_lookup.items():
+                        filter_cats[g].on_value_change(_cat_change)
+                        for t in tys:
+                            chk = filter_chk[t]
+                            chk.bind_value(filter_types, t)
+                            chk.on_value_change(partial(_ty_change, g))
             ui.separator().props("vertical")
 
             with ui.label("Coordinates"):
@@ -635,7 +720,7 @@ def _dashboard_tab():
                 with safe_clipboard_data(use_original=sw_use_orig.value, realign_start=sw_realign.value) as data:
                     self._func(
                         data=data,
-                        types=synth_format.ALL_TYPES,  # placeholder
+                        types=tuple(ty for ty, ty_enabled in filter_types.items() if ty_enabled != filter_invert.value),
                         mirror_left=sw_mirror_left.value,
                         relative=(coordinate_mode.value == "relative"),
                         pivot=np.array([pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value]) if (coordinate_mode.value=="pivot") else None
