@@ -161,20 +161,17 @@ def flatten_mirror_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Flatten to Y axis (X=0)",
                 icon="vertical_align_center", icon_angle=90,
-                apply_func=movement.scale, 
-                apply_args=dict(scale_3d=np.array([0,1,1])),
+                apply_func=partial(movement.scale, scale_3d=np.array([0,1,1])),
             )
             action_btn_cls(
                 tooltip="Flatten to X axis (Y=0)",
                 icon="vertical_align_center",
-                apply_func=movement.scale, 
-                apply_args=dict(scale_3d=np.array([1,0,1])),
+                apply_func=partial(movement.scale, scale_3d=np.array([1,0,1])),
             )
             action_btn_cls(
                 tooltip="Move to pivot (X=Y=0)",
                 icon="adjust",
-                apply_func=movement.scale, 
-                apply_args=dict(scale_3d=np.array([0,0,1])),
+                apply_func=partial(movement.scale, scale_3d=np.array([0,0,1])),
             )
         ui.separator()
         ui.label("Mirror").tooltip("Just scaling, but with -1")
@@ -439,25 +436,25 @@ def color_card(action_btn_cls: Any) -> None:
         action_btn_cls(
             tooltip="Change to left hand",
             icon="change_circle",
-            func=lambda **kwargs: _change_color(new_type="left", **kwargs),
+            func=partial(_change_color, new_type="left"),
             color="cyan",
         )
         action_btn_cls(
             tooltip="Change to right hand",
             icon="change_circle",
-            func=lambda **kwargs: _change_color(new_type="right", **kwargs),
+            func=partial(_change_color, new_type="right"),
             color="pink",
         )
         action_btn_cls(
             tooltip="Change to single hand",
             icon="change_circle",
-            func=lambda **kwargs: _change_color(new_type="single", **kwargs),
+            func=partial(_change_color, new_type="single"),
             color="green",
         )
         action_btn_cls(
             tooltip="Change to both hands",
             icon="change_circle",
-            func=lambda **kwargs: _change_color(new_type="both", **kwargs),
+            func=partial(_change_color, new_type="both"),
             color="amber",
         )
 
@@ -479,7 +476,7 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
                     nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
                 return pattern_generation.add_spiral(
                     nodes,
-                    fidelity=fid_dir*360*_safe_inverse(spiral_angle.parsed_value),
+                    fidelity=fid_dir*(360*_safe_inverse(spiral_angle.parsed_value) or 1),  # if angle=0, default to 1
                     radius=spiral_radius.parsed_value,
                     start_angle=spiral_start.parsed_value,
                     direction=direction,
@@ -510,7 +507,7 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
                     nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
                 return pattern_generation.add_spikes(
                     nodes,
-                    fidelity=fid_dir*360*_safe_inverse(spiral_angle.parsed_value),
+                    fidelity=fid_dir*(360*_safe_inverse(spiral_angle.parsed_value) or 1),  # if angle=0, default to 1
                     radius=spiral_radius.parsed_value,
                     spike_duration=spike_duration.parsed_value,
                     start_angle=spiral_start.parsed_value,
