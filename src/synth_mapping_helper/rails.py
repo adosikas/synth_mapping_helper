@@ -239,7 +239,8 @@ def connect_singles(notes: SINGLE_COLOR_NOTES, max_interval: float, *, direction
     return out
 
 def interpolate_nodes(
-    data: "numpy array (n, 3)", mode: Literal["spline", "hermite", "linear"], interval: float, *, direction: int = 1
+    data: "numpy array (n, 3)", mode: Literal["spline", "hermite", "linear"], interval: float, *,
+    direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,
 ) -> "numpy array (n, 3)":
     """places nodes at defined interval along the rail, interpolating between existing nodes. Can be negative to start from end."""
     if data.shape[0] == 1:  # ignore single nodes
@@ -287,7 +288,8 @@ def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: b
     return out
 
 def shorten_rail(
-    data: "numpy array (n, 3)", distance: float, *, direction: int = 1
+    data: "numpy array (n, 3)", distance: float, *,
+    direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,
 ) -> "numpy array (n, 3)":
     """Cut a bit of the end or start (if negative) of the rail"""
     if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails
@@ -306,7 +308,8 @@ def shorten_rail(
         return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
 
 def extend_level(
-    data: "numpy array (n, 3)", distance: float, *, direction: int = 1
+    data: "numpy array (n, 3)", distance: float, *,
+    direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,
 ) -> "numpy array (n, 3)":
     """Add a level rail section at the end or start (if negative). Turns single notes into rails"""
     if not distance:
@@ -317,7 +320,8 @@ def extend_level(
         return np.concatenate((data[np.newaxis,0]+[0,0,distance], data))
 
 def extend_straight(
-    data: "numpy array (n, 3)", distance: float, *, direction: int = 1
+    data: "numpy array (n, 3)", distance: float, *,
+    direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,
 ) -> "numpy array (n, 3)":
     """Add a straight rail section at the end or start (if negative) which keeps the same direction of the previous segment"""
     if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails

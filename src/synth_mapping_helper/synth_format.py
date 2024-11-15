@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 import time
-from typing import Any, Generator, Union
+from typing import Any, Generator, Literal, Union
 import zipfile
 import sys
 
@@ -228,6 +228,37 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
     return dest_list, wall_dict
 
 @dataclasses.dataclass
+class RailFilter:
+    min_len: float | None
+    max_len: float | None
+    min_spacing: float | None
+    max_spacing: float | None
+
+    def matches(self, nodes: "numpy array (n, 3)") -> bool:
+        if nodes.shape[0] == 1:
+            # single note: accept if min_len is not set or 0
+            return not self.min_len
+        l = nodes[-1,2] - nodes[0,2]
+        if self.min_len is not None and l < self.min_len:
+            return False
+        if self.max_len is not None and l > self.max_len:
+            return False
+        spacing = np.diff(nodes[:,2])
+        if self.min_spacing is not None and spacing.min() < self.min_spacing:
+            return False
+        if self.max_spacing is not None and spacing.max() > self.max_spacing:
+            return False
+        return True
+
+    def __bool__(self) -> bool:
+        return (
+            self.min_len is not None
+            or self.max_len is not None
+            or self.min_spacing is not None
+            or self.max_spacing is not None
+        )
+
+@dataclasses.dataclass
 class DataContainer:
     bpm: float = 60.0
     right: SINGLE_COLOR_NOTES = dataclasses.field(default_factory=dict)
@@ -265,18 +296,21 @@ class DataContainer:
     # Note: None of these functions are allowed to *modify* the dicts, instead they must create new dicts
     # This avoids requring deep copies for everything
 
-    def apply_for_notes(self, f, *args, types: tuple[str, ...] = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_notes(self, f, *args, types: tuple[str, ...] = NOTE_TYPES, rail_filter: RailFilter | None = None, mirror_left: bool = False, **kwargs) -> None:
         for t in NOTE_TYPES:
             if t not in types:
                 continue
             notes = getattr(self, t)
             out = {}
             for _, nodes in sorted(notes.items()):
-                out_nodes = f(nodes, *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs)
-                out[out_nodes[0, 2]] = out_nodes
+                if not rail_filter or rail_filter.matches(nodes):
+                    out_nodes = f(nodes, *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs)
+                    out[out_nodes[0, 2]] = out_nodes
+                else:
+                    out[nodes[0, 2]] = nodes
             setattr(self, str(t), out)
 
-    def apply_for_walls(self, f, *args, types: tuple[str, ...] = tuple(WALL_TYPES), mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_walls(self, f, *args, types: tuple[str, ...] = tuple(WALL_TYPES), rail_filter: RailFilter | None = None, mirror_left: bool = False, **kwargs) -> None:
         wall_types = [WALL_TYPES[t][0] for t in WALL_TYPES if t in types]
         out_walls = {}
         for time_index, wall in sorted(self.walls.items()):
@@ -287,8 +321,8 @@ class DataContainer:
                 out_walls[time_index] = wall
         self.walls = out_walls
 
-    def apply_for_all(self, f, *args, types: tuple[str, ...] = ALL_TYPES, mirror_left: bool = False, **kwargs) -> None:
-        self.apply_for_notes(f, *args, types=types, mirror_left=mirror_left, **kwargs)
+    def apply_for_all(self, f, *args, types: tuple[str, ...] = ALL_TYPES, rail_filter: RailFilter | None = None, mirror_left: bool = False, **kwargs) -> None:
+        self.apply_for_notes(f, *args, types=types, mirror_left=mirror_left, rail_filter=rail_filter, **kwargs)
         self.apply_for_walls(f, *args, types=types, mirror_left=mirror_left, **kwargs)
         for t in ("lights", "effects"):
             if t not in types:
@@ -302,24 +336,43 @@ class DataContainer:
 
 
     # used when the functions needs access to all notes and rails of a color at once
-    def apply_for_note_types(self, f, *args, types: tuple[str, ...] = NOTE_TYPES, mirror_left: bool = False, **kwargs) -> None:
+    def apply_for_note_types(self, f, *args, types: tuple[str, ...] = NOTE_TYPES, rail_filter: RailFilter | None = None, mirror_left: bool = False, **kwargs) -> None:
         for t in types:
             if t not in NOTE_TYPES:
                 continue
-            setattr(self, t, f(getattr(self, t), *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs))
+            if not rail_filter:
+                setattr(self, t, f(getattr(self, t), *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs))
+            else:
+                # sort into affected and unaffected
+                affected: SINGLE_COLOR_NOTES = {}
+                unaffected: SINGLE_COLOR_NOTES = {}
+                for ti, nodes in getattr(self, t).items():
+                    (affected if rail_filter.matches(nodes) else unaffected)[ti] = nodes
+                # output unaffected+modified (modified takes priority)
+                setattr(self, t, unaffected | f(affected, *args, direction=(-1 if mirror_left and t == "left" else 1), **kwargs))
 
-    def filtered(self, types: tuple[str, ...] = ALL_TYPES) -> "DataContainer":
-        replacement = {
-            t: getattr(self, t) if t in types else {}
-            for t in NOTE_TYPES
-        }
+    def filtered(self, types: tuple[str, ...] = ALL_TYPES, rail_filter: RailFilter | None = None) -> "DataContainer":
+        new_notes: dict[str, SINGLE_COLOR_NOTES] = {}
+        for t in NOTE_TYPES:
+            if t not in types:
+                new_notes[t] = {}
+            if not rail_filter:
+                new_notes[t] = getattr(self, t)
+            else:
+                new_notes[t] = {
+                    ti: nodes
+                    for ti, nodes in getattr(self, t).items()
+                    if rail_filter.matches(nodes)
+                }
         wall_types = [WALL_TYPES[t][0] for t in types if t in WALL_TYPES]
-        replacement["walls"] = {
+        new_walls = {
             time_index: wall
             for time_index, wall in sorted(self.walls.items())
             if wall[0, 3] in wall_types
         }
-        return dataclasses.replace(self, **replacement)
+        new_lights = {} if "lights" not in types else self.lights
+        new_effects = {} if "effects" not in types else self.effects
+        return dataclasses.replace(self, **new_notes, walls=new_walls, lights=new_lights, effects=new_effects)
         
     def merge(self, other: "DataContainer") -> None:
         for t in NOTE_TYPES:
@@ -340,11 +393,15 @@ class DataContainer:
             if wall[0, 3] == wall_type
         }
 
-    def find_first(self, types: tuple[str, ...] = ALL_TYPES) -> tuple[str, "numpy array (3+)"] | None:
+    def find_first(self, types: tuple[str, ...] = ALL_TYPES, rail_filter: RailFilter | None = None) -> tuple[str, "numpy array (3+)"] | None:
         # type, data
         first: tuple[str, "numpy array (3+)"] | None = None
         for t in types:
-            ty_objs = sorted(self.get_object_dict(t).items())
+            if t not in NOTE_TYPES or not rail_filter:
+                # rail filter only affects note types
+                ty_objs = sorted(self.get_object_dict(t).items())
+            else:
+                ty_objs = sorted((ti, nodes) for ti, nodes in self.get_object_dict(t).items() if rail_filter.matches(nodes))
             if not ty_objs:
                 continue
             _, ty_first = ty_objs[0]

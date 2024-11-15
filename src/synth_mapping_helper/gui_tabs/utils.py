@@ -62,6 +62,7 @@ class SMHInput(ui.input):
         storage_id: Optional[str],
         label: str,
         default_value: str|float,
+        allow_empty: bool = False,
         tooltip: Optional[str] = None,
         suffix: Optional[str] = None,
         negate_icons: dict[int, str]|None = None,
@@ -70,6 +71,7 @@ class SMHInput(ui.input):
         height: int = 10,
         **input_kwargs: Any,
     ):
+        self.allow_empty = allow_empty
         super().__init__(label=label, value=str(default_value), validation=self._validate, **input_kwargs)
         if storage_id is not None:
             if tab_id is not None:
@@ -112,6 +114,8 @@ class SMHInput(ui.input):
             ui.element().style("visiblity: hidden")
 
     def _validate(self, value: Any) -> None|str:
+        if self.allow_empty and not value:
+            return None
         try:
             v = utils.parse_number(value)
             return None
@@ -119,7 +123,9 @@ class SMHInput(ui.input):
             return ""
 
     @property
-    def parsed_value(self) -> float:
+    def parsed_value(self) -> float | None:
+        if self.allow_empty and not self.value:
+            return None
         try:
             return utils.parse_number(self.value)
         except ValueError as ve:

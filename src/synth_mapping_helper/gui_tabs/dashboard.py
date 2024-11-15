@@ -22,13 +22,22 @@ def _safe_parse_number(v: Any) -> float:
 def _swap_hands(data: synth_format.DataContainer, **kwargs) -> None:
     data.left, data.right = data.right, data.left
 
-def _change_color(data: synth_format.DataContainer, types: List[str], new_type: str, **kwargs) -> None:
+def _change_color(data: synth_format.DataContainer, types: List[str], rail_filter: synth_format.RailFilter|None, new_type: str, **kwargs) -> None:
     # to single type: just merge all dicts
     changed: synth_format.SINGLE_COLOR_NOTES = {}
     for t in types:
         if t in synth_format.NOTE_TYPES and t != new_type:
-            changed |= getattr(data, t)
-            setattr(data, t, {})
+            if not rail_filter:
+                changed |= getattr(data, t)
+                setattr(data, t, {})
+            else:
+                unchanged = {}
+                for ti, nodes in getattr(data, t).items():
+                    if rail_filter.matches(nodes):
+                        changed[ti] = nodes
+                    else:
+                        unchanged[ti] = nodes
+                setattr(data, t, unchanged)
     # existing notes always have priority
     setattr(data, new_type, changed | getattr(data, new_type))
 
@@ -282,14 +291,14 @@ def rotate_outset_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Create parallel crossovers",
                 icon="shuffle",
-                func=lambda data, **kwargs: pattern_generation.create_parallel(data, -parallel_distance.parsed_value),
+                func=lambda data, types, rail_filter, **kwargs: pattern_generation.create_parallel(data, distance=-parallel_distance.parsed_value, types=types, rail_filter=rail_filter),
                 color="secondary",
             )
             parallel_distance = make_input("Spacing", 2, "parallel", suffix="sq")
             action_btn_cls(
                 tooltip="Create parallel pattern",
                 icon="stacked_line_chart",
-                func=lambda data, **kwargs: pattern_generation.create_parallel(data, parallel_distance.parsed_value),
+                func=lambda data, types, rail_filter, **kwargs: pattern_generation.create_parallel(data, distance=parallel_distance.parsed_value, types=types, rail_filter=rail_filter),
             )
 
 def rails_card(action_btn_cls: Any) -> None:
@@ -299,32 +308,32 @@ def rails_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Merge sequential rails",
                 icon="link",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.merge_sequential_rails, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.merge_sequential_rails, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#merge-rails",
             )
             action_btn_cls(
                 tooltip="Split rails at single notes",
                 icon="link_off",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.split_rails, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.split_rails, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#split-rails",
             )
             action_btn_cls(
                 tooltip="Snap notes to rail",
                 icon="insights",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.snap_singles_to_rail, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.snap_singles_to_rail, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#snap-single-notes-to-rails",
             )
 
             action_btn_cls(
                 tooltip="Rail nodes to notes (delete rail)",
                 icon="more_vert",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_singles, keep_rail=False, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.rails_to_singles, keep_rail=False, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#convert-rails-into-single-notes",
             )
             action_btn_cls(
                 tooltip="Rail nodes to notes (keep rail)",
                 icon="more_vert"+"show_chart",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_singles, keep_rail=True, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.rails_to_singles, keep_rail=True, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#convert-rails-into-single-notes",
             )
         ui.separator()
@@ -333,13 +342,13 @@ def rails_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Connect notes",
                 icon="linear_scale", icon_angle=90,
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.connect_singles, max_interval=rail_distance.parsed_value, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.connect_singles, max_interval=rail_distance.parsed_value, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#connect-single-notes-into-rails",
             )
             action_btn_cls(
                 tooltip="Connect rails",
                 icon="add_link",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.merge_rails, max_interval=rail_distance.parsed_value, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.merge_rails, max_interval=rail_distance.parsed_value, types=types, rail_filter=rail_filter),
                 wiki_ref="Pre--and-Post-Processing-Options#merge-rails",
             )
         ui.separator()
@@ -349,47 +358,51 @@ def rails_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Split rail at time intervals",
                 icon="format_line_spacing"+"link_off",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.segment_rail, max_length=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.segment_rail, max_length=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types, rail_filter=rail_filter),
             )
             rail_interval = make_input("Interval", "1/16", "rail_interval", suffix="b")
             action_btn_cls(
                 tooltip="Interpolate rail nodes",
                 icon="format_line_spacing"+"commit",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.interpolate_nodes, mode="spline", interval=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
+                apply_func=partial(rails.interpolate_nodes, mode="spline"),
+                apply_args=lambda: dict(interval=rail_interval.parsed_value*(1-rail_from_back.value*2)),
                 wiki_ref="Rail-Options#interpolate",
             )
 
             action_btn_cls(
                 tooltip="Rail to notestack (delete rail)",
                 icon="animation",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=False, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=False, types=types, rail_filter=rail_filter),
             )
             action_btn_cls(
                 tooltip="Rail to notestack (keep rail)",
                 icon="animation"+"show_chart",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=True, types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=True, types=types, rail_filter=rail_filter),
             )
             action_btn_cls(
                 tooltip="Shorten rail from the end",
                 icon="content_cut",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.shorten_rail, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
+                apply_func=rails.shorten_rail,
+                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
                 wiki_ref="Rail-Options#shorten-rails",
             )
 
             action_btn_cls(
                 tooltip="Extend level",
                 icon="swipe_right_alt" + "horizontal_rule",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_level, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
+                apply_func=rails.extend_level,
+                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
             action_btn_cls(
                 tooltip="Extend directional / straight",
                 icon="swipe_right_alt" + "double_arrow",
-                func=lambda data, types, **kwargs: data.apply_for_notes(rails.extend_straight, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
+                apply_func=rails.extend_straight,
+                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
             action_btn_cls(
                 tooltip="Extend pointing to next",
                 icon="swipe_right_alt" + "swipe_right_alt",
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types),
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types, rail_filter=rail_filter),
             )
 
 def smoothing_card(action_btn_cls: Any) -> None:
@@ -402,11 +415,12 @@ def smoothing_card(action_btn_cls: Any) -> None:
                 tooltip="Smooth rail nodes",
                 icon="switch_access_shortcut",
                 icon_angle=90,
-                func=lambda data, types, **kwargs: data.apply_for_note_types(rails.reinterpolation_smoothing, 
+                func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.reinterpolation_smoothing, 
                     iterations=int(smooth_iterations.parsed_value),
                     resistance=smooth_resistance.parsed_value,
                     singles_mode=smooth_singlesmode.value,
                     types=types,
+                    rail_filter=rail_filter,
                 ),
             )
         with ui.row().classes("w-full"):
@@ -428,7 +442,7 @@ def color_card(action_btn_cls: Any) -> None:
             wiki_reference("Pre--and-Post-Processing-Options#change-note-type")
 
         action_btn_cls(
-            tooltip="Swap Hands",
+            tooltip="Swap Hands (ignores filters)",
             icon="swap_horizontal_circle",
             func=_swap_hands,
             wiki_ref="Pre--and-Post-Processing-Options#swap-hands",
@@ -471,7 +485,7 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
         with ui.label("Spiral"):
             wiki_reference("Rail-Options#spiral")
         with ui.row():
-            def _add_spiral(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1) -> "numpy array (n, 3)":
+            def _add_spiral(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,) -> "numpy array (n, 3)":
                 if spiral_do_interpolate.value:
                     nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
                 return pattern_generation.add_spiral(
@@ -484,17 +498,17 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Spiral (counter-clockwise)",
                 icon="rotate_left",
-                func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fid_dir=1, types=types, mirror_left=mirror_left),
+                apply_func=partial(_add_spiral, fid_dir=1),
             ).props("rounded")
             action_btn_cls(
                 tooltip="Spiral (clockwise)",
                 icon="rotate_right",
-                func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fid_dir=-1, types=types, mirror_left=mirror_left),
+                apply_func=partial(_add_spiral, fid_dir=-1),
             ).props("rounded")
             action_btn_cls(
                 tooltip="Random nodes",
                 icon="casino",
-                func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spiral, fid_dir=0, types=types, mirror_left=mirror_left),
+                apply_func=partial(_add_spiral, fid_dir=0),
             ).props("rounded outline")
         with ui.row():
             with ui.label("Spikes"):
@@ -502,7 +516,7 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
             spike_duration = make_input("Duration", 0, "spike_duration", suffix="b", tooltip="Duration of spikes.")
         with ui.row():
             @handle_errors
-            def _add_spikes(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1) -> "numpy array (n, 3)":
+            def _add_spikes(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,) -> "numpy array (n, 3)":
                 if spiral_do_interpolate.value:
                     nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
                 return pattern_generation.add_spikes(
@@ -516,17 +530,17 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
             action_btn_cls(
                 tooltip="Spikes (counter-clockwise)",
                 icon="rotate_left",
-                func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fid_dir=1, types=types, mirror_left=mirror_left),
+                apply_func=partial(_add_spikes, fid_dir=1),
             ).props("square")
             action_btn_cls(
                 tooltip="Spikes (clockwise)",
                 icon="rotate_right",
-                func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fid_dir=-1, types=types, mirror_left=mirror_left),
+                apply_func=partial(_add_spikes, fid_dir=-1),
             ).props("square")
             action_btn_cls(
                 tooltip="Spikes (random)",
                 icon="casino",
-                func=lambda data, types, mirror_left, **kwargs: data.apply_for_notes(_add_spikes, fid_dir=0, types=types, mirror_left=mirror_left),
+                apply_func=partial(_add_spikes, fid_dir=0),
             ).props("square")
 
 def wall_spacing_card(action_btn_cls: Any) -> None:
@@ -535,7 +549,7 @@ def wall_spacing_card(action_btn_cls: Any) -> None:
         with ui.row():
             compress_interval = make_input("Spacing", "1/64", "compress_interval", suffix="b", tooltip="Space between walls")
             action_btn_cls(
-                tooltip="Compress",
+                tooltip="Compress (ignores filters)",
                 icon="compress",
                 icon_angle=90,
                 func=lambda data, **kwargs: _space_walls(data, interval=compress_interval.parsed_value),
@@ -543,7 +557,7 @@ def wall_spacing_card(action_btn_cls: Any) -> None:
         with ui.row():
             wall_limit = make_input("Walls/4s", 195, "spawn_limit", tooltip="200=wireframe limit, 500=spawn limit")
             action_btn_cls(
-                tooltip="Distribute walls to configured density",
+                tooltip="Distribute walls to configured densit (ignores filters)",
                 icon="expand",
                 icon_angle=90,
                 func=lambda data, **kwargs: _space_walls(data, interval=(4*data.bpm/60)/wall_limit.parsed_value),
@@ -596,6 +610,7 @@ def _dashboard_tab() -> None:
                         yield False
                         _chk_update = False
                     filter_badge.set_text(str(sum(filter_types.values())))
+                    app.storage.user["dashboard_filter"] = filter_types
 
                 def _cat_change(ev: events.ValueChangeEventArguments) -> None:
                     with _chk_change() as recurse:
@@ -619,19 +634,19 @@ def _dashboard_tab() -> None:
                         else:
                             filter_cats[group].set_value(None)
 
-                with ui.menu():
-                    with ui.row().classes("p-2 bg-grey-9").props("dark"):
-                        filter_invert = ui.switch("Invert", value=False).props('dense icon="flaky" color="black"').classes("p-2").tooltip("Invert filter (ignore selected)").bind_value(app.storage.user, "dashboard_filter_invert")
+                with ui.menu().classes("p-2") as filter_menu:
+                    with ui.row().classes("bg-grey-9").props("dark"):
+                        filter_invert = ui.switch("Invert type", value=False).props('dense icon="flaky" color="black"').classes("p-2").tooltip("Invert type filter (ignore selected type)").bind_value(app.storage.user, "dashboard_filter_invert")
                         filter_invert.on_value_change(lambda ev: _bdg_color(ev.value))
                         _bdg_color(filter_invert.value)
-                    with ui.row().classes("p-2"):
+                    with ui.row().classes("py-2"):
                         filter_cats["notes"] = ui.checkbox(text="Notes", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all notes")
                         ui.separator().props("vertical").classes("m-0 p-0")
                         filter_chk["left"] = ui.checkbox(value=True).props('dense color="cyan" keep-color').tooltip("Left notes/rails")
                         filter_chk["right"] = ui.checkbox(value=True).props('dense color="pink" keep-color').tooltip("Right notes/rails")
                         filter_chk["single"] = ui.checkbox(value=True).props('dense color="green" keep-color').tooltip("Single handed notes/rails")
                         filter_chk["both"] = ui.checkbox(value=True).props('dense color="amber" keep-color').tooltip("Two-handed notes/rails")
-                    with ui.row().classes("p-2 w-full"):
+                    with ui.row().classes("py-2"):
                         filter_cats["walls"] = ui.checkbox(text="Walls", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all walls")
                         ui.separator().props("vertical").classes("m-0 p-0")
                         with ui.grid(rows=2, columns=4):
@@ -644,7 +659,7 @@ def _dashboard_tab() -> None:
                             filter_chk["angle_right"] = ui.checkbox(value=True).props('dense checked-icon="switch_left" unchecked-icon="switch_left" color="pink"').tooltip("Right angled walls")
                             filter_chk["center"] = ui.checkbox(value=True).props('dense checked-icon="unfold_more_double" unchecked-icon="unfold_more_double" color="green"').tooltip("Center walls")
                             filter_chk["triangle"] = ui.checkbox(value=True).props('dense checked-icon="change_history" unchecked-icon="change_history" color="amber"').tooltip("Triangle walls")
-                    with ui.row().classes("p-2"):
+                    with ui.row().classes("py-2"):
                         filter_cats["effects"] = ui.checkbox(text="Effects", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all effects")
                         ui.separator().props("vertical").classes("m-0 p-0")
                         filter_chk["lights"] = ui.checkbox(value=True).props('dense checked-icon="lightbulb" unchecked-icon="lightbulb" color="yellow"').tooltip("Light effects")
@@ -655,6 +670,26 @@ def _dashboard_tab() -> None:
                             chk = filter_chk[t]
                             chk.bind_value(filter_types, t)
                             chk.on_value_change(partial(_ty_change, g))
+                        _ty_change(g)  # update group checkbox state
+                    ui.separator()
+                    with ui.row():
+                        ui.label("Rail length").classes("my-auto w-24")
+                        ui.separator().props("vertical")
+                        filter_raillen_min = make_input("Min", "", "raillen_min", suffix="b", allow_empty=True)
+                        ui.label("to").classes("my-auto")
+                        filter_raillen_max = make_input("Max", "", "raillen_max", suffix="b", allow_empty=True)
+                        ui.tooltip("Only affect rails with this length. Single nodes count as 0-length. Leave empty to allow any. Note that some functions need single nodes to work (e.g. split rails).").props('max-width="20%"')
+                    with ui.row():
+                        ui.label("Node spacing").classes("my-auto w-24")
+                        ui.separator().props("vertical")
+                        filter_railspace_min = make_input("Min", "", "railspace_min", suffix="b", allow_empty=True)
+                        ui.label("to").classes("my-auto")
+                        filter_railspace_max = make_input("Max", "", "railspace_max", suffix="b", allow_empty=True)
+                        ui.tooltip("Only affect rails where all nodes have a time spacing between min and max. Leave empty to allow any.")
+                    def _fix_inputs() -> None:
+                        for inp in (filter_raillen_min, filter_raillen_max, filter_railspace_min, filter_railspace_max):
+                            inp.update()
+                    filter_menu.on_value_change(_fix_inputs)
             ui.separator().props("vertical")
 
             with ui.label("Coordinates"):
@@ -710,14 +745,23 @@ def _dashboard_tab() -> None:
         @handle_errors
         def do_action(self):
             settings = {
-                k.removeprefix("dashboard_"): v for k, v in app.storage.user.items()
+                k.removeprefix("dashboard_"): v
+                for k, v in app.storage.user.items()
                 if k.startswith("dashboard_")
             }
             try:
+                rail_filter = synth_format.RailFilter(
+                    min_len=filter_raillen_min.parsed_value,
+                    max_len=filter_raillen_max.parsed_value,
+                    min_spacing=filter_railspace_min.parsed_value,
+                    max_spacing=filter_railspace_max.parsed_value,
+                )
+                types = tuple(ty for ty, ty_enabled in filter_types.items() if ty_enabled != filter_invert.value)
                 with safe_clipboard_data(use_original=sw_use_orig.value, realign_start=sw_realign.value) as data:
                     self._func(
                         data=data,
-                        types=tuple(ty for ty, ty_enabled in filter_types.items() if ty_enabled != filter_invert.value),
+                        types=types,
+                        rail_filter=rail_filter or None,  # if rail-filter is false-ish (nothing set), pass None
                         mirror_left=sw_mirror_left.value,
                         relative=(coordinate_mode.value == "relative"),
                         pivot=np.array([pivot_x.parsed_value, pivot_y.parsed_value, pivot_t.parsed_value]) if (coordinate_mode.value=="pivot") else None
@@ -733,17 +777,22 @@ def _dashboard_tab() -> None:
             counts = data.get_counts()
             info(
                 f"Completed: '{self._tooltip}'",
-                caption=pretty_list([f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]),
+                caption=pretty_list(
+                    [f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]
+                    +([f"{len(types)} types filtered"]  if set(types) != set(synth_format.ALL_TYPES) else [])
+                    +(["rails filter active"] if rail_filter else [])
+                ),
             )
 
     with pivot_settings:
-        def _pick_pivot(data: synth_format.DataContainer, **kwargs) -> None:
+        def _pick_pivot(data: synth_format.DataContainer, types, rail_filter, **kwargs) -> None:
             first = data.find_first()
-            if first is not None:
-                x, y, t = first[1][:3]
-                pivot_x.value = pretty_fraction(x)
-                pivot_y.value = pretty_fraction(y)
-                pivot_t.value = pretty_fraction(t)
+            if first is None:
+                raise PrettyError("No object found matching the filter")
+            x, y, t = first[1][:3]
+            pivot_x.value = pretty_fraction(x)
+            pivot_y.value = pretty_fraction(y)
+            pivot_t.value = pretty_fraction(t)
         ActionButton(
             tooltip="Pick position of first object",
             icon="colorize",

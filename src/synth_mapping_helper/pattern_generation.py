@@ -2,7 +2,7 @@ from typing import Literal, Union
 
 import numpy as np
 
-from .synth_format import DataContainer, WALLS, WALL_LOOKUP, WALL_SYMMETRY, WALL_TYPES
+from .synth_format import RailFilter, DataContainer, WALLS, WALL_LOOKUP, WALL_SYMMETRY, WALL_TYPES, NOTE_TYPES
 from .utils import bounded_arange
 from . import movement
 
@@ -64,7 +64,7 @@ def add_spikes(nodes: "numpy array (n, 3)", fidelity: float, radius: float, spik
     ) * radius
     return nodes
 
-def create_parallel(data: DataContainer, distance: float) -> None:
+def create_parallel(data: DataContainer, distance: float, types: tuple[str, ...] = NOTE_TYPES, rail_filter: RailFilter|None=None) -> None:
     """create parallel patterns by splitting specials, or adding the other hand
     
     when splitting specials, both will be moved by half the distance left and right.
@@ -75,20 +75,22 @@ def create_parallel(data: DataContainer, distance: float) -> None:
     left_orig, right_orig = data.left, data.right  # create a backup of the input
     data.left = (
         left_orig
-        | {t: nodes - [distance,0,0] for t, nodes in sorted(right_orig.items())}  # shift over right hand by <distance>
-        | {t: nodes - [distance/2,0,0] for t, nodes in sorted(data.single.items())}  # shift over single & both by <distance>/2
-        | {t: nodes - [distance/2,0,0] for t, nodes in sorted(data.both.items())}
+        | ({} if "right" not in types else {t: nodes - [distance,0,0] for t, nodes in sorted(right_orig.items()) if not rail_filter or rail_filter.matches(nodes)})  # shift over right hand by <distance>
+        | ({} if "single" not in types else {t: nodes - [distance/2,0,0] for t, nodes in sorted(data.single.items()) if not rail_filter or rail_filter.matches(nodes)})  # shift over single & both by <distance>/2
+        | ({} if "both" not in types else {t: nodes - [distance/2,0,0] for t, nodes in sorted(data.both.items()) if not rail_filter or rail_filter.matches(nodes)})
     )
     # vice versa for right hand
     data.right = (
         right_orig 
-        | {t: nodes + [distance,0,0] for t, nodes in sorted(left_orig.items())}
-        | {t: nodes + [distance/2,0,0] for t, nodes in sorted(data.single.items())}
-        | {t: nodes + [distance/2,0,0] for t, nodes in sorted(data.both.items())}
+        | ({} if "left" not in types else {t: nodes + [distance,0,0] for t, nodes in sorted(left_orig.items()) if not rail_filter or rail_filter.matches(nodes)})
+        | ({} if "single" not in types else {t: nodes + [distance/2,0,0] for t, nodes in sorted(data.single.items()) if not rail_filter or rail_filter.matches(nodes)})
+        | ({} if "both" not in types else {t: nodes + [distance/2,0,0] for t, nodes in sorted(data.both.items()) if not rail_filter or rail_filter.matches(nodes)})
     )
-    # wipe single & both
-    data.single = {}
-    data.both = {}
+    # wipe single & both (leaving only those NOT affected)
+    if "single" in types:
+        data.single = {} if not rail_filter else {t: nodes for t, nodes in sorted(data.single.items()) if not rail_filter.matches(nodes)}
+    if "both" in types:
+        data.both = {} if not rail_filter else {t: nodes for t, nodes in sorted(data.both.items()) if not rail_filter.matches(nodes)}
 
 def find_wall_patterns(walls: WALLS) -> list[tuple[int, int, float]]:
     """try to find repeating "patterns" with identical wall type and timing, returns wall count per pattern, pattern count and pattern length for all possible candidates"""
