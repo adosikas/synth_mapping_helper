@@ -406,8 +406,8 @@ def reinterpolation_smoothing(notes: SINGLE_COLOR_NOTES, iterations: int = 3, re
                 a_idx.append(n)
                 b_idx.append(n)
                 last_pivot = n
-                if t in singles:
-                    rail_nodes[n] = singles[t][0]  # snap rail to single note
+            if (singles_mode in ("anchor", "temp_anchor") and t in singles):
+                rail_nodes[n] = singles[t][0]  # snap rail to single note
             # sort even ones in the A set (moves during B), and odd ones in the B set (moves during A)
             elif (n - last_pivot) % 2 == 0:
                 a_idx.append(n)
