@@ -229,15 +229,24 @@ def wall_to_synth(bpm: float, wall: "numpy array (1, 5)") -> tuple[str, dict]:
 
 @dataclasses.dataclass
 class RailFilter:
-    min_len: float | None
-    max_len: float | None
-    min_spacing: float | None
-    max_spacing: float | None
+    single: bool = True
+    rails: bool = True
+    min_len: float | None = None
+    max_len: float | None = None
+    min_count: int | None = None
+    max_count: int | None = None
+    min_spacing: float | None = None
+    max_spacing: float | None = None
 
     def matches(self, nodes: "numpy array (n, 3)") -> bool:
         if nodes.shape[0] == 1:
-            # single note: accept if min_len is not set or 0
-            return not self.min_len
+            return self.single
+        if not self.rails:
+            return False
+        if self.min_count is not None and nodes.shape[0] < self.min_count:
+            return False
+        if self.max_count is not None and nodes.shape[0]  > self.max_count:
+            return False
         l = nodes[-1,2] - nodes[0,2]
         if self.min_len is not None and l < self.min_len:
             return False
@@ -252,7 +261,9 @@ class RailFilter:
 
     def __bool__(self) -> bool:
         return (
-            self.min_len is not None
+            not self.single
+            or not self.rails
+            or self.min_len is not None
             or self.max_len is not None
             or self.min_spacing is not None
             or self.max_spacing is not None

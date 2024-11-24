@@ -587,7 +587,7 @@ def _dashboard_tab() -> None:
 
             ui.separator().props("vertical")
 
-            with ui.button(icon="filter_alt", color="info").props("dense").classes("w-10 h-8 -my-1"):
+            with ui.button(icon="filter_alt", color="info").props("dense").classes("w-10 h-8 -my-1") as filter_menu_btn:
                 ui.tooltip("Open filter settings")
                 filter_types: dict[str, bool] = app.storage.user.get("dashboard_filter", {ty: True for ty in synth_format.ALL_TYPES})
 
@@ -635,61 +635,81 @@ def _dashboard_tab() -> None:
                             filter_cats[group].set_value(None)
 
                 with ui.menu().classes("p-2") as filter_menu:
-                    with ui.row().classes("bg-grey-9").props("dark"):
-                        filter_invert = ui.switch("Invert type", value=False).props('dense icon="flaky" color="black"').classes("p-2").tooltip("Invert type filter (ignore selected type)").bind_value(app.storage.user, "dashboard_filter_invert")
-                        filter_invert.on_value_change(lambda ev: _bdg_color(ev.value))
-                        _bdg_color(filter_invert.value)
-                    with ui.row().classes("py-2"):
-                        filter_cats["notes"] = ui.checkbox(text="Notes", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all notes")
-                        ui.separator().props("vertical").classes("m-0 p-0")
-                        filter_chk["left"] = ui.checkbox(value=True).props('dense color="cyan" keep-color').tooltip("Left notes/rails")
-                        filter_chk["right"] = ui.checkbox(value=True).props('dense color="pink" keep-color').tooltip("Right notes/rails")
-                        filter_chk["single"] = ui.checkbox(value=True).props('dense color="green" keep-color').tooltip("Single handed notes/rails")
-                        filter_chk["both"] = ui.checkbox(value=True).props('dense color="amber" keep-color').tooltip("Two-handed notes/rails")
-                    with ui.row().classes("py-2"):
-                        filter_cats["walls"] = ui.checkbox(text="Walls", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all walls")
-                        ui.separator().props("vertical").classes("m-0 p-0")
-                        with ui.grid(rows=2, columns=4):
-                            filter_chk["wall_left"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="cyan"').tooltip("Left walls")
-                            filter_chk["wall_right"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="pink"').classes("rotate-180 w-5").tooltip("Right walls")
-                            filter_chk["crouch"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="green"').classes("rotate-90 w-5").tooltip("Crouch walls")
-                            filter_chk["square"] = ui.checkbox(value=True).props('dense checked-icon="check_box_outline_blank" unchecked-icon="check_box_outline_blank" color="amber"').tooltip("Square walls")
-                            
-                            filter_chk["angle_left"] = ui.checkbox(value=True).props('dense checked-icon="switch_right" unchecked-icon="switch_right" color="cyan"').tooltip("Left angled walls")
-                            filter_chk["angle_right"] = ui.checkbox(value=True).props('dense checked-icon="switch_left" unchecked-icon="switch_left" color="pink"').tooltip("Right angled walls")
-                            filter_chk["center"] = ui.checkbox(value=True).props('dense checked-icon="unfold_more_double" unchecked-icon="unfold_more_double" color="green"').tooltip("Center walls")
-                            filter_chk["triangle"] = ui.checkbox(value=True).props('dense checked-icon="change_history" unchecked-icon="change_history" color="amber"').tooltip("Triangle walls")
-                    with ui.row().classes("py-2"):
-                        filter_cats["effects"] = ui.checkbox(text="Effects", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all effects")
-                        ui.separator().props("vertical").classes("m-0 p-0")
-                        filter_chk["lights"] = ui.checkbox(value=True).props('dense checked-icon="lightbulb" unchecked-icon="lightbulb" color="yellow"').tooltip("Light effects")
-                        filter_chk["effects"] = ui.checkbox(value=True).props('dense checked-icon="bolt" unchecked-icon="bolt" color="yellow"').tooltip("Flash effects")
-                    for g, tys in ty_lookup.items():
-                        filter_cats[g].on_value_change(_cat_change)
-                        for t in tys:
-                            chk = filter_chk[t]
-                            chk.bind_value(filter_types, t)
-                            chk.on_value_change(partial(_ty_change, g))
-                        _ty_change(g)  # update group checkbox state
+                    filter_enable = ui.switch("Enable Filter", value=False).props('dense icon="filter_alt" color="info"').classes("p-2").tooltip("Enable filter").bind_value(app.storage.user, "dashboard_filter_enable")
+                    filter_menu_btn.bind_icon_from(filter_enable, "value", backward=lambda v: "filter_alt" if v else "filter_alt_off")
                     ui.separator()
-                    with ui.row():
-                        ui.label("Rail length").classes("my-auto w-24")
-                        ui.separator().props("vertical")
-                        filter_raillen_min = make_input("Min", "", "raillen_min", suffix="b", allow_empty=True)
-                        ui.label("to").classes("my-auto")
-                        filter_raillen_max = make_input("Max", "", "raillen_max", suffix="b", allow_empty=True)
-                        ui.tooltip("Only affect rails with this length. Single nodes count as 0-length. Leave empty to allow any. Note that some functions need single nodes to work (e.g. split rails).").props('max-width="20%"')
-                    with ui.row():
-                        ui.label("Node spacing").classes("my-auto w-24")
-                        ui.separator().props("vertical")
-                        filter_railspace_min = make_input("Min", "", "railspace_min", suffix="b", allow_empty=True)
-                        ui.label("to").classes("my-auto")
-                        filter_railspace_max = make_input("Max", "", "railspace_max", suffix="b", allow_empty=True)
-                        ui.tooltip("Only affect rails where all nodes have a time spacing between min and max. Leave empty to allow any.")
-                    def _fix_inputs() -> None:
-                        for inp in (filter_raillen_min, filter_raillen_max, filter_railspace_min, filter_railspace_max):
-                            inp.update()
-                    filter_menu.on_value_change(_fix_inputs)
+                    with ui.element().bind_visibility_from(filter_enable, "value"):
+                        with ui.row().classes("bg-grey-9").props("dark"):
+                            filter_enable_type = ui.switch("Filter type", value=True).props('dense icon="filter_alt" color="info"').classes("p-2").tooltip("Enable type filter").bind_value(app.storage.user, "dashboard_filter_enable_type")
+                            filter_invert = ui.switch("Invert type", value=False).props('dense icon="flaky" color="black"').classes("p-2").tooltip("Invert type filter (ignore selected type)").bind_value(app.storage.user, "dashboard_filter_invert")
+                            filter_invert.on_value_change(lambda ev: _bdg_color(ev.value))
+                            _bdg_color(filter_invert.value)
+                        with ui.element().bind_visibility_from(filter_enable_type, "value"):
+                            with ui.row().classes("py-2"):
+                                filter_cats["notes"] = ui.checkbox(text="Notes", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all notes")
+                                ui.separator().props("vertical").classes("m-0 p-0")
+                                filter_chk["left"] = ui.checkbox(value=True).props('dense color="cyan" keep-color').tooltip("Left notes/rails")
+                                filter_chk["right"] = ui.checkbox(value=True).props('dense color="pink" keep-color').tooltip("Right notes/rails")
+                                filter_chk["single"] = ui.checkbox(value=True).props('dense color="green" keep-color').tooltip("Single handed notes/rails")
+                                filter_chk["both"] = ui.checkbox(value=True).props('dense color="amber" keep-color').tooltip("Two-handed notes/rails")
+                            with ui.row().classes("py-2"):
+                                filter_cats["walls"] = ui.checkbox(text="Walls", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all walls")
+                                ui.separator().props("vertical").classes("m-0 p-0")
+                                with ui.grid(rows=2, columns=4):
+                                    filter_chk["wall_left"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="cyan"').tooltip("Left walls")
+                                    filter_chk["wall_right"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="pink"').classes("rotate-180 w-5").tooltip("Right walls")
+                                    filter_chk["crouch"] = ui.checkbox(value=True).props('dense checked-icon="flip" unchecked-icon="flip" color="green"').classes("rotate-90 w-5").tooltip("Crouch walls")
+                                    filter_chk["square"] = ui.checkbox(value=True).props('dense checked-icon="check_box_outline_blank" unchecked-icon="check_box_outline_blank" color="amber"').tooltip("Square walls")
+                                    
+                                    filter_chk["angle_left"] = ui.checkbox(value=True).props('dense checked-icon="switch_right" unchecked-icon="switch_right" color="cyan"').tooltip("Left angled walls")
+                                    filter_chk["angle_right"] = ui.checkbox(value=True).props('dense checked-icon="switch_left" unchecked-icon="switch_left" color="pink"').tooltip("Right angled walls")
+                                    filter_chk["center"] = ui.checkbox(value=True).props('dense checked-icon="unfold_more_double" unchecked-icon="unfold_more_double" color="green"').tooltip("Center walls")
+                                    filter_chk["triangle"] = ui.checkbox(value=True).props('dense checked-icon="change_history" unchecked-icon="change_history" color="amber"').tooltip("Triangle walls")
+                            with ui.row().classes("py-2"):
+                                filter_cats["effects"] = ui.checkbox(text="Effects", value=True).props('dense keep-color').classes("w-16").tooltip("Toggle all effects")
+                                ui.separator().props("vertical").classes("m-0 p-0")
+                                filter_chk["lights"] = ui.checkbox(value=True).props('dense checked-icon="lightbulb" unchecked-icon="lightbulb" color="yellow"').tooltip("Light effects")
+                                filter_chk["effects"] = ui.checkbox(value=True).props('dense checked-icon="bolt" unchecked-icon="bolt" color="yellow"').tooltip("Flash effects")
+                            for g, tys in ty_lookup.items():
+                                filter_cats[g].on_value_change(_cat_change)
+                                for t in tys:
+                                    chk = filter_chk[t]
+                                    chk.bind_value(filter_types, t)
+                                    chk.on_value_change(partial(_ty_change, g))
+                                _ty_change(g)  # update group checkbox state
+                        ui.separator()
+                        with ui.row().classes("bg-grey-9").props("dark"):
+                            filter_enable_rails = ui.switch("Filter notes/rails", value=True).props('dense icon="filter_alt" color="info"').classes("p-2").tooltip("Enable notes/rails filter").bind_value(app.storage.user, "dashboard_filter_enable_rail")
+                        with ui.element().bind_visibility_from(filter_enable_rails, "value"):
+                            with ui.row().classes("bg-grey-9").props("dark"):
+                                filter_single = ui.switch("Single notes", value=True).props('dense icon="sports_baseball" color="info"').classes("p-2").tooltip("Allow single notes. Note that some functions need single nodes to work (e.g. split rails).").bind_value(app.storage.user, "dashboard_filter_allow_single")
+                                filter_rails = ui.switch("Rails", value=True).props('dense icon="show_chart" color="info"').classes("p-2").tooltip("Allow rails. Length and node spacing can be constrainted below.").bind_value(app.storage.user, "dashboard_filter_allow_rails")
+                            with ui.element().bind_visibility_from(filter_rails, "value"):
+                                with ui.row():
+                                    ui.label("Rail length").classes("my-auto w-24")
+                                    ui.separator().props("vertical")
+                                    filter_raillen_min = make_input("Min", "", "raillen_min", suffix="b", allow_empty=True)
+                                    ui.label("to").classes("my-auto")
+                                    filter_raillen_max = make_input("Max", "", "raillen_max", suffix="b", allow_empty=True)
+                                    ui.tooltip("Only affect rails with this length").props('max-width="20%"')
+                                with ui.row():
+                                    ui.label("Node spacing").classes("my-auto w-24")
+                                    ui.separator().props("vertical")
+                                    filter_railspace_min = make_input("Min", "", "railspace_min", suffix="b", allow_empty=True)
+                                    ui.label("to").classes("my-auto")
+                                    filter_railspace_max = make_input("Max", "", "railspace_max", suffix="b", allow_empty=True)
+                                    ui.tooltip("Only affect rails where all nodes have a time spacing between min and max")
+                                with ui.row():
+                                    ui.label("Node count").classes("my-auto w-24")
+                                    ui.separator().props("vertical")
+                                    filter_railnodes_min = make_input("Min", "", "railnodes_min", allow_empty=True)
+                                    ui.label("to").classes("my-auto")
+                                    filter_railnodes_max = make_input("Max", "", "railnodes_max", allow_empty=True)
+                                    ui.tooltip("Only affect rails with a node count between min and max")
+                                def _fix_inputs() -> None:
+                                    for inp in (filter_raillen_min, filter_raillen_max, filter_railspace_min, filter_railspace_max, filter_railnodes_min, filter_railnodes_max):
+                                        inp.update()
+                                filter_menu.on_value_change(_fix_inputs)
             ui.separator().props("vertical")
 
             with ui.label("Coordinates"):
@@ -750,13 +770,21 @@ def _dashboard_tab() -> None:
                 if k.startswith("dashboard_")
             }
             try:
-                rail_filter = synth_format.RailFilter(
-                    min_len=filter_raillen_min.parsed_value,
-                    max_len=filter_raillen_max.parsed_value,
-                    min_spacing=filter_railspace_min.parsed_value,
-                    max_spacing=filter_railspace_max.parsed_value,
-                )
-                types = tuple(ty for ty, ty_enabled in filter_types.items() if ty_enabled != filter_invert.value)
+                rail_filter = None
+                types = synth_format.ALL_TYPES
+                if filter_enable.value and filter_rail_enable.value:
+                    rail_filter = synth_format.RailFilter(
+                        single=filter_single.value,
+                        rails=filter_rails.value,
+                        min_len=filter_raillen_min.parsed_value,
+                        max_len=filter_raillen_max.parsed_value,
+                        min_count=filter_railnodes_min.value,
+                        max_count=filter_railnodes_max.value,
+                        min_spacing=filter_railspace_min.parsed_value,
+                        max_spacing=filter_railspace_max.parsed_value,
+                    )
+                if filter_enable.value and filter_type_enable.value:
+                    types = tuple(ty for ty, ty_enabled in filter_types.items() if ty_enabled != filter_invert.value)
                 with safe_clipboard_data(use_original=sw_use_orig.value, realign_start=sw_realign.value) as data:
                     self._func(
                         data=data,
@@ -780,7 +808,7 @@ def _dashboard_tab() -> None:
                 caption=pretty_list(
                     [f"{counts[t]['total']} {t if counts[t]['total'] != 1 else t.rstrip('s')}" for t in ("notes", "rails", "rail_nodes", "walls")]
                     +([f"{len(types)} types filtered"]  if set(types) != set(synth_format.ALL_TYPES) else [])
-                    +(["rails filter active"] if rail_filter else [])
+                    +(["note/rail filter active"] if rail_filter else [])
                 ),
             )
 
