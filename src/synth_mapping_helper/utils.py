@@ -11,7 +11,7 @@ def second_to_beat(second: float, bpm: float) -> float:
 def bounded_arange(start: float, end: float, step: float) -> "numpy array (x)":
     # arange would not include the end position, so we intentially overshoot, then correct
     new_times = np.arange(start, end + step, step)
-    if np.isclose(new_times[-2], end):
+    if new_times.shape[0] > 1 and np.isclose(new_times[-2], end):
         # we overshot by an interval and the penultimate position already closely matches the end -> remove overshoot
         new_times[-2] = end
         return new_times[:-1]

@@ -515,7 +515,6 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
                 wiki_reference("Rail-Options#spikes")
             spike_duration = make_input("Duration", 0, "spike_duration", suffix="b", tooltip="Duration of spikes.")
         with ui.row():
-            @handle_errors
             def _add_spikes(nodes: "numpy array (n, 3)", fid_dir: int, direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,) -> "numpy array (n, 3)":
                 if spiral_do_interpolate.value:
                     nodes = rails.interpolate_nodes(nodes, mode="spline", interval=spiral_interpolation.parsed_value)
@@ -772,18 +771,18 @@ def _dashboard_tab() -> None:
             try:
                 rail_filter = None
                 types = synth_format.ALL_TYPES
-                if filter_enable.value and filter_rail_enable.value:
+                if filter_enable.value and filter_enable_rails.value:
                     rail_filter = synth_format.RailFilter(
                         single=filter_single.value,
                         rails=filter_rails.value,
                         min_len=filter_raillen_min.parsed_value,
                         max_len=filter_raillen_max.parsed_value,
-                        min_count=filter_railnodes_min.value,
-                        max_count=filter_railnodes_max.value,
+                        min_count=filter_railnodes_min.parsed_value,
+                        max_count=filter_railnodes_max.parsed_value,
                         min_spacing=filter_railspace_min.parsed_value,
                         max_spacing=filter_railspace_max.parsed_value,
                     )
-                if filter_enable.value and filter_type_enable.value:
+                if filter_enable.value and filter_enable_type.value:
                     types = tuple(ty for ty, ty_enabled in filter_types.items() if ty_enabled != filter_invert.value)
                 with safe_clipboard_data(use_original=sw_use_orig.value, realign_start=sw_realign.value) as data:
                     self._func(
