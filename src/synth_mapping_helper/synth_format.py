@@ -11,8 +11,9 @@ from pathlib import Path
 import re
 import time
 from typing import Any, Generator, Literal, Union
-import zipfile
+import struct
 import sys
+import zipfile
 
 import numpy as np
 import pyperclip
@@ -568,6 +569,21 @@ class _NonAsciiStr(str):
             raise UnicodeEncodeError(encoding, self, 0, 0, "dummy error to trick ZipFile._open_to_write")
         return super().encode(encoding=encoding, errors=errors)
 
+def encode_extra_pkware_win32(timestamp: datetime.datetime) -> bytes:
+    # https://mdfs.net/Docs/Comp/Archiving/Zip/ExtraField -> 0x000A
+    # encode NTFS timestamp
+    ntfs_epoch = datetime.datetime(1601,1,1, 0,0,0,0, tzinfo=datetime.timezone.utc)
+    ts_bytes = int((timestamp - ntfs_epoch).total_seconds()*1e7).to_bytes(8, "little")
+    
+    return struct.pack(
+        "<HHIHH",
+        0x000a,  # PKWARE Win95/WinNT Extra Field 
+        32,      # extra len: 4+2+2+24
+        0,       # reserved
+        1,       # Tag 1
+        24,      # 3*8
+    ) + (ts_bytes * 3)
+
 @dataclasses.dataclass
 class SynthFileMeta:
     name: str
@@ -789,7 +805,7 @@ class SynthFile:
             "Tags": [],  # ?
             "BeatConverted": False,  # ?
             "BeatModified": False,  # ?
-            "ModifiedTime": now.timestamp(),
+            "ModifiedTime": int(now.timestamp()),
             "Explicit": self.meta.explicit,
         }
 
@@ -829,7 +845,7 @@ class SynthFile:
         meta_json = json.dumps({
             "name": self.meta.name,
             "artist": self.meta.artist,
-            "duration": f"{self.audio.duration//60:.0f}:{self.audio.duration%60:02.0f}",
+            "duration": f"{self.audio.duration//60:02.0f}:{self.audio.duration%60:02.0f}",
             "coverImage": self.meta.cover_name,
             "audioFile": safe_audio_name,
             "supportedDifficulties": [
@@ -837,7 +853,7 @@ class SynthFile:
             ],
             "bpm": self.bpm,
             "mapper": self.meta.mapper,
-        }, indent=2, allow_nan=False)
+        }, indent=4, allow_nan=False)
         
         with zipfile.ZipFile(out_buffer, "w") as outzip:
             def make_fileinfo(filename: str) -> zipfile.ZipInfo:
@@ -846,8 +862,8 @@ class SynthFile:
                 # fake various file headers
                 info.create_system = 0
                 info.create_version = zipfile.ZIP64_VERSION
-                # editor files also contain NTFS timestamps, see "PKWARE Win95/WinNT Extra Field (0x000a)"" at
-                # https://mdfs.net/Docs/Comp/Archiving/Zip/ExtraField
+                # editor files also contain NTFS timestamps
+                info.extra = encode_extra_pkware_win32(now)
 
                 # trick header encoder
                 info.external_attr = _TrueInt(0)
@@ -857,7 +873,7 @@ class SynthFile:
             outzip.writestr(make_fileinfo(BEATMAP_JSON_FILE), codecs.BOM_UTF8 + beatmap_json.encode("utf-8").replace(b"\n", b"\r\n"))
             outzip.writestr(make_fileinfo(safe_audio_name), self.audio.raw_data)
             outzip.writestr(make_fileinfo(self.meta.cover_name), self.meta.cover_data)
-            outzip.writestr(make_fileinfo(METADATA_JSON_FILE), codecs.BOM_UTF8 + meta_json.encode("utf-8").replace(b"\n", b"\r\n"))
+            outzip.writestr(make_fileinfo(METADATA_JSON_FILE), codecs.BOM_UTF16_LE + meta_json.encode("utf-16-le"))
         # write output zip
         if isinstance(output_file, BytesIO):
             output_file.seek(0)
