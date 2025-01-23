@@ -213,7 +213,7 @@ def flatten_mirror_card(action_btn_cls: Any) -> None:
                 func=partial(_do_mirror_axis, axis=2),
             )
         with ui.row():
-            mirror_angle = make_input("Custom Mirror Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0: -- ±90: | +45: / -45: \\", width=28)
+            mirror_angle = make_input("Custom Mirror Angle", 45, "mirror_angle", suffix="°", tooltip="Angle of the mirror line. 0: --, ±90: |, +45: /, -45: \\", width=28)
             def _do_mirror_custom(data: synth_format.DataContainer, **kwargs):
                     # work on copy when stacking, else directly on data
                     tmp = data.filtered() if mirror_do_stack.value else data
@@ -352,21 +352,28 @@ def rails_card(action_btn_cls: Any) -> None:
                 wiki_ref="Pre--and-Post-Processing-Options#merge-rails",
             )
         ui.separator()
-        with ui.switch("Start from end", value=False).props('size="xs"').classes("my-auto").bind_value(app.storage.user, "dashboard_rail_from_back") as rail_from_back:
-            ui.tooltip("Start operation from the end instead of the start, so e.g. shorten would cut from start instead of end and extending looks at previous instead of next.")
+        with ui.row():
+            rail_interval = make_input("Interval", "1/16", "rail_interval", suffix="b")
+            with ui.switch("From end", value=False).props('dense size="xs"').classes("my-auto").bind_value(app.storage.user, "dashboard_rail_from_back") as rail_from_back:
+                ui.tooltip("Start operation from the end instead of the start, so e.g. shorten would cut from start instead of end and extending looks at previous instead of next.")
         with ui.grid(columns=3):
             action_btn_cls(
                 tooltip="Split rail at time intervals",
                 icon="format_line_spacing"+"link_off",
                 func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.segment_rail, max_length=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types, rail_filter=rail_filter),
             )
-            rail_interval = make_input("Interval", "1/16", "rail_interval", suffix="b")
             action_btn_cls(
                 tooltip="Interpolate rail nodes",
                 icon="format_line_spacing"+"commit",
                 apply_func=partial(rails.interpolate_nodes, mode="spline"),
                 apply_args=lambda: dict(interval=rail_interval.parsed_value*(1-rail_from_back.value*2)),
                 wiki_ref="Rail-Options#interpolate",
+            )
+            action_btn_cls(
+                tooltip="Extend level",
+                icon="swipe_right_alt" + "horizontal_rule",
+                apply_func=rails.extend_level,
+                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
 
             action_btn_cls(
@@ -380,23 +387,23 @@ def rails_card(action_btn_cls: Any) -> None:
                 func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.rails_to_notestacks, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), keep_rail=True, types=types, rail_filter=rail_filter),
             )
             action_btn_cls(
-                tooltip="Shorten rail from the end",
-                icon="content_cut",
-                apply_func=rails.shorten_rail,
-                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
-                wiki_ref="Rail-Options#shorten-rails",
-            )
-
-            action_btn_cls(
-                tooltip="Extend level",
-                icon="swipe_right_alt" + "horizontal_rule",
-                apply_func=rails.extend_level,
-                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
-            )
-            action_btn_cls(
                 tooltip="Extend directional / straight",
                 icon="swipe_right_alt" + "double_arrow",
                 apply_func=rails.extend_straight,
+                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
+            )
+
+            action_btn_cls(
+                tooltip="Shorten rail by amount from the end",
+                icon="content_cut"+"straighten",
+                apply_func=rails.shorten_rail_by,
+                apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
+                wiki_ref="Rail-Options#shorten-rails",
+            )
+            action_btn_cls(
+                tooltip="Shorten rail to given length",
+                icon="straighten"+"content_cut",
+                apply_func=rails.shorten_rail_to,
                 apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
             action_btn_cls(
@@ -474,6 +481,7 @@ def color_card(action_btn_cls: Any) -> None:
 
 def spiral_spike_card(action_btn_cls: Any) -> None:
     with ui.card():
+        ui.label("Spiralize and Spikify")
         with ui.row():
             spiral_angle = make_input("Angle", 45, "spiral_angle", suffix="°", tooltip="Angle between nodes. Choose 180 for zigzag.")
             spiral_start = make_input("Start", 0, "spiral_start", suffix="°", tooltip="Angle of first node: 0=right, 90=up, 180=left, 270/-90=down")

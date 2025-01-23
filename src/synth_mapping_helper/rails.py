@@ -287,12 +287,12 @@ def rails_to_notestacks(notes: SINGLE_COLOR_NOTES, interval: float, keep_rail: b
 
     return out
 
-def shorten_rail(
+def shorten_rail_by(
     data: "numpy array (n, 3)", distance: float, *,
     direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,
 ) -> "numpy array (n, 3)":
     """Cut a bit of the end or start (if negative) of the rail"""
-    if data.shape[0] == 1 or not distance:  # ignore single nodes or shorter rails
+    if data.shape[0] == 1 or not distance:  # ignore single nodes
         return data
     if distance > 0:  # cut at the end
         if (data[-1,2] - data[0,2]) <= distance:  # shorter -> return rail start only
@@ -304,6 +304,24 @@ def shorten_rail(
         if (data[-1,2] - data[0,2]) <= -distance:  # shorter -> return rail end only
             return data[-1][np.newaxis]
         new_z = data[0,2] - distance  # distance is negative, so "- distance" is correct here
+        first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
+        return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
+
+def shorten_rail_to(
+    data: "numpy array (n, 3)", distance: float, *,
+    direction: int = 1, relative: bool = False, pivot: "optional numpy array (2+)"=None,
+) -> "numpy array (n, 3)":
+    """Cut the end or start (if negative) of the rail to be as long as specified"""
+    if data.shape[0] == 1 or data[-1,2] - data[0,2] <= distance:  # ignore single nodes or shorter rails
+        return data
+    if not distance:  # distance 0 -> return rail start only
+        return data[0][np.newaxis]
+    elif distance > 0:  # cut at the end
+        new_z = data[0,2] + distance
+        last_index = np.argwhere(data[:, 2] < new_z)[-1][0]  # last node before new end
+        return np.concatenate((data[:last_index+1], interpolate_spline(data, [new_z])))
+    else:  # cut at the start
+        new_z = data[-1,2] + distance  # distance is negative, so "+ distance" is correct here
         first_index = np.argwhere(data[:, 2] > new_z)[0][0]  # first node after new start
         return np.concatenate((interpolate_spline(data, [new_z]), data[first_index:]))
 

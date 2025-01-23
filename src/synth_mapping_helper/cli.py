@@ -341,7 +341,7 @@ def main(options):
     elif options.interpolate_linear:
         data.apply_for_notes(rails.interpolate_nodes, "linear", options.interpolate_linear, types=filter_types)
     if options.shorten_rails:
-        data.apply_for_notes(rails.shorten_rail, options.shorten_rails, types=filter_types)
+        data.apply_for_notes(rails.shorten_rail_by, options.shorten_rails, types=filter_types)
     if options.spiral:
         if (1 / options.spiral) % 1 == 0:
             abort("Chosen spiral factor divides 1 and would result in a straight rail. Refusing action!")
