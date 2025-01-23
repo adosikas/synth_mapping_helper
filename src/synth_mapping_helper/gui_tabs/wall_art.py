@@ -657,60 +657,6 @@ def _wall_art_tab() -> None:
 
         with ui.row():
             with ui.column():
-                with ui.dialog() as key_dialog, ui.card():
-                    with ui.row().classes("bg-orange w-full"):
-                        ui.icon("warning", size="xl").classes("my-auto")
-                        ui.label("This is quite experimental. Let me know if you run into any bugs.").classes("m-auto")
-                        ui.icon("warning", size="xl").classes("my-auto")
-                    ui.markdown("""
-                        ## Camera
-                        Use left mouse to rotate the camera, right mouse to move. Scroll wheel zooms.  
-                        To turn the camera *without* deselecting, hold down ALT.  
-                        🇨 resets the camera to the position configured in the settings. 
-
-                        Click on a wall to select it. Multiple walls can be selected by CTRL-Click (to add), or SHIFT-Click (expand selection to clicked wall).
-                        Then drag it around using left mouse and/or use one of the edit keys below.  
-                        Holding CTRL creates a (modified) copy in the next free slot instead of moving.  
-                        Holding SHIFT drags in time instead of X/Y.
-
-                        ## General
-                        |Key|Function|
-                        |-|-|
-                        |ESC|Deselect all|
-                        |CTRL+🇦|Select all|
-                        |CTRL+🇨|Copy to clipboard (selection or everything)|
-                        |CTRL+🇽|Cut to clipboard (selection or everything)|
-                        |CTRL+🇻|Add walls from clipboard (overrides existing)|
-                        |CTRL+🇿|Undo last operation|
-                        |CTRL+🇾|Redo last operation|
-                        |Tap SHIFT twice|Toggle drag axis between time and X/Y| 
-                        |Tap CTRL twice|Toggle drag behavior between move and copy| 
-                        |🇶/🇪|Select previous/next Wall (SHIFT: Expand selection)|
-                        |🇷|Compress all walls to timestep|
-                        |🇧|Open Blender|
-
-                        ## Edit
-                        If you use keyboard shortcuts instead of dragging, press enter, space or click the shadow to apply.
-
-                        Note: If you hold down CTRL to copy, most of these will not work.  
-                        Either let down of CTRL to use them (and then press it again), or toggle the copy mode via CTRL double-tap.  
-                        You have to move the mouse around slightly to correct the drag position after switching CTRL state.
-
-                        |Key|Function|
-                        |-|-|
-                        |1️⃣-8️⃣|Spawn & select wall (SHIFT: Add to current selection)|
-                        |CTRL+1️⃣-8️⃣|Change wall type|
-                        |`Del`/Backspace|Delete selection|
-                        |🇦/🇩|Rotate by step (SHIFT: 90 degree)|
-                        |🇼|Mirror on Y axis (up-down)|
-                        |🇸|Mirror on X axis (left-right)|
-                        |⬅️➡️⬆️⬇️|Offset X/Y|
-                        |Page Up/Down|Offset Time|
-                        |Enter/Space|Apply (CTRL: Copy to next free slot)|
-                    """)
-                with ui.button(icon="keyboard", on_click=key_dialog.open, color="info").classes("cursor-help").style("width: 36px"):
-                    ui.tooltip("Show controls")
-                ui.separator()
                 with ui.button(icon="undo", color="negative", on_click=undo.undo).props("outline").style("width: 36px").bind_enabled_from(undo, "undo_stack", backward=bool):
                     ui.tooltip().bind_text_from(undo, "undo_stack", backward=lambda us: f"Undo '{us[-1][0]}' (CTRL+Z) [{len(us)} steps]" if us else "Undo (CTRL+Z)")
                 with ui.button(icon="redo", color="positive", on_click=undo.redo).props("outline").style("width: 36px").bind_enabled_from(undo, "redo_stack", backward=bool):
@@ -859,6 +805,63 @@ def _wall_art_tab() -> None:
 
         refimg_apply_button.on("click", draw_preview_scene.refresh)
         preview_apply_button.on("click", draw_preview_scene.refresh)
+
+        with ui.dialog() as key_dialog, ui.card():
+            with ui.tabs() as control_tabs:
+                ui.tab("Camera", icon="cameraswitch")
+                ui.tab("General Shortcuts", icon="keyboard")
+                ui.tab("Edit Shortcuts", icon="tune")
+            with ui.tab_panels(control_tabs, value="Camera"):
+                with ui.tab_panel("Camera"):
+                    ui.markdown("""
+                        Use left mouse to rotate the camera, right mouse to move. Scroll wheel zooms.  
+                        To turn the camera *without* deselecting, hold down ALT.  
+                        🇨 resets the camera to the position configured in the settings.
+
+                        Click on a wall to select it. Multiple walls can be selected by CTRL-Click (to add), or SHIFT-Click (expand selection to clicked wall).  
+                        Then drag it around using left mouse and/or use one of the edit shortcut.  
+                        Holding CTRL creates a (edited) copy in the next free slot instead of moving.  
+                        Holding SHIFT drags in time instead of X/Y.
+                    """)
+                with ui.tab_panel("General Shortcuts"):
+                    ui.markdown("""
+                        |Key|Function|
+                        |-|-|
+                        |ESC|Deselect all|
+                        |CTRL+🇦|Select all|
+                        |CTRL+🇨|Copy to clipboard (selection or everything)|
+                        |CTRL+🇽|Cut to clipboard (selection or everything)|
+                        |CTRL+🇻|Add walls from clipboard (overrides existing)|
+                        |CTRL+🇿|Undo last operation|
+                        |CTRL+🇾|Redo last operation|
+                        |Tap SHIFT twice|Toggle drag axis between time and X/Y| 
+                        |Tap CTRL twice|Toggle drag behavior between move and copy| 
+                        |🇶/🇪|Select previous/next Wall (SHIFT: Expand selection)|
+                        |🇷|Compress all walls to timestep|
+                        |🇧|Open Blender|
+                    """)
+                with ui.tab_panel("Edit Shortcuts"):
+                    ui.markdown("""
+                        If you use keyboard shortcuts instead of dragging, press enter, space or click the shadow to apply.
+
+                        Note: If you hold down CTRL to copy, most of these will not work.  
+                        Either let down of CTRL to use them (and then press it again), or toggle the copy mode via CTRL double-tap.  
+                        You have to move the mouse around slightly to correct the drag position after switching CTRL state.
+
+                        |Key|Function|
+                        |-|-|
+                        |1️⃣-8️⃣|Spawn & select wall (SHIFT: Add to current selection)|
+                        |CTRL+1️⃣-8️⃣|Change wall type|
+                        |`Del`/Backspace|Delete selection|
+                        |🇦/🇩|Rotate by step (SHIFT: 90 degree)|
+                        |🇼|Mirror on Y axis (up-down)|
+                        |🇸|Mirror on X axis (left-right)|
+                        |⬅️➡️⬆️⬇️|Offset X/Y|
+                        |Page Up/Down|Offset Time|
+                        |Enter/Space|Apply (CTRL: Copy to next free slot)|
+                    """)
+        with ui.button("Controls", icon="keyboard", on_click=key_dialog.open, color="info").classes("cursor-help"):
+            ui.tooltip("Show controls")
 
 wall_art_tab = GUITab(
     name="wall_art",

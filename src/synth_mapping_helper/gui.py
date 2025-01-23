@@ -141,7 +141,7 @@ def entrypoint():
     ui.run(
         host=args.host,
         port=args.port,
-        title=f"{version} [beta]",
+        title=version,
         favicon="🚧" if args.dev_mode else "🤦",
         reload=args.dev_mode,
         storage_secret="smh_gui",
