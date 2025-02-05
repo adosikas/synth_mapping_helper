@@ -15,7 +15,7 @@ dependencies = [
     "requests==2.32.3",
     "nicegui==2.11.0",
     "librosa==0.10.2.post1",
-    "soundfile==0.13.0",
+    "soundfile==0.13.1",
     "audioread==3.0.1",
     # aifc and sunau were removed in 3.13, but are required by audioread (which is required by librosa)
     # luckily, they are available as packages
