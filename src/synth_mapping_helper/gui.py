@@ -133,7 +133,7 @@ def entrypoint():
         ]
     )
     # hide some spammy logs
-    for ln in ("watchfiles", "multipart", "numba"):
+    for ln in ("watchfiles", "multipart", "python_multipart", "numba"):
         logging.getLogger(ln).setLevel(logging.WARN)
 
     if __name__ == "__main__":  # don't run when spawned as child process
