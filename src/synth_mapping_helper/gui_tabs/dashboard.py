@@ -412,6 +412,13 @@ def rails_card(action_btn_cls: Any) -> None:
                 func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types, rail_filter=rail_filter),
             )
 
+            action_btn_cls(
+                tooltip="Create a both-hands lightning rail that zig-zags between the first rail of one hand and rails of the other hand",
+                icon="graphic_eq",
+                icon_angle=-45,
+                func=lambda data, types, rail_filter, **kwargs: pattern_generation.create_lightning(data=data, interval=rail_interval.parsed_value*(1-rail_from_back.value*2), rail_filter=rail_filter),
+            ).classes("text-yellow")
+
 def smoothing_card(action_btn_cls: Any) -> None:
     with ui.card():
         ui.label("Smoothing")
