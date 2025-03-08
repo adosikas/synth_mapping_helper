@@ -1,10 +1,11 @@
+import dataclasses
 from typing import Literal, Union
 
 import numpy as np
 
 from .synth_format import RailFilter, DataContainer, WALLS, WALL_LOOKUP, WALL_SYMMETRY, WALL_TYPES, NOTE_TYPES
 from .utils import bounded_arange
-from . import movement
+from . import movement, rails
 
 # generic helpers
 def angle_to_xy(angles: "numpy array like") -> "numpy array like":
@@ -63,6 +64,37 @@ def add_spikes(nodes: "numpy array (n, 3)", fidelity: float, radius: float, spik
         start_angle=start_angle if direction == 1 else 180 - start_angle
     ) * radius
     return nodes
+
+def create_lightning(data: DataContainer, interval: float, rail_filter: RailFilter|None=None) -> None:
+    """create a zigzag between left hand and right hand notes and rails
+
+    It picks the first rail (or longer if starting simultaneous) from either left and right as primary.
+    Then it interpolates that, picking every other node from the secondary color if there is a rail/note there
+    """
+    new_filter = RailFilter(single=False) if rail_filter is None else dataclasses.replace(rail_filter, single=False)
+    d = data.filtered(rail_filter=new_filter)
+    if not d.left:
+        raise ValueError("Input does not contain any left rails")
+    if not d.right:
+        raise ValueError("Input does not contain any right rails")
+    first_l = sorted(d.left)[0]
+    first_r = sorted(d.right)[0]
+    end_l = d.left[first_l][-1,2]
+    end_r = d.right[first_r][-1,2]
+
+    primary = "right"
+    if first_l < first_r or ((first_l == first_r) and (end_l > end_r)):
+        # use left as primary if it starts first OR starts at the same time and ends later
+        primary = "left"
+    primary_nodes = d.left[first_l] if primary == "left" else d.right[first_r]
+    secondary_notes = d.right if primary == "left" else d.left
+
+    out = rails.interpolate_nodes(primary_nodes, "spline", interval=interval)
+    for i in range(1, len(out), 2):
+        new_pos = rails.get_position_at(secondary_notes, out[i,2], interpolate_gaps=False)
+        if new_pos is not None:
+            out[i, :2] = new_pos
+    data.both = data.both | {out[0,2]: out}
 
 def create_parallel(data: DataContainer, distance: float, types: tuple[str, ...] = NOTE_TYPES, rail_filter: RailFilter|None=None) -> None:
     """create parallel patterns by splitting specials, or adding the other hand
