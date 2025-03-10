@@ -21,7 +21,7 @@ dependencies = [
     # luckily, they are available as packages
     "standard-aifc; python_version >= '3.13'",
     "standard-sunau; python_version >= '3.13'",
-    "pywin32==308; sys_platform=='win32'",
+    "pywin32==309; sys_platform=='win32'",
 ]
 requires-python = ">=3.10"
 authors = [{"name"="adosikas"}]
