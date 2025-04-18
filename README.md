@@ -6,7 +6,7 @@ Toolbox for manipulating the JSON-Format used by *Synth Riders Beatmap Editor* i
 
 ## Simple Installation (Windows)
 
-Simply download the latest `.exe` from the [Release Page](https://github.com/adosikas/synth_mapping_helper/releases)**.
+Simply download the latest `.exe` from the [Release Page](https://github.com/adosikas/synth_mapping_helper/releases).
 
 You can just place it anywhere and run it, no installation needed.
 
@@ -41,7 +41,10 @@ To update, either delete the venv and start over, or run `smh/bin/pip3 install -
 
 The GUI works like a website running on your local machine (accessible only to you), and accesses the clipboard.
 
-The following is a list of features broken down by GUI tab.
+If you are overwhelmed by the amount of buttons, start with one segment at a time.  
+You can hover your mouse over pretty much all buttons and input fields to get a short tooltip.
+
+The following is a list of features broken down by GUI tab:
 
 ## Dashboard
 
@@ -144,9 +147,27 @@ The following is a list of features broken down by GUI tab.
     * Last few releases only, full list [here](https://github.com/adosikas/synth_mapping_helper/releases)
 * Direct link to release for easy download (but no automatic download/install)
 
-## Technical information
+# Technical information
 
-The GUI is built with [NiceGUI](https://nicegui.io/), allowing me to write a "frontend" with pure python. Even the 3D-Preview is setup via just python, which is why I am not currently able to make a "full editor" as that requires some fully clientside logic (ThreeJS in particular).  
-If you have experience there and would like to help me make a proper editor with better intergration for SMH, please let me know.
+The GUI is built with [NiceGUI](https://nicegui.io/), allowing me to write a "frontend" with pure python. Even the wall art editor is created from python, which is why I am not currently able to make a "full editor" as that requires some fully clientside logic (ThreeJS in particular).  
+If you have experience there and would like to help me make a proper editor (with native intergration for SMH, please let me know).
 
 In the "backend" everything is python and numpy arrays, and uses fairly modular functions for the various operations. Feel free to experiment with using the API to make custom python scripts, but that requires the advanced installation (see above).
+
+# 100% LLM Free
+
+This project (to be best of my knowledge) does not contain any LLM-Generated code.
+
+Please do not suggest any features that involve what is called "AI" these days (aka LLM/GPT).  
+I am open to "normal" statistics (like the BPM detection).
+
+Also, I _urge_ you not to use any of functionality provided here to make something resembling an "automapper", including (but not limited to) mass-parsing `.synth` files for AI-Training or exporting LLM-Output into a map.  
+This project is MIT-licensed, so I won't stop you, but please consider the implications of an auto-mapping, including:
+
+* Rapid decrease of map quality as LLMs will just go for what is "statistically likely", meaning boring, repetetive patterns and no "new" creative patterns
+* Even further decrease, once training data includes automapped inputs
+* Everyone can just get a mediocre map for whatever they want, leading to multiple maps for the same song (many of them similar)
+* Just look at _other game_, where you have thousands of maps, but **need** curation to find the good ones.
+* Currently, the majority is good, so you can just get all. With auto-mapped maps, that won't work, meaning multiplayer won't work as it does now.
+* Dying out of the custom map community as it currently exists, as people won't have an incentive to learn mapping
+* Insert more general talking points against LLMs here, e.g. energy usage, ethic training data, etc.
