@@ -302,7 +302,7 @@ def _stacking_tab() -> None:
                     random_ranges_offset = [parse_xy_range(r) for r in random_offset.value.split(";")]
                     random_step_offset = None
             except ValueError as ve:
-                raise PrettyError(msg="Error parsing random XY ranges", exc=ve, data=random_offset.value) from ve
+                raise ParseInputError(input_id="stacking_random_offset", value=random_offset.value, exc=ve) from ve
             try:
                 if not random_angle.value:  # empty string or None
                     random_ranges_angle = random_step_angle = None
@@ -314,7 +314,7 @@ def _stacking_tab() -> None:
                     random_ranges_angle = [parse_range(r) for r in random_angle.value.split(";")]
                     random_step_angle = None
             except ValueError as ve:
-                raise PrettyError(msg="Error parsing random angle ranges", exc=ve, data=random_angle.value) from ve
+                raise ParseInputError(input_id="stacking_random_angle", value=random_angle.value, exc=ve) from ve
             try:
                 with safe_clipboard_data(use_original=True, realign_start=False) as d:  # type: synth_format.ClipboardDataContainer
                     if count_mode == "count":

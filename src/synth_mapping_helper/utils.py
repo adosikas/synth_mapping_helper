@@ -50,12 +50,12 @@ def parse_range(val: str) -> tuple[float, float]:
         raise ValueError("Must be in the form 'max' or 'min:max'")
     try:
         min = parse_number(split[0])
-    except ValueError:
-        raise ValueError("Error parsing minimum")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing minimum: {ve}") from ve
     try:
         max = parse_number(split[1])
-    except ValueError:
-        raise ValueError("Error parsing maximum")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing maximum: {ve}") from ve
     return (min, max)
 
 def parse_xy_range(val: str) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -64,12 +64,12 @@ def parse_xy_range(val: str) -> tuple[tuple[float, float], tuple[float, float]]:
         raise ValueError("Must be in the form X_RANGE,Y_RANGE")
     try:
         x = parse_range(split[0])
-    except ValueError:
-        raise ValueError("Error parsing x range")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing x range: {ve}") from ve
     try:
         y = parse_range(split[1])
-    except ValueError:
-        raise ValueError("Error parsing y range")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing y range: {ve}") from ve
     return ((x[0], y[0]), (x[1], y[1]))
 
 
@@ -101,16 +101,16 @@ def parse_position(val: str) -> tuple[float, float, Union[float, SecondFloat]]:
         raise ValueError("Must be in the form x,y,t")
     try:
         x = parse_number(split[0])
-    except ValueError:
-        raise ValueError("Error parsing x")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing x: {ve}") from ve
     try:
         y = parse_number(split[1])
-    except ValueError:
-        raise ValueError("Error parsing y")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing y: {ve}") from ve
     try:
         t = parse_time(split[2])
-    except ValueError:
-        raise ValueError("Error parsing t")
+    except ValueError as ve:
+        raise ValueError(f"Error parsing t: {ve}") from ve
     return (x, y, t)
 
 def pretty_fraction(val: float) -> str:
