@@ -38,7 +38,7 @@ def do_movement(options, data: synth_format.DataContainer, filter_types: tuple[s
 def do_random_movement(options, data: synth_format.DataContainer, filter_types: tuple[str, ...] = synth_format.ALL_TYPES) -> None:
     if options.rotate_random is not None:
         if len(options.rotate_random) == 1:
-            area = options.rotate_random[0]
+            area = np.array(options.rotate_random[0])
         else:
             areas = np.array([
                 max(a[1]-a[1], 0.01)  # area, where 0-width areas are counted as 0.01 for numerical stability

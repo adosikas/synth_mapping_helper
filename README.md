@@ -156,7 +156,7 @@ In the "backend" everything is python and numpy arrays, and uses fairly modular 
 
 # 100% LLM Free
 
-This project (to be best of my knowledge) does not contain any LLM-Generated code.
+This project (to the best of my knowledge) does not contain any LLM-Generated code.
 
 Please do not suggest any features that involve what is called "AI" these days (aka LLM/GPT).  
 I am open to "normal" statistics (like the BPM detection).
@@ -164,7 +164,7 @@ I am open to "normal" statistics (like the BPM detection).
 Also, I _urge_ you not to use any of functionality provided here to make something resembling an "automapper", including (but not limited to) mass-parsing `.synth` files for AI-Training or exporting LLM-Output into a map.  
 This project is MIT-licensed, so I won't stop you, but please consider the implications of an auto-mapping, including:
 
-* Rapid decrease of map quality as LLMs will just go for what is "statistically likely", meaning boring, repetetive patterns and no "new" creative patterns
+* Rapid decrease of map quality, as LLMs will just go for what is "statistically likely", meaning boring, repetitive patterns and no "new" creative patterns
 * Even further decrease, once training data includes automapped inputs
 * Everyone can just get a mediocre map for whatever they want, leading to multiple maps for the same song (many of them similar)
 * Just look at _other game_, where you have thousands of maps, but **need** curation to find the good ones.

@@ -125,6 +125,8 @@ def _command_tab() -> None:
                 cli.main(opts)
             except RuntimeError as re:
                 raise PrettyError(msg=f"Error running line {i+1}", exc=re, data=line) from re
+            except Exception as exc:
+                raise PrettyError(msg=f"Unexpected error running line {i+1}. Please report this by clicking the report button in the top-right and sending me the report. ", exc=exc, data=line) from exc
             count += 1
         else:
             if preset_selector.value:

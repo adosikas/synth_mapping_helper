@@ -89,7 +89,7 @@ def _stack(
             tmp = stacking.filtered()  # deep copy
             if random_ranges_offset is not None:
                 if len(random_ranges_offset) == 1:
-                    area = random_ranges_offset[0]
+                    area = np.array(random_ranges_offset[0])
                 else:
                     areas = np.array([
                         max(x_max-x_min, 0.01)*max(y_max-y_min, 0.01)  # area, where 0-width axes are counted as 0.01 for numerical stability
@@ -335,7 +335,12 @@ def _stacking_tab() -> None:
                 raise PrettyError(
                     msg=f"Error executing stack",
                     exc=exc,
-                    context={"count": c, "pivot": p, "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset},
+                    context={
+                        "count": c, "pivot": p,
+                        "offset": o, "scale": s, "rotation": r, "wall_rotation": wr, "outset": outset,
+                        "random_ranges_offset": random_ranges_offset, "random_step_offset": random_step_offset,
+                        "random_ranges_angle": random_ranges_angle, "random_step_angle": random_step_angle,
+                    },
                 ) from exc
             counts = d.get_counts()
             info(
