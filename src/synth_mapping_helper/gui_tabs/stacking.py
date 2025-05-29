@@ -70,7 +70,9 @@ def _find_first_pair(types: tuple[str, ...] = synth_format.ALL_TYPES) -> Optiona
 def _stack(
     d: synth_format.DataContainer, count: int, pivot: tuple[float, float, float],
     offset: tuple[float, float, float], scale: tuple[float, float, float], rotation: float, wall_rotation: float, outset: float,
-    random_ranges_offset: list[tuple[tuple[float, float], tuple[float, float]]]|None, random_step_offset: tuple[float, float]|None, random_ranges_angle: list[tuple[float, float]]|None, random_step_angle: float|None
+    random_ranges_offset: list[tuple[tuple[float, float], tuple[float, float]]]|None, random_step_offset: tuple[float, float]|None,
+    random_ranges_angle: list[tuple[float, float]]|None, random_step_angle: float|None,
+    random_ranges_scale: list[tuple[float, float]]|None, random_step_scale: float|None,
 ):
     pivot_np = np.array(pivot)
     stacking = d.filtered()  # deep copy
@@ -85,7 +87,7 @@ def _stack(
         stacking.apply_for_all(movement.offset, offset_3d=offset)
         if outset:
             stacking.apply_for_all(movement.outset, outset_scalar=outset, pivot=pivot_np)
-        if random_ranges_offset is not None or random_ranges_angle is not None:
+        if random_ranges_offset is not None or random_ranges_angle is not None or random_ranges_scale is not None:
             tmp = stacking.filtered()  # deep copy
             if random_ranges_offset is not None:
                 if len(random_ranges_offset) == 1:
@@ -116,6 +118,20 @@ def _stack(
                 else:
                     random_rotation = rng.uniform(ang_area[0], ang_area[1])
                 tmp.apply_for_all(movement.rotate, angle=random_rotation, pivot=pivot_np)
+            if random_ranges_scale is not None:
+                if len(random_ranges_scale) == 1:
+                    scale_area = random_ranges_scale[0]
+                else:
+                    scale_areas = np.array([
+                        max(a_max-a_min, 0.01)  # ang_area, where 0-width axes are counted as 0.01 for numerical stability
+                        for a_max, a_min in random_ranges_scale
+                    ])
+                    scale_area = rng.choice(random_ranges_scale, p=scale_areas/sum(scale_areas))
+                if random_step_scale is not None:
+                    random_scale = random_step_scale * rng.integers(round(scale_area[0]/random_step_scale), round(scale_area[1]//random_step_scale), endpoint=True)
+                else:
+                    random_scale = rng.uniform(scale_area[0], scale_area[1])
+                tmp.apply_for_all(movement.scale, scale_3d=np.array((random_scale, random_scale, 1)), pivot=pivot_np)
             d.merge(tmp)
         else:
             d.merge(stacking)
@@ -286,6 +302,7 @@ def _stacking_tab() -> None:
             r = pattern_angle.parsed_value
             wr = walls_angle.parsed_value
             outset = outset_amount.parsed_value
+            # random offset
             try:
                 if not random_offset.value:  # empty string or None
                     random_ranges_offset = random_step_offset = None
@@ -303,6 +320,7 @@ def _stacking_tab() -> None:
                     random_step_offset = None
             except ValueError as ve:
                 raise ParseInputError(input_id="stacking_random_offset", value=random_offset.value, exc=ve) from ve
+            # random angle
             try:
                 if not random_angle.value:  # empty string or None
                     random_ranges_angle = random_step_angle = None
@@ -315,6 +333,19 @@ def _stacking_tab() -> None:
                     random_step_angle = None
             except ValueError as ve:
                 raise ParseInputError(input_id="stacking_random_angle", value=random_angle.value, exc=ve) from ve
+            # random scale
+            try:
+                if not random_scale.value:  # empty string or None
+                    random_ranges_scale = random_step_scale = None
+                elif "@" in random_scale.value:
+                    ranges, step = random_scale.value.rsplit("@", 1)
+                    random_ranges_scale = [parse_range(r) for r in ranges.split(";")]
+                    random_step_scale = parse_number(step)
+                else:
+                    random_ranges_scale = [parse_range(r) for r in random_scale.value.split(";")]
+                    random_step_scale = None
+            except ValueError as ve:
+                raise ParseInputError(input_id="stacking_random_scale", value=random_scale.value, exc=ve) from ve
             try:
                 with safe_clipboard_data(use_original=True, realign_start=False) as d:  # type: synth_format.ClipboardDataContainer
                     if count_mode == "count":
@@ -328,6 +359,7 @@ def _stacking_tab() -> None:
                         offset=o, scale=s, rotation=r, wall_rotation=wr, outset=outset,
                         random_ranges_offset=random_ranges_offset, random_step_offset=random_step_offset,
                         random_ranges_angle=random_ranges_angle, random_step_angle=random_step_angle,
+                        random_ranges_scale=random_ranges_scale, random_step_scale=random_step_scale,
                     )
             except PrettyError:
                 raise
@@ -397,7 +429,7 @@ def _stacking_tab() -> None:
                     |`<range A>; <range B>` |`-10:-5, 1;5:10,1` |Multiple ranges (weighted based on size): Any offset in the two rectangles from -10,-1 to -5,+1 and +5,-1 to +10,+1|
                     |`... @<step_x>,<step_y>` |`-5,0:-3,0; 1,0:2,0 @1,1` |Must be at the end: Random values are always a multiple of the step (1sq here), so ie X will be chosen randomly from -5,-4,-3,+1,+2, while Y is always 0. When just step_x is given, that step is also used for Y|
 
-                    Rotation works the same, except there is only a single value, not X and Y (ie `5;-2:1@0.5`)
+                    Rotation and scaling works the same, except there is only a single value, not X and Y (ie `5;-2:1@0.5` or `500%;-200%:100%@25%`)
                 """)
             with ui.label("Random"):
                 with ui.button(icon="help", on_click=random_dialog.open).props('flat text-color=info').classes("w-4 h-4 text-xs cursor-help"):
@@ -407,7 +439,9 @@ def _stacking_tab() -> None:
             random_offset.default_value = ""
             random_angle = ui.input("Rotation Range", value="").props('dense suffix="°"').classes("w-24").bind_value(app.storage.user, "stacking_random_angle")
             random_angle.default_value = ""
-            _clear_button(random_offset, random_angle)
+            random_scale = ui.input("Scale Range", value="").props('dense suffix="°"').classes("w-24").bind_value(app.storage.user, "stacking_random_scale")
+            random_scale.default_value = ""
+            _clear_button(random_offset, random_angle, random_scale)
 
     with ui.card():
         @handle_errors

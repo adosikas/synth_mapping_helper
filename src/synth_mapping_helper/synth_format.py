@@ -368,7 +368,7 @@ class DataContainer:
         for t in NOTE_TYPES:
             if t not in types:
                 new_notes[t] = {}
-            if not rail_filter:
+            elif not rail_filter:
                 new_notes[t] = getattr(self, t)
             else:
                 new_notes[t] = {
