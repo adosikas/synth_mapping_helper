@@ -16,7 +16,15 @@ from synth_mapping_helper.gui_tabs.utils import *
 from synth_mapping_helper.utils import pretty_list, pretty_fraction, beat_to_second, second_to_beat
 from synth_mapping_helper import synth_format, movement, analysis, audio_format, __version__, rails
 
-NOTE_COLORS = {"right": "red", "left": "blue", "single": "green", "both": "orange", "combined": "black"}
+PLOT_COLORS = {
+    "right": "red",
+    "left": "blue",
+    "single": "green",
+    "both": "orange",
+    "combined": "black",
+    "notes+rails": "black",
+    "walls": "purple",
+}
 
 WARNING_MAX = 100  # Tab stops working if there are too many
 
@@ -41,6 +49,8 @@ def _file_utils_tab() -> None:
         # [diff][type][subtype]
         note_densities: Optional[dict[str, dict[str, dict[str, analysis.PlotDataContainer]]]] = None
         # [diff][type]
+        running_counts: Optional[dict[str, dict[str, analysis.PlotDataContainer]]] = None
+        # [diff][type]
         hand_curves: Optional[dict[str, dict[str, analysis.HAND_CURVE_TYPE]]] = None
         # [diff]
         warnings: Optional[dict[str, list[analysis.Warning]]] = None
@@ -60,6 +70,7 @@ def _file_utils_tab() -> None:
             self.bpm_scan_data = None
             self.wall_densities = None
             self.note_densities = None
+            self.running_counts = None
             self.hand_curves = None
             self.warnings = None
             self.refresh()
@@ -89,7 +100,8 @@ def _file_utils_tab() -> None:
                 ui.timer(0.1, self._calc_warn, once=True)
                 ui.timer(0.2, self._calc_wden, once=True)
                 ui.timer(0.3, self._calc_nden, once=True)
-                ui.timer(0.4, self._calc_hcurve, once=True)
+                ui.timer(0.4, self._calc_rcount, once=True)
+                ui.timer(0.5, self._calc_hcurve, once=True)
                 ui.timer(1.0, self._calc_bpm, once=True)
 
             self.refresh()
@@ -178,7 +190,7 @@ def _file_utils_tab() -> None:
 
             data = BytesIO()
             self.data.save_as(data)
-            ui.download(data.getvalue(), filename=self.output_filename or "unnamed.synth")
+            ui.download.content(data.getvalue(), filename=self.output_filename or "unnamed.synth")
 
         def save_errors(self):
             out = [
@@ -192,7 +204,7 @@ def _file_utils_tab() -> None:
                 for jpe, time in errors:
                     out.append(f"{diff}@{time}: {jpe!r}")
 
-            ui.download('\n'.join(out).encode(), filename="smh_error_report.txt")
+            ui.download.content('\n'.join(out).encode(), filename="smh_error_report.txt")
             info("Saved error log")
 
         def refresh(self) -> None:
@@ -557,6 +569,11 @@ def _file_utils_tab() -> None:
             self._density_card.refresh()
 
         @handle_errors
+        async def _calc_rcount(self):
+            self.running_counts = await run.cpu_bound(analysis.all_running_counts, diffs=self.data.difficulties)
+            self._density_card.refresh()
+
+        @handle_errors
         async def _calc_hcurve(self):
             self.hand_curves = await run.cpu_bound(analysis.all_hand_curves, diffs=self.data.difficulties)
             self._hands_card.refresh()
@@ -626,11 +643,38 @@ def _file_utils_tab() -> None:
                             x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{nt} {sub_t}s [max {round(pdc.max_value)}]",
                             showlegend=True,
                             legendgroup=nt,
-                            line={"color": NOTE_COLORS[nt]},
+                            line={"color": PLOT_COLORS[nt]},
                             # start with only combined note visible
                             visible=(nt == "combined" and sub_t == "note") or "legendonly",
                         )
             ui.plotly(nfig).classes("w-full h-128")
+
+        def _rcount_content(self, rcount_dict: dict[str, analysis.PlotDataContainer]) -> None:
+            # mostly the same thing as densities, but for total notes and walls
+            nfig = go.Figure(
+                layout=go.Layout(
+                    yaxis=go.layout.YAxis(title="Count"),
+                    legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
+                    margin=go.layout.Margin(l=0, r=0, t=0, b=0),
+                    hovermode="x unified",
+                ),
+            )
+            for t, b in self.data.bookmarks.items():
+                nfig.add_vline(t, line={"color": "lightgray", "dash": "dash"}, annotation=go.layout.Annotation(text="🔖", font=dict(color="gray"), hovertext=b, xanchor="center", yanchor="bottom"), annotation_position="bottom")
+
+            for nt in ("notes+rails", "walls", *synth_format.ALL_TYPES):
+                pdc = rcount_dict[nt]
+                if pdc.max_value:
+                    nfig.add_scattergl(
+                        x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=nt,
+                        showlegend=True,
+                        legendgroup=nt,
+                        line={"color": PLOT_COLORS.get(nt, "grey")},
+                        # start with only combined note visible
+                        visible=(nt in ("notes+rails", "walls")) or "legendonly",
+                    )
+            ui.plotly(nfig).classes("w-full h-128")
+
 
         def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE]|None, warnings: list[analysis.Warning]|None, diff_data: synth_format.DataContainer) -> None:
             xfig = go.Figure(
@@ -679,13 +723,13 @@ def _file_utils_tab() -> None:
                         x=pos[:,2], y=pos[:,0], name="curve",
                         showlegend=True,
                         legendrank=1,
-                        line={"color": NOTE_COLORS[nt], "width": 1}
+                        line={"color": PLOT_COLORS[nt], "width": 1}
                     )
                     yfig.add_scattergl(
                         x=pos[:,2], y=pos[:,1], name="curve",
                         showlegend=True,
                         legendrank=1,
-                        line={"color": NOTE_COLORS[nt], "width": 1}
+                        line={"color": PLOT_COLORS[nt], "width": 1}
                     )
                     if not np.isnan(pos).all():
                         note_list = []
@@ -703,14 +747,14 @@ def _file_utils_tab() -> None:
                             showlegend=True,
                             legendrank=2,
                             mode="markers",
-                            marker={"color": NOTE_COLORS[nt], "size": 8},
+                            marker={"color": PLOT_COLORS[nt], "size": 8},
                         )
                         yfig.add_scattergl(
                             x=note_array[:,2], y=note_array[:,1], name="notes",
                             showlegend=True,
                             legendrank=2,
                             mode="markers",
-                            marker={"color": NOTE_COLORS[nt], "size": 8},
+                            marker={"color": PLOT_COLORS[nt], "size": 8},
                         )
                         if rail_list:
                             rail_array = np.concatenate(rail_list)
@@ -718,13 +762,13 @@ def _file_utils_tab() -> None:
                                 x=rail_array[:,2], y=rail_array[:,0], name="rails",
                                 showlegend=True,
                                 legendrank=2,
-                                line={"color": NOTE_COLORS[nt], "width": 2}
+                                line={"color": PLOT_COLORS[nt], "width": 2}
                             )
                             yfig.add_scattergl(
                                 x=rail_array[:,2], y=rail_array[:,1], name="rails",
                                 showlegend=True,
                                 legendrank=2,
-                                line={"color": NOTE_COLORS[nt], "width": 2}
+                                line={"color": PLOT_COLORS[nt], "width": 2}
                             )
                             node_array = np.concatenate(node_list)
                             xfig.add_scattergl(
@@ -732,14 +776,14 @@ def _file_utils_tab() -> None:
                                 showlegend=True,
                                 legendrank=2,
                                 mode="markers",
-                                marker={"color": NOTE_COLORS[nt], "size": 4},
+                                marker={"color": PLOT_COLORS[nt], "size": 4},
                             )
                             yfig.add_scattergl(
                                 x=node_array[:,2], y=node_array[:,1], name="nodes",
                                 showlegend=True,
                                 legendrank=2,
                                 mode="markers",
-                                marker={"color": NOTE_COLORS[nt], "size": 4},
+                                marker={"color": PLOT_COLORS[nt], "size": 4},
                             )
                     if not np.isnan(vel).all():
                         v_mag = np.sqrt((vel[:,0]**2) + (vel[:,1]**2)) * vel_mult
@@ -747,20 +791,20 @@ def _file_utils_tab() -> None:
                             x=vel[:,2], y=v_mag, name="total",
                             showlegend=True,
                             legendrank=1,
-                            line={"color": NOTE_COLORS[nt]}
+                            line={"color": PLOT_COLORS[nt]}
                         )
                         vfig.add_scattergl(
                             x=vel[:,2], y=vel[:,0] * vel_mult, name="x",
                             showlegend=True,
                             legendrank=2,
-                            line={"color": NOTE_COLORS[nt]},
+                            line={"color": PLOT_COLORS[nt]},
                             visible="legendonly",
                         )
                         vfig.add_scattergl(
                             x=vel[:,2], y=vel[:,1] * vel_mult, name="y",
                             showlegend=True,
                             legendrank=2,
-                            line={"color": NOTE_COLORS[nt]},
+                            line={"color": PLOT_COLORS[nt]},
                             visible="legendonly",
                         )
                         any_vel = True
@@ -770,20 +814,20 @@ def _file_utils_tab() -> None:
                             x=acc[:,2], y=a_mag, name="total",
                             showlegend=True,
                             legendrank=1,
-                            line={"color": NOTE_COLORS[nt]}
+                            line={"color": PLOT_COLORS[nt]}
                         )
                         afig.add_scattergl(
                             x=acc[:,2], y=acc[:,0] * acc_mult, name="x",
                             showlegend=True,
                             legendrank=2,
-                            line={"color": NOTE_COLORS[nt]},
+                            line={"color": PLOT_COLORS[nt]},
                             visible="legendonly",
                         )
                         afig.add_scattergl(
                             x=acc[:,2], y=acc[:,1] * acc_mult, name="y",
                             showlegend=True,
                             legendrank=2,
-                            line={"color": NOTE_COLORS[nt]},
+                            line={"color": PLOT_COLORS[nt]},
                             visible="legendonly",
                         )
                         any_acc = True
@@ -793,7 +837,7 @@ def _file_utils_tab() -> None:
                 if len(warnings) > WARNING_MAX:
                     ui.label(f"Too many warnings ({len(warnings)}), marking first {WARNING_MAX} only. See the warnings table for the rest.")
                 for w in warnings[:WARNING_MAX]:
-                    color = NOTE_COLORS.get(w.note_type, "black")
+                    color = PLOT_COLORS.get(w.note_type, "black")
                     for fn, fig in zip("xy", (xfig, yfig)):
                         if fn in w.figure:
                             if w.start_beat == w.end_beat:
@@ -949,6 +993,14 @@ def _file_utils_tab() -> None:
                 ui.label("No data").classes("h-32")
             else:
                 self._nden_content(self.note_densities[difficulty])
+
+            ui.label("Running counts")
+            if self.running_counts is None:
+                ui.spinner(size="xl")
+            elif difficulty not in self.running_counts or not (self.running_counts[difficulty]["notes+rails"].max_value or self.running_counts[difficulty]["notes"].max_value):
+                ui.label("No data").classes("h-32")
+            else:
+                self._rcount_content(self.running_counts[difficulty])
 
         @ui.refreshable
         def stats_card(self) -> None:

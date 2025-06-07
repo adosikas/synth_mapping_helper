@@ -9,7 +9,7 @@ import librosa
 import soundfile
 
 from synth_mapping_helper import rails, utils, audio_format
-from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES, NOTE_TYPES, WALL_TYPES, AudioData, GRID_SCALE
+from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES, NOTE_TYPES, WALL_TYPES, ALL_TYPES, AudioData, GRID_SCALE
 
 RENDER_WINDOW_WALL = 4.0  # the game always renders walls 4 seconds ahead
 RENDER_WINDOW_NOTES = 3.5  # the game always renders notes 3.5 seconds ahead
@@ -143,6 +143,26 @@ def wall_densities(data: DataContainer) -> dict[str, PlotDataContainer]:
 def all_wall_densities(diffs: dict[str, DataContainer]) -> dict[str, dict[str, PlotDataContainer]]:
     return {
         d: wall_densities(c)
+        for d, c in diffs.items()
+    }
+
+def running_counts(data: DataContainer) -> dict[str, PlotDataContainer]:
+    times: dict[str, list[float]] = {
+        t: sorted(data.get_object_dict(t)) for t in ALL_TYPES
+    }
+    times["notes+rails"] = sorted(ti for t in NOTE_TYPES for ti in times[t])
+    times["walls"] = sorted(ti for t in WALL_TYPES for ti in times[t])
+    return {
+        t: PlotDataContainer(
+            times=np.array(tis),
+            plot_data=np.array(np.stack((tis, range(1,len(tis)+1)), axis=-1)),
+        )
+        for t, tis in times.items()
+    }
+
+def all_running_counts(diffs: dict[str, DataContainer]) -> dict[str, dict[str, PlotDataContainer]]:
+    return {
+        d: running_counts(c)
         for d, c in diffs.items()
     }
 

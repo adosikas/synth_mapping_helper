@@ -97,7 +97,7 @@ def entrypoint():
                     ui.tab(name=t.name, label=t.label, icon=t.icon)
                     for t in tab_list
                 ]
-            with ui.button(icon="bug_report" + "support", color="negative", on_click=lambda _:ui.download("error_report", "smh_gui_error.json")).props("text-color=white").classes("ml-auto"):
+            with ui.button(icon="bug_report" + "support", color="negative", on_click=lambda _:ui.download.from_url("error_report", filename="smh_gui_error.json")).props("text-color=white").classes("ml-auto"):
                 ui.tooltip("Save report of last error")
             with ui.element():
                 ui.tooltip("Switch dark mode")
