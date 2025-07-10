@@ -208,7 +208,7 @@ def flatten_mirror_card(action_btn_cls: Any) -> None:
                 func=partial(_do_mirror_axis, axis=1),
             )
             action_btn_cls(
-                tooltip="Mirror time (reverse). Enabling 'Realign Start' at the top is recommended.",
+                tooltip="Mirror time (reverse). Enabling realigning (orange slider in the top left) is recommended.",
                 icon="fast_rewind",
                 func=partial(_do_mirror_axis, axis=2),
             )

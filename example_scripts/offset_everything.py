@@ -5,7 +5,7 @@
 # Offset everything in a map by configured amount
 
 from pathlib import Path
-import synth_mapping_helper
+from synth_mapping_helper import synth_format, movement
 
 # CONFIG
 
@@ -23,5 +23,5 @@ with synth_format.file_data(in_file, save_suffix=save_suffix) as f:
     # loop over all difficulty levels
     for diff_name, data in f.difficulties.items():
         # apply offset to every wall, note and rail
-        data.apply_for_all(synth_mapping_helper.movement.offset, offset)
+        data.apply_for_all(movement.offset, offset)
 

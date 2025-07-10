@@ -680,6 +680,7 @@ def _wall_art_tab() -> None:
                     ui.tooltip("Copy (CTRL+C)")
                 def _clear() -> None:
                     undo.reset()
+                    selection.clear()
                     walls.clear()
                     _soft_refresh()
                 with ui.button(icon="clear", color="negative", on_click=_clear).props("outline").style("width: 36px"):
