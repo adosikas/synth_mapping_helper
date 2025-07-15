@@ -20,7 +20,7 @@ jobs:
           Remove-Item -Recurse -Force build
       - name: Build exe
         run: |
-          pyinstaller --name=smh-gui_${{ github.ref_name }} --onefile src/synth_mapping_helper/gui.py --additional-hooks-dir=.
+          nicegui-pack --name=smh-gui_${{ github.ref_name }} --onefile src/synth_mapping_helper/gui.py
       - name: Upload windows_exe
         uses: actions/upload-artifact@v4
         with:
