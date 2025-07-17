@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from functools import partial
-from typing import Any, Callable, Optional, List
+from typing import Any, Callable, Optional, List, Literal
 
 import numpy as np
 from nicegui import app, events, ui
@@ -366,6 +366,7 @@ def rails_card(action_btn_cls: Any) -> None:
                 tooltip="Interpolate rail nodes",
                 icon="format_line_spacing"+"commit",
                 apply_func=partial(rails.interpolate_nodes, mode="spline"),
+                apply_for="notes",
                 apply_args=lambda: dict(interval=rail_interval.parsed_value*(1-rail_from_back.value*2)),
                 wiki_ref="Rail-Options#interpolate",
             )
@@ -373,6 +374,7 @@ def rails_card(action_btn_cls: Any) -> None:
                 tooltip="Extend level",
                 icon="swipe_right_alt" + "horizontal_rule",
                 apply_func=rails.extend_level,
+                apply_for="notes",
                 apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
 
@@ -390,6 +392,7 @@ def rails_card(action_btn_cls: Any) -> None:
                 tooltip="Extend directional / straight",
                 icon="swipe_right_alt" + "double_arrow",
                 apply_func=rails.extend_straight,
+                apply_for="notes",
                 apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
 
@@ -397,6 +400,7 @@ def rails_card(action_btn_cls: Any) -> None:
                 tooltip="Shorten rail by amount from the end",
                 icon="content_cut"+"straighten",
                 apply_func=rails.shorten_rail_by,
+                apply_for="notes",
                 apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
                 wiki_ref="Rail-Options#shorten-rails",
             )
@@ -404,11 +408,13 @@ def rails_card(action_btn_cls: Any) -> None:
                 tooltip="Shorten rail to given length",
                 icon="straighten"+"content_cut",
                 apply_func=rails.shorten_rail_to,
+                apply_for="notes",
                 apply_args=lambda: dict(distance=rail_interval.parsed_value*(1-rail_from_back.value*2)),
             )
             action_btn_cls(
                 tooltip="Extend pointing to next",
                 icon="swipe_right_alt" + "swipe_right_alt",
+                apply_for="notes",
                 func=lambda data, types, rail_filter, **kwargs: data.apply_for_note_types(rails.extend_to_next, distance=rail_interval.parsed_value*(1-rail_from_back.value*2), types=types, rail_filter=rail_filter),
             )
 
@@ -514,16 +520,19 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
                 tooltip="Spiral (counter-clockwise)",
                 icon="rotate_left",
                 apply_func=partial(_add_spiral, fid_dir=1),
+                apply_for="notes",
             ).props("rounded")
             action_btn_cls(
                 tooltip="Spiral (clockwise)",
                 icon="rotate_right",
                 apply_func=partial(_add_spiral, fid_dir=-1),
+                apply_for="notes",
             ).props("rounded")
             action_btn_cls(
                 tooltip="Random nodes",
                 icon="casino",
                 apply_func=partial(_add_spiral, fid_dir=0),
+                apply_for="notes",
             ).props("rounded outline")
         with ui.row():
             with ui.label("Spikes"):
@@ -545,16 +554,19 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
                 tooltip="Spikes (counter-clockwise)",
                 icon="rotate_left",
                 apply_func=partial(_add_spikes, fid_dir=1),
+                apply_for="notes",
             ).props("square")
             action_btn_cls(
                 tooltip="Spikes (clockwise)",
                 icon="rotate_right",
                 apply_func=partial(_add_spikes, fid_dir=-1),
+                apply_for="notes",
             ).props("square")
             action_btn_cls(
                 tooltip="Spikes (random)",
                 icon="casino",
                 apply_func=partial(_add_spikes, fid_dir=0),
+                apply_for="notes",
             ).props("square")
 
 def wall_spacing_card(action_btn_cls: Any) -> None:
@@ -752,6 +764,7 @@ def _dashboard_tab() -> None:
             icon: str="play_arrow", icon_angle: int=0, 
             func: Callable|None=None,
             apply_func: Callable|None=None,
+            apply_for: Literal["all", "walls", "notes"] = "all",
             apply_args: Callable[[], dict[str, ...]]|dict[str, ...]|None=None,
             **kwargs
         ):
@@ -764,7 +777,7 @@ def _dashboard_tab() -> None:
             else: # apply_func
                 if apply_args is None:
                     apply_args = {}
-                self._func = lambda data, **kwargs: data.apply_for_all(apply_func, **kwargs, **(apply_args() if callable(apply_args) else apply_args))
+                self._func = lambda data, **kwargs: getattr(data, f"apply_for_{apply_for}")(apply_func, **kwargs, **(apply_args() if callable(apply_args) else apply_args))
 
             self.classes("w-12 h-10")
             with (self.add_slot("default") if icon_angle else self):

@@ -56,8 +56,8 @@ def spikes(
 def add_spikes(nodes: "numpy array (n, 3)", fidelity: float, radius: float, spike_duration: float, start_angle: float = 0.0, direction: int = 1) -> "numpy array (n, 3)":
     node_count = nodes.shape[0]  # backup count before repeat
     nodes = np.repeat(nodes, 3, axis=0)
-    nodes[::3] -= spike_duration
-    nodes[1::3] -= spike_duration/2
+    nodes[::3, 2] -= spike_duration
+    nodes[1::3, 2] -= spike_duration/2
     nodes[:, :2] += spikes(
         fidelity=fidelity * direction,
         length=node_count,
