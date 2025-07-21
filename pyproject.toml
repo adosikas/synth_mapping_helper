@@ -17,7 +17,7 @@ dependencies = [
     "librosa==0.11.0",
     "soundfile==0.13.1",
     "audioread==3.0.1",
-    "pywin32==310; sys_platform=='win32'",
+    "pywin32==311; sys_platform=='win32'",
 ]
 requires-python = ">=3.11"
 authors = [{"name"="adosikas"}]
