@@ -150,7 +150,7 @@ The following is a list of features broken down by GUI tab:
 # Technical information
 
 The GUI is built with [NiceGUI](https://nicegui.io/), allowing me to write a "frontend" with pure python. Even the wall art editor is created from python, which is why I am not currently able to make a "full editor" as that requires some fully clientside logic (ThreeJS in particular).  
-If you have experience there and would like to help me make a proper editor (with native intergration for SMH, please let me know).
+If you have experience there and would like to help me make a proper editor (with native intergration for SMH, integrated spectrum/movement plots, etc), please let me know.
 
 In the "backend" everything is python and numpy arrays, and uses fairly modular functions for the various operations. Feel free to experiment with using the API to make custom python scripts, but that requires the advanced installation (see above).
 
@@ -162,12 +162,13 @@ Please do not suggest any features that involve what is called "AI" these days (
 I am open to "normal" statistics (like the BPM detection).
 
 Also, I _urge_ you not to use any of functionality provided here to make something resembling an "automapper", including (but not limited to) mass-parsing `.synth` files for AI-Training or exporting LLM-Output into a map.  
-This project is MIT-licensed, so I won't stop you, but please consider the implications of an auto-mapping, including:
+This project is MIT-licensed, so I won't stop you, but please consider the implications of an auto-mapper, including:
 
 * Rapid decrease of map quality, as LLMs will just go for what is "statistically likely", meaning boring, repetitive patterns and no "new" creative patterns
 * Even further decrease, once training data includes automapped inputs
 * Everyone can just get a mediocre map for whatever they want, leading to multiple maps for the same song (many of them similar)
 * Just look at _other game_, where you have thousands of maps, but **need** curation to find the good ones.
-* Currently, the majority is good, so you can just get all. With auto-mapped maps, that won't work, meaning multiplayer won't work as it does now.
+* Currently, a lot of maps have decent quality, so you can just download all and ignore the bad ones.  
+  With thousands of auto-mapped (and thereby low-effort) maps, that won't work, meaning multiplayer won't work as it does now.
 * Dying out of the custom map community as it currently exists, as people won't have an incentive to learn mapping
 * Insert more general talking points against LLMs here, e.g. energy usage, ethic training data, etc.
