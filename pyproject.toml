@@ -7,7 +7,7 @@ name = "synth_mapping_helper"
 dependencies = [
     "numpy==2.2.6",
     "numba==0.61.2",
-    "scipy==1.16.1",
+    "scipy==1.16.2",
     "matplotlib==3.10.6",
     "plotly==6.3.0",
     "pyperclip==1.9.0",
