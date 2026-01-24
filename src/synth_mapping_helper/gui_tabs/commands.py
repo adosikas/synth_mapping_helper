@@ -89,16 +89,16 @@ def _command_tab() -> None:
         quick_run_buttons.refresh()
 
     @handle_errors
-    def load_commands(e: events.UploadEventArguments) -> None:
+    async def load_commands(e: events.UploadEventArguments) -> None:
         upl: ui.upload = e.sender  # type: ignore
         upl.reset()
-        data = e.content.read()
+        data = await e.file.read()
         try:
-            presets[e.name] = data.decode()
+            presets[e.file.name] = data.decode()
             presets_updated()
-            preset_selector.value = e.name  # this also loads the content
+            preset_selector.value = e.file.name  # this also loads the content
         except UnicodeDecodeError as ude:
-            raise PrettyError(msg=f"Error reading commands from {e.name}", exc=ude, data=data[ude.start: ude.end].hex())
+            raise PrettyError(msg=f"Error reading commands from {e.file.name}", exc=ude, data=data[ude.start: ude.end].hex())
 
     @handle_errors
     def run_command() -> None:

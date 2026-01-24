@@ -188,11 +188,11 @@ def wiki_reference(page: str, invert_colors: bool = False) -> ui.badge:
         ui.tooltip(f"Open wiki: {page}")
     return b
 
-def try_load_synth_file(e: events.UploadEventArguments) -> Optional[synth_format.SynthFile]:
+async def try_load_synth_file(e: events.UploadEventArguments) -> Optional[synth_format.SynthFile]:
     try:
-        data = synth_format.import_file(BytesIO(e.content.read()))
+        data = synth_format.import_file(BytesIO(await e.file.read()))
     except Exception as exc:
-        msg = f"Error reading {e.name} as SynthFile"
+        msg = f"Error reading {e.file.name} as SynthFile"
         upl: ui.upload = e.sender  # type: ignore
         upl.reset()
         error(msg, exc)

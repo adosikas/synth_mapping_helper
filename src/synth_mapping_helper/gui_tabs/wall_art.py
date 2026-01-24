@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi.responses import Response
 from nicegui import ui, app, events
-from nicegui.elements.scene_objects import Extrusion, Texture
+from nicegui.elements.scene.scene_objects import Extrusion, Texture
 import numpy as np
 import pyperclip
 import requests
@@ -505,10 +505,10 @@ def _wall_art_tab() -> None:
                             app.storage.user["wall_art_ref_image"] = b64encode(data).decode()
                             ui.notify(f"Downloaded reference image ({len(data)/1024:.1f} KiB). Click APPLY to apply.", type="positive")
                     ui.button(icon="cloud_download", on_click=_download_image, color="positive").props("outline").tooltip("Download image from URL").classes("w-10")
-                    def _upload_image(e: events.UploadEventArguments) -> None:
+                    async def _upload_image(e: events.UploadEventArguments) -> None:
                         upl: ui.upload = e.sender  # type:ignore
                         upl.reset()
-                        data = e.content.read()
+                        data = await e.file.read()
                         app.storage.user["wall_art_ref_image"] = b64encode(data).decode()
                         ui.notify(f"Uploaded reference image ({len(data)/1024:.1f} KiB). Click APPLY to apply.", type="positive")
                     refimg_upload = ui.upload(label="Upload File", multiple=True, auto_upload=True, on_upload=_upload_image).props('outline color="positive" accept="image/*"').classes("w-28")
@@ -802,7 +802,7 @@ def _wall_art_tab() -> None:
                                 <polygon points="{' '.join(f"{-x},{y}" for x,y in v)}" stroke="white"/>
                             </svg>
                         '''
-                        ui.html(content)
+                        ui.html(content, sanitize=False)
 
         refimg_apply_button.on("click", draw_preview_scene.refresh)
         preview_apply_button.on("click", draw_preview_scene.refresh)

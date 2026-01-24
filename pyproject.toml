@@ -5,15 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "synth_mapping_helper"
 dependencies = [
-    "numpy==2.2.6",
-    "numba==0.61.2",
-    "scipy==1.16.2",
-    "matplotlib==3.10.6",
-    "plotly==6.3.0",
-    "pyperclip==1.9.0",
+    "numpy==2.3.5",
+    "numba==0.63.1",
+    "scipy==1.17.0",
+    "matplotlib==3.10.8",
+    "plotly==6.5.2",
+    "pyperclip==1.11.0",
     "watchdog==6.0.0",
     "requests==2.32.5",
-    "nicegui==2.24.1",
+    "nicegui==3.6.1",
     "librosa==0.11.0",
     "soundfile==0.13.1",
     "audioread==3.0.1",

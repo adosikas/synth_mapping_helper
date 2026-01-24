@@ -80,14 +80,14 @@ def _file_utils_tab() -> None:
             upl: ui.upload = e.sender  # type:ignore
             upl.reset()
             self.clear()
-            if e.name.endswith(".synth"):
-                self.data = try_load_synth_file(e)
-                self.output_filename = add_suffix(e.name, "out")
+            if e.file.name.endswith(".synth"):
+                self.data = await try_load_synth_file(e)
+                self.output_filename = add_suffix(e.file.name, "out")
             else:
                 try:
-                    self.data = synth_format.SynthFile.empty_from_audio(audio_file=BytesIO(e.content.read()), filename=e.name)
+                    self.data = synth_format.SynthFile.empty_from_audio(audio_file=BytesIO(await e.file.read()), filename=e.file.name)
                 except Exception as exc:
-                    error(f"Creating .synth from '{e.name}' failed", exc=exc)
+                    error(f"Creating .synth from '{e.file.name}' failed", exc=exc)
                     self.data = None
                 else:
                     self.output_filename = self.data.meta.name + ".synth"
@@ -107,22 +107,22 @@ def _file_utils_tab() -> None:
             self.refresh()
 
         @handle_errors
-        def upload_merge(self, e: events.UploadEventArguments) -> None:
+        async def upload_merge(self, e: events.UploadEventArguments) -> None:
             upl: ui.upload = e.sender  # type:ignore
             upl.reset()
             if self.data is None:
                 return
-            merge = try_load_synth_file(e)
+            merge = await try_load_synth_file(e)
             if merge is None:
                 return
             if merge.audio.raw_data != self.data.audio.raw_data:
                 ui.notify("Difference in audio files detected. Merge may yield weird results.", type="warning")
             self.data.merge(merge, merge_bookmarks=merge_bookmarks.value)
-            self.merged_filenames.append(e.name)
+            self.merged_filenames.append(e.file.name)
         
             self.refresh()
 
-        def upload_cover(self, e: events.UploadEventArguments) -> None:
+        async def upload_cover(self, e: events.UploadEventArguments) -> None:
             upl: ui.upload = e.sender  # type:ignore
             upl.reset()
             if self.data is None:
@@ -130,9 +130,9 @@ def _file_utils_tab() -> None:
             if not e.name.lower().endswith(".png"):
                 error("Cover image must be .png")
                 return
-            self.data.meta.cover_data = e.content.read()
-            self.data.meta.cover_name = e.name
-            ui.notify(f"Changed cover image to {e.name}", type="info")
+            self.data.meta.cover_data = await e.file.read()
+            self.data.meta.cover_name = e.file.name
+            ui.notify(f"Changed cover image to {e.file.name}", type="info")
             self.refresh()
 
         async def upload_audio(self, e: events.UploadEventArguments) -> None:
@@ -141,7 +141,7 @@ def _file_utils_tab() -> None:
             if self.data is None:
                 return
             try:
-                raw_data = e.content.read()
+                raw_data = await e.file.read()
                 try:
                     # spinning up another process is slow, so lets attempt without conversion first
                     new_audio = audio_format.AudioData.from_raw(raw_data)
@@ -150,12 +150,12 @@ def _file_utils_tab() -> None:
                     # conversion takes a while, so offload that to another process
                     new_audio = await run.cpu_bound(audio_format.AudioData.from_raw, raw_data=raw_data, allow_conversion=True)
             except ValueError as ve:
-                error("Error reading audio file", exc=ve, data=e.name)
+                error("Error reading audio file", exc=ve, data=e.file.name)
             else:
                 self.data.audio = new_audio
-                self.data.meta.audio_name = e.name
+                self.data.meta.audio_name = e.file.name
                 self._audio_info.refresh()
-                ui.notify(f"Changed audio to {e.name}", type="info")
+                ui.notify(f"Changed audio to {e.file.name}", type="info")
                 self.bpm_scan_data = {"state": "Waiting"}
                 # note: this callback runs inside the scope of the container of the uploader
                 # so if we did a full refresh here, the info_card would get re-created, deleting the container and the timer with it
