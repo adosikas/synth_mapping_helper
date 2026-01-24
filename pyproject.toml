@@ -19,7 +19,7 @@ dependencies = [
     "audioread==3.0.1",
     "pywin32==311; sys_platform=='win32'",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{"name"="adosikas"}]
 description = "Toolbox for manipulating the JSON-Format used by Synth Riders Beatmap Editor in the clipboard"
 readme = "README.md"
@@ -32,9 +32,9 @@ classifiers = [
     "Topic :: Games/Entertainment",
 
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
