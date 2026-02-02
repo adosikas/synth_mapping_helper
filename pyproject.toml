@@ -16,7 +16,7 @@ dependencies = [
     "nicegui==3.6.1",
     "librosa==0.11.0",
     "soundfile==0.13.1",
-    "audioread==3.0.1",
+    "audioread==3.1.0",
     "pywin32==311; sys_platform=='win32'",
 ]
 requires-python = ">=3.12"
