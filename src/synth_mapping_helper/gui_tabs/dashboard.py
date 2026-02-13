@@ -786,7 +786,7 @@ def _dashboard_tab() -> None:
                     else:
                         with ui.column().classes("w-96"):
                             for idx, item in enumerate(reversed(history), 1):
-                                item_index = len(history) - idx  # index in original history list
+                                item_index = len(history) - idx
                                 try:
                                     data = synth_format.ClipboardDataContainer.from_json(item)
                                     counts = data.get_counts()
