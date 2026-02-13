@@ -795,7 +795,8 @@ def _dashboard_tab() -> None:
                                     ])
                                 except Exception:
                                     info_str = f"{idx}. Invalid data"
-                                with ui.row().classes("items-center py-1 px-2"):
+                                extra_margin = "mt-3" if idx == 1 else ""
+                                with ui.row().classes(f"items-center py-1 px-2 {extra_margin}"):
                                     ui.label(info_str).classes("text-white")
                                     with ui.button(icon="content_copy", color="blue").props("dense") as copy_btn:
                                         ui.tooltip("Push to clipboard")
