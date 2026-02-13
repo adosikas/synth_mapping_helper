@@ -757,90 +757,76 @@ def _dashboard_tab() -> None:
                     pivot_x = make_input("X", 0, "pivot_x", suffix="sq").props("dark")
                     pivot_y = make_input("Y", 0, "pivot_y", suffix="sq").props("dark")
                     pivot_t = make_input("Time", 0, "pivot_t", suffix="b").props("dark")
-        with ui.card().classes("h-14 bg-grey-9").props("dark"), ui.row():
-            BANKS = ["bank_1", "bank_2", "bank_3"]
-            BANK_ICONS = ["looks_one", "looks_two", "looks_3"]
-            
-            def get_bank_number(bank: str) -> str:
-                return bank.split('_')[1]
-            
-            def update_radio_colors():
-                for icon, bank in zip(bank_icons, BANKS):
-                    color = "green" if app.storage.user.get(f"dashboard_memory_{bank}") else "white"
-                    icon.props(f"color={color}")
-            
-            def _store_memory_bank(bank: str) -> None:
+        @handle_errors
+        def _push_clipboard_to_history() -> None:
+            try:
                 with safe_clipboard_data(use_original=False, realign_start=False) as data:
-                    app.storage.user[f"dashboard_memory_{bank}"] = data.to_clipboard_json(realign_start=False)
-                update_radio_colors()
-                info(f"Stored clipboard data into memory bank '{get_bank_number(bank)}'")
-            
-            def _clear_memory_bank(bank: str) -> None:
-                bank_number = get_bank_number(bank)
-                def _confirm_clear() -> None:
-                    app.storage.user.pop(f"dashboard_memory_{bank}", None)
-                    update_radio_colors()
-                    info(f"Cleared memory bank '{bank_number}'")
-                with ui.dialog() as clear_dialog, ui.card():
-                    ui.label(f"Are you sure you want to clear memory bank '{bank_number}'?")
-                    with ui.row().classes("justify-end"):
-                        ui.button("Cancel").on_click(clear_dialog.close)
-                        ui.button("Clear", color="red").on_click(lambda: (clear_dialog.close(), _confirm_clear()))
-                clear_dialog.open()
-            
-            def _copy_memory_bank(bank: str) -> None:
-                write_clipboard(app.storage.user.get(f"dashboard_memory_{bank}"))
-                info(f"Copied memory bank '{get_bank_number(bank)}' data to clipboard")
-            
-            def _show_memory_bank_info() -> None:
-                bank = memory_bank_radio.value
-                bank_number = get_bank_number(bank)
-                bank_data = app.storage.user.get(f"dashboard_memory_{bank}")
-                if not bank_data:
-                    info(f"Memory bank '{bank_number}' is empty.")
-                    return
-                try:
-                    data = synth_format.ClipboardDataContainer.from_json(bank_data)
-                    counts = data.get_counts()
-                    count_items = [
-                        f"**{counts[t]['total']}** {t if counts[t]['total'] != 1 else t.rstrip('s')}"
-                        for t in ("notes", "rails", "rail_nodes", "walls")
-                    ]
-                    with ui.dialog() as info_dialog, ui.card():
-                        ui.markdown(f"#### Memory Bank '{bank_number}' Contains:\n\n{pretty_list(count_items)}")
-                        with ui.row().classes("justify-end"):
-                            ui.button("Close").on_click(info_dialog.close)
-                    info_dialog.open()
-                except (KeyError, ValueError) as exc:
-                    raise PrettyError(msg=f"Error reading data in {bank}", exc=exc, data=bank_data)
-            
-            with ui.button(icon="content_paste_go", color="green").classes("-my-1") as store_btn:
-                ui.tooltip("Store clipboard data in selected memory bank")
-            store_btn.on_click(lambda: _store_memory_bank(memory_bank_radio.value))
-            
-            with ui.button(icon="content_paste_off", color="red").classes("-my-1") as clear_btn:
-                ui.tooltip("Clear selected memory bank data")
-            clear_btn.on_click(lambda: _clear_memory_bank(memory_bank_radio.value))
-            
-            memory_bank_radio = ui.radio(
-                {bank: "" for bank in BANKS},
-                value="bank_1"
-            ).props("inline").classes("-my-1").bind_value(app.storage.user, "dashboard_memory")
-            
-            bank_icons = []
-            for i, icon_name in enumerate(BANK_ICONS, 1):
-                with ui.teleport(f"#{memory_bank_radio.html_id} > div:nth-child({i}) .q-radio__label"):
-                    bank_icons.append(ui.icon(icon_name, size="md"))
-            
-            with ui.button(icon="info", color="blue").classes("-my-1") as info_btn:
-                ui.tooltip("Show selected memory bank info")
-            info_btn.on_click(_show_memory_bank_info)
-            
-            with ui.button(icon="content_copy", color="blue").classes("-my-1") as copy_btn:
-                ui.tooltip("Copy selected memory bank data to clipboard")
-            copy_btn.on_click(lambda: _copy_memory_bank(memory_bank_radio.value))
-            
-            update_radio_colors()
+                    history = app.storage.user.get("dashboard_clipboard_history", [])
+                    history.append(data.to_clipboard_json(realign_start=False))
+                    app.storage.user["dashboard_clipboard_history"] = history
+                info("Pushed clipboard data to history stack")
+            except PrettyError as exc:
+                raise exc
+
+        def _clipboard_history_count() -> int:
+            return len(app.storage.user.get("dashboard_clipboard_history", []))
+
+        with ui.card().classes("h-14 bg-grey-9").props("dark"), ui.row():
+            with ui.button(icon="content_paste_go", color="green").classes("-my-1") as push_btn:
+                ui.tooltip("Push clipboard data to top of history stack")
+            clipboard_history_menu = ui.menu().classes("p-2")
+            def _rebuild_clipboard_history_menu():
+                clipboard_history_menu.clear()
+                with clipboard_history_menu:
+                    ui.label("Clipboard History").classes("font-bold mb-2")
+                    ui.separator()
+                    history = app.storage.user.get("dashboard_clipboard_history", [])
+                    if not history:
+                        ui.label("No clipboard history yet.").classes("text-grey")
+                    else:
+                        with ui.column().classes("w-96"):
+                            for idx, item in enumerate(reversed(history), 1):
+                                item_index = len(history) - idx  # index in original history list
+                                try:
+                                    data = synth_format.ClipboardDataContainer.from_json(item)
+                                    counts = data.get_counts()
+                                    info_str = f"{idx}. " + ", ".join([
+                                        f"{counts[t]['total']} {t}" for t in ("notes", "rails", "rail_nodes", "walls")
+                                    ])
+                                except Exception:
+                                    info_str = f"{idx}. Invalid data"
+                                with ui.row().classes("items-center py-1 px-2"):
+                                    ui.label(info_str).classes("text-white")
+                                    with ui.button(icon="content_copy", color="blue").props("dense") as copy_btn:
+                                        ui.tooltip("Push to clipboard")
+                                    def _copy_history_item(item=item, idx=idx):
+                                        write_clipboard(item)
+                                        info(f"Copied history item {idx} to clipboard")
+                                        clipboard_history_menu.close()
+                                        _rebuild_clipboard_history_menu()
+                                        clipboard_history_menu.open()
+                                    copy_btn.on_click(_copy_history_item)
+                                    with ui.button(icon="delete", color="red").props("dense") as del_btn:
+                                        ui.tooltip("Delete from history")
+                                    def _delete_history_item(item_index=item_index):
+                                        history = app.storage.user.get("dashboard_clipboard_history", [])
+                                        if 0 <= item_index < len(history):
+                                            history.pop(item_index)
+                                            app.storage.user["dashboard_clipboard_history"] = history
+                                        clipboard_history_menu.close()
+                                        _rebuild_clipboard_history_menu()
+                                        clipboard_history_menu.open()
+                                    del_btn.on_click(lambda idx=item_index: _delete_history_item(idx))
+                                ui.separator()
+            push_btn.on_click(_push_clipboard_to_history)
+            with ui.button(icon="history", color="blue").classes("-my-1") as history_btn:
+                badge = ui.badge(str(_clipboard_history_count()), color="green").props("floating")
+                ui.tooltip("Open clipboard history menu")
+                history_btn.on_click(lambda: (_rebuild_clipboard_history_menu(), clipboard_history_menu.open()))
+
+        def _update_history_badge():
+            badge.set_text(str(_clipboard_history_count()))
+        app.storage.user.on_change(_update_history_badge)
             
     class ActionButton(ui.button):
         def __init__(self,
