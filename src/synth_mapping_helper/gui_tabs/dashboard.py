@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import datetime, UTC
 from functools import partial
 from typing import Any, Callable, Optional, List, Literal
 
@@ -8,7 +9,7 @@ import pyperclip
 
 from .utils import *
 from .. import movement, pattern_generation, rails, synth_format
-from ..utils import parse_number, pretty_list, pretty_fraction
+from ..utils import parse_number, pretty_list, pretty_fraction, pretty_time_delta
 
 def _safe_inverse(v: float) -> float:
     return 0.0 if v == 0 else 1/v
@@ -758,6 +759,86 @@ def _dashboard_tab() -> None:
                     pivot_y = make_input("Y", 0, "pivot_y", suffix="sq").props("dark")
                     pivot_t = make_input("Time", 0, "pivot_t", suffix="b").props("dark")
 
+        app.storage.user.setdefault("dashboard_clipboard_history", {})
+        @ui.refreshable
+        def _clipboard_history_menu_content():
+            history = app.storage.user.get("dashboard_clipboard_history", {})
+            if not history:
+                clipboard_history_menu.close()
+            with ui.row():
+                ui.label("Clipboard History").classes("text-xl")
+                def _delete_all():
+                    app.storage.user.get("dashboard_clipboard_history", {}).clear()
+                    _clipboard_history_menu_content.refresh()
+                ui.space()
+                ui.button("Delete all", icon="delete_forever", color="negative", on_click=_delete_all).props("dense outline").tooltip("Delete all")
+            now = datetime.now(UTC)
+            data = []
+            for added_at, item in sorted(history.items(), reverse=True):
+                delta = (now-datetime.fromisoformat(added_at)).total_seconds()
+                counts = synth_format.ClipboardDataContainer.from_json(item).get_counts()
+                info_str = ", ".join([
+                    f"{counts[t]['total']} {t}" for t in ("notes", "rails", "rail_nodes", "walls")
+                ])
+                data.append({
+                    'copy': added_at,
+                    'top': added_at,
+                    'content': info_str,
+                    'stored': pretty_time_delta(max(1, delta))+" ago",
+                    'delete': added_at
+                })
+            hist_table = ui.table(rows=data, column_defaults={"align":"left"}).props("hide-header")
+            def _do_history_action(e: events.GenericEventArguments):
+                h = app.storage.user.get("dashboard_clipboard_history", {})
+                added_at, action = e.args
+                if not added_at in h:
+                    return  # no longer exists
+                if action == "copy":
+                    write_clipboard(h[added_at])
+                    info("Copied history item to clipboard")
+                elif action == "top":
+                    h[datetime.now(UTC).isoformat()] = h[added_at]
+                    del h[added_at]
+                    _clipboard_history_menu_content.refresh()
+                elif action == "delete":
+                    del h[added_at]
+                    _clipboard_history_menu_content.refresh()
+            with hist_table.add_slot("body-cell-copy"), hist_table.cell("copy").classes("p-2"):
+                with ui.button(icon="content_copy") as _btn_copy:
+                    ui.tooltip("Copy to clipboard")
+            with hist_table.add_slot("body-cell-top"), hist_table.cell("top").classes("p-2"):
+                with ui.button(icon="vertical_align_top").props("outline") as _btn_top:
+                    ui.tooltip("Move to top")
+            with hist_table.add_slot("body-cell-delete"), hist_table.cell("delete").classes("p-2"):
+                with ui.button(icon="delete", color="negative") as _btn_delete:
+                    ui.tooltip("Delete")
+            for btn in (_btn_copy, _btn_top, _btn_delete):
+                btn.props("dense").on(
+                    "click", js_handler="() => emit(props.value, props.col.name)",
+                    handler=_do_history_action
+                )
+        with ui.card().classes("h-14 bg-grey-9").props("dark"), ui.row():
+            @handle_errors
+            def _push_clipboard_to_history() -> None:
+                with safe_clipboard_data(use_original=False, realign_start=False) as data:
+                    history = app.storage.user["dashboard_clipboard_history"]
+                    history[datetime.now(UTC).isoformat()] = data.to_clipboard_json(realign_start=False)
+                    if len(history) > 10:
+                        # discard oldest
+                        del history[sorted(history)[0]]
+                    _clipboard_history_menu_content.refresh()
+                    info("Pushed clipboard data to history")
+            with ui.button(icon="content_paste_go", color="positive", on_click=_push_clipboard_to_history).classes("-my-1") as push_btn:
+                ui.tooltip("Push clipboard data to history")
+
+            with ui.button(icon="pending_actions", color="info").classes("-my-1").bind_enabled_from(app.storage.user, "dashboard_clipboard_history", bool):
+                badge = ui.badge("", color="positive").props("floating").bind_text_from(app.storage.user, "dashboard_clipboard_history", lambda h: str(len(h)))
+                ui.tooltip("Open clipboard history")
+
+                clipboard_history_menu = ui.menu().classes("p-2")
+                with clipboard_history_menu:
+                    _clipboard_history_menu_content()
+            
     class ActionButton(ui.button):
         def __init__(self,
             tooltip: str, wiki_ref: Optional[str] = None,
