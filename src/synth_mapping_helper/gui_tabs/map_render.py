@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
-from nicegui import app, elements, events, ui
+from nicegui import app, events, ui
+from nicegui.elements.scene import scene_objects
 import numpy as np
 
 from synth_mapping_helper.gui_tabs.utils import SMHInput, handle_errors
@@ -93,7 +94,7 @@ class MapScene(ui.scene):
         kwargs.setdefault("grid", False)
         super().__init__(*args, **kwargs)
         self.time_scale = time_scale
-        self.walls: dict[float, tuple[elements.scene_objects.Extrusion, elements.scene_objects.Extrusion]] = {}
+        self.walls: dict[float, tuple[scene_objects.Extrusion, scene_objects.Extrusion]] = {}
         self.wall_lookup: dict[str, float] = {}
         with self:
             self._obj_group = self.group()
@@ -111,10 +112,10 @@ class MapScene(ui.scene):
         super()._handle_drag(e)
     def to_scene(self, xyt: "numpy array (3+)") -> tuple[float, float, float]:
         return (xyt[0], xyt[2]*self.time_scale, xyt[1])
-    def _sphere(self, xyt: "numpy array (3+)", obj_settings: ObjectSettings, color: str) -> elements.scene_objects.Sphere:
+    def _sphere(self, xyt: "numpy array (3+)", obj_settings: ObjectSettings, color: str) -> scene_objects.Sphere:
         return self.sphere(obj_settings.size).move(*self.to_scene(xyt)).material(color, obj_settings.opacity)
 
-    def wall_extrusion(self, xytwa: "numpy array (5)", thickness: float) -> elements.scene_objects.Extrusion:
+    def wall_extrusion(self, xytwa: "numpy array (5)", thickness: float) -> scene_objects.Extrusion:
         return self.extrusion(
             WALL_VERTS[int(xytwa[0,3])].tolist(), -thickness,
         ).rotate(
