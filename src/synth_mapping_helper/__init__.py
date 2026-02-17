@@ -1,4 +1,4 @@
-__version__ = "1.5.19"
+__version__ = "1.5.20"
 
 from . import movement
 from . import pattern_generation
