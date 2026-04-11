@@ -8,6 +8,7 @@ from io import BytesIO
 import json
 import math
 import logging
+import sys
 import traceback
 from typing import Any, Callable, Generator, Optional
 
@@ -141,7 +142,8 @@ class PrettyJSONResponse(Response):
 def error_report():
     now = datetime.datetime.now(datetime.timezone.utc)
     out = {
-        "version": __version__,
+        "smh_version": __version__,
+        "py_version": sys.version,
         "report_time": now.strftime("%Y-%m-%dT%H-%M-%SZ"),
         "runtime": str(datetime.timedelta(seconds=round((now-start_time).total_seconds()))),  # rounded to full seconds
         "errors": [],

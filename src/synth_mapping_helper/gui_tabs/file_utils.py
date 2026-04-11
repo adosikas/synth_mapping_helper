@@ -122,12 +122,13 @@ def _file_utils_tab() -> None:
         
             self.refresh()
 
+        @handle_errors
         async def upload_cover(self, e: events.UploadEventArguments) -> None:
             upl: ui.upload = e.sender  # type:ignore
             upl.reset()
             if self.data is None:
                 return
-            if not e.name.lower().endswith(".png"):
+            if not e.file.name.lower().endswith(".png"):
                 error("Cover image must be .png")
                 return
             self.data.meta.cover_data = await e.file.read()
@@ -135,6 +136,7 @@ def _file_utils_tab() -> None:
             ui.notify(f"Changed cover image to {e.file.name}", type="info")
             self.refresh()
 
+        @handle_errors
         async def upload_audio(self, e: events.UploadEventArguments) -> None:
             upl: ui.upload = e.sender  # type:ignore
             upl.reset()
@@ -352,7 +354,7 @@ def _file_utils_tab() -> None:
                     ui.input("Mapper").props("dense").classes("h-8").bind_value(meta, "mapper")
                     ui.checkbox("Explicit lyrics").classes("h-8").props("dense").bind_value(meta, "explicit")
                 ui.separator().props("vertical")
-                with ui.upload(label="Replace Cover" if meta.cover_data else "Set Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png"').add_slot("list"):
+                with ui.upload(label="Replace Cover" if meta.cover_data else "Set Cover", auto_upload=True, on_upload=self.upload_cover).classes("w-32").props('accept="image/png,*/*"').add_slot("list"):
                     ui.image("data:image/png;base64,"+base64.b64encode(meta.cover_data).decode()).tooltip(meta.cover_name)
                 ui.separator().props("vertical")
                 with ui.upload(label="Edit / Replace Audio", auto_upload=True, on_upload=self.upload_audio).props('accept="audio/ogg,*/*"').classes("w-80").add_slot("list"):
