@@ -8,7 +8,7 @@ dependencies = [
     "numpy==2.4.4",
     "numba==0.65.0",
     "scipy==1.17.0",
-    "matplotlib==3.10.8",
+    "matplotlib==3.10.9",
     "plotly==6.7.0",
     "pyperclip==1.11.0",
     "watchdog==6.0.0",
