@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "synth_mapping_helper"
 dependencies = [
-    "numpy==2.4.4",
+    "numpy==2.4.6",
     "numba==0.65.0",
     "scipy==1.17.0",
     "matplotlib==3.10.8",
