@@ -4,13 +4,23 @@ on:
   release:
     types: [created]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
 jobs:
-  build_windows_exe:
+  build_exe:
+    name: Build exe
     runs-on: windows-latest
+    environment: release
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python
-        uses: actions/setup-python@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
       - name: Install
@@ -20,43 +30,56 @@ jobs:
           Remove-Item -Recurse -Force build
       - name: Build exe
         run: |
-          nicegui-pack --name=smh-gui_${{ github.ref_name }} --onefile src/synth_mapping_helper/gui.py
+          nicegui-pack --name=smh-gui_$env:GITHUB_REF_NAME --onefile src/synth_mapping_helper/gui.py
       - name: Upload windows_exe
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows_exe
           path: dist
-  deploy:
-    needs: build_windows_exe
+  upload_exe:
+    name: Upload exe
+    needs: build_exe
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write  # append file to release
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: "3.x"
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip3 install setuptools build wheel twine
       - name: Download windows_exe
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: windows_exe
       - name: Upload Artifacts
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "smh-gui_${{ github.ref_name }}.exe"
-          allowUpdates: true
-          omitBodyDuringUpdate: true
-          omitDraftDuringUpdate: true
-          omitNameDuringUpdate: true
-          omitPrereleaseDuringUpdate: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          python3 -m build
-          python3 -m twine upload --repository pypi dist/*
+          gh release upload ${GITHUB_EVENT_RELEASE_TAG_NAME} smh-gui_${GITHUB_REF_NAME}.exe
+        env:
+          GITHUB_EVENT_RELEASE_TAG_NAME: ${{github.event.release.tag_name}}
+
+  package:
+    name: Create release package
+    needs: build_exe  # only start upload if exe built correctly
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Build and Check Package
+      uses: hynek/build-and-inspect-python-package@d44ca7d91762de7a7d5436ddae667c6da6d1c3df
+  publish:
+    name: Publish to pypi
+    needs: package
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write  # for trusted publishing
+    steps:
+      - name: Download Package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Packages
+          path: dist
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        with:
+          attestations: true
