@@ -5,14 +5,14 @@ from time import time
 from typing import Literal
 
 from fastapi.responses import Response
-from nicegui import ui, app, events
+from nicegui import ui, app, events, binding
 from nicegui.elements.scene.scene_objects import Extrusion, Texture
 import numpy as np
 import pyperclip
 import requests
 
 from .map_render import MapScene, SettingsPanel
-from .utils import GUITab, SMHInput, PrettyError, ParseInputError, PreventDefaultKeyboard, handle_errors, info, error, safe_clipboard_data
+from .utils import GUITab, SMHInput, PrettyError, ParseInputError, handle_errors, info, error, safe_clipboard_data
 from ..utils import parse_number, pretty_time_delta, pretty_fraction, pretty_list
 from .. import synth_format, movement, pattern_generation
 
@@ -179,7 +179,7 @@ def _wall_art_tab() -> None:
                         else:
                             e.material(move_color.value, move_opacity.parsed_value)
                         self.cursors[t] = e
-                preview_scene.props('drag_constraints=""')
+                preview_scene.props('drag-constraints=""')
             else:
                 w = walls[self.drag_time][0] + copy_offset
                 scene_pos = preview_scene.to_scene(w[:3] + self.offset)
@@ -196,9 +196,9 @@ def _wall_art_tab() -> None:
                 # update drag constraints
                 if self.axis_button ^ axis_z.value:
                     scene_time_step = time_step.parsed_value*time_scale.parsed_value
-                    preview_scene.props(f'drag_constraints="x={scene_pos[0]},z={scene_pos[2]},y=Math.round(y/({scene_time_step}))*({scene_time_step})"')
+                    preview_scene.props(f'drag-constraints="x={scene_pos[0]},z={scene_pos[2]},y=Math.round(y/({scene_time_step}))*({scene_time_step})"')
                 else:
-                    preview_scene.props(f'drag_constraints="y={scene_pos[1]}"')
+                    preview_scene.props(f'drag-constraints="y={scene_pos[1]}"')
             
             for c in self.cursors.values():
                 if copy_mode:
@@ -437,7 +437,10 @@ def _wall_art_tab() -> None:
         except ParseInputError as pie:
             error(f"Error parsing setting: {pie.input_id}", pie, data=pie.value)
             return
-    PreventDefaultKeyboard(on_key=_on_key).bind_active_from(app.storage.user, "active_tab", backward=lambda v: v=="wall_art")
+
+    kb = ui.keyboard(on_key=_on_key).on("key", js_handler='''(e) => {e.event.preventDefault();e.event.stopPropagation();}''')
+    binding.bind_from(kb, 'active', app.storage.user, "active_tab", backward=lambda v: v=="wall_art")
+
     with ui.card():
         with ui.row():
             with ui.row():

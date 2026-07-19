@@ -303,12 +303,3 @@ def safe_clipboard_data(use_original: bool = False, realign_start: bool = True, 
         write_clipboard(clipboard_out)
     except RuntimeError as re:
         raise PrettyError(msg=f"Error writing clipboard", exc=re)
-
-class PreventDefaultKeyboard(ui.keyboard, component="prevent_default_keyboard.js"):
-    def bind_active_from(self,
-                        target_object: Any,
-                        target_name: str = 'active',
-                        backward: Callable[..., Any] = lambda x: x,
-                        ) -> "Self":
-        binding.bind_from(self, 'active', target_object, target_name, backward)
-        return self
