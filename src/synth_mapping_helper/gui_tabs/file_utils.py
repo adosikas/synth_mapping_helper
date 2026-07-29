@@ -455,7 +455,7 @@ def _file_utils_tab() -> None:
                             del self.data.bookmarks[t]
                     # add new
                     self.data.bookmarks |= {
-                        librosa.frames_to_time(s, sr=sr): f"#smh_bpm: {s_bpm}"
+                        second_to_beat(librosa.frames_to_time(s, sr=sr), self.data.bpm): f"#smh_bpm: {s_bpm}"
                         for (s, _, s_bpm, _) in bpm_sections
                     }
                     # update plots
@@ -469,7 +469,7 @@ def _file_utils_tab() -> None:
 
             bpmfig = go.Figure(
                 layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Time"),
+                    xaxis=go.layout.XAxis(title="Seconds"),
                     yaxis=go.layout.YAxis(title="BPM"),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -496,7 +496,7 @@ def _file_utils_tab() -> None:
 
             onset_fig = go.Figure(
                 layout=go.Layout(
-                    xaxis=go.layout.XAxis(title="Time"),
+                    xaxis=go.layout.XAxis(title="Seconds"),
                     yaxis=go.layout.YAxis(title=" "),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="top", orientation="h", groupclick="toggleitem", bgcolor="rgba(255,255,255,0.3)", borderwidth=1),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
