@@ -13,7 +13,7 @@ dependencies = [
     "pyperclip==1.11.0",
     "watchdog==6.0.0",
     "requests==2.34.2",
-    "nicegui==3.14.0",
+    "nicegui==3.15.0",
     "librosa==0.11.0",
     "soundfile==0.14.0",
     "audioread==3.1.0",
