@@ -13,9 +13,8 @@ from synth_mapping_helper.synth_format import DataContainer, SINGLE_COLOR_NOTES,
 
 RENDER_WINDOW_WALL = 4.0  # the game always renders walls 4 seconds ahead
 RENDER_WINDOW_NOTES = 3.5  # the game always renders notes 3.5 seconds ahead
-QUEST_WIREFRAME_LIMIT = 200  # combined
-QUEST_RENDER_LIMIT = 500  # combined
-PC_TYPE_DESPAWN = 80  # for each type
+WALL_WIREFRAME_LIMIT = 200  # combined
+WALL_RENDER_LIMIT = 500  # combined
 
 RAIL_NODE_DIST = 2.0  # warn for long rails without intermediate nodes
 
@@ -84,19 +83,6 @@ def density(times: list[float], window: float) -> PlotDataContainer:
         times=times,
         plot_data=np.array(out)
     )
-
-def wall_mode(highest_density: float, *, combined: bool) -> str:
-    mode = "OK"
-    if combined:
-        if highest_density >= QUEST_RENDER_LIMIT:
-            mode = "Quest-Limited"
-        elif highest_density >= QUEST_WIREFRAME_LIMIT:
-            mode = "Quest-Wireframe"
-    else:
-        if highest_density >= PC_TYPE_DESPAWN:
-            mode = "PC-Despawn"
-
-    return f"{mode}, max {round(highest_density)}"
 
 def note_densities(data: DataContainer) -> dict[str, dict[str, PlotDataContainer]]:
     window_b = utils.second_to_beat(RENDER_WINDOW_NOTES, bpm=data.bpm)

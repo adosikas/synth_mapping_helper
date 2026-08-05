@@ -604,24 +604,27 @@ def _file_utils_tab() -> None:
 
             # show horizontal lines when combined y is close to or over the limit
             max_com_d = den_dict["combined"].max_value
-            if max_com_d > 0.9 * analysis.QUEST_WIREFRAME_LIMIT:
-                wfig.add_hline(analysis.QUEST_WIREFRAME_LIMIT, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest wireframe (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            if max_com_d > 0.9 * analysis.QUEST_RENDER_LIMIT:
-                wfig.add_hline(analysis.QUEST_RENDER_LIMIT, line={"color": "red", "dash": "dash"}, annotation=go.layout.Annotation(text="Quest limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
-            # show horizontal lines when single y is over the limit
-            max_single_d = max(pdc.max_value for wt, pdc in den_dict.items() if wt != "combined")
-            if max_single_d > 0.95 * analysis.PC_TYPE_DESPAWN:
-                wfig.add_hline(analysis.PC_TYPE_DESPAWN, line={"color": "yellow", "dash": "dash"}, annotation=go.layout.Annotation(text="PC despawn (per type)", xanchor="left", yanchor="bottom"), annotation_position="left")
-
+            if max_com_d > 0.9 * analysis.WALL_WIREFRAME_LIMIT:
+                wfig.add_hline(analysis.WALL_WIREFRAME_LIMIT, line={"color": "gray", "dash": "dash"}, annotation=go.layout.Annotation(text="Wireframe threshold (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
+            if max_com_d > 0.9 * analysis.WALL_RENDER_LIMIT:
+                wfig.add_hline(analysis.WALL_RENDER_LIMIT, line={"color": "red", "dash": "dash"}, annotation=go.layout.Annotation(text="Render limit (combined)", xanchor="left", yanchor="bottom"), annotation_position="left")
             for wt in ("combined", *synth_format.WALL_TYPES):
                 pdc = den_dict[wt]
                 if pdc.max_value:
                     wfig.add_scattergl(
-                        x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=f"{wt} [{analysis.wall_mode(pdc.max_value, combined=(wt == 'combined'))}]",
+                        x=pdc.plot_data[:,0], y=pdc.plot_data[:,1], name=wt,
                         showlegend=True,
-                        # start with only combined visible and single only when above PC limit
-                        visible=(wt == "combined" or pdc.max_value > 0.95 * analysis.PC_TYPE_DESPAWN) or "legendonly"
+                        # start with only combined visible
+                        visible=(wt == "combined") or "legendonly"
                     )
+            with ui.row():
+                ui.label(f"Wall Density (Peak {max_com_d:.1f})")
+                if max_com_d > analysis.WALL_RENDER_LIMIT:
+                    ui.badge("⚠️Some hidden", color="negative").tooltip(f"More than {analysis.WALL_RENDER_LIMIT} walls on screen at some point, excess walls will not get shown")
+                elif max_com_d > analysis.WALL_WIREFRAME_LIMIT:
+                    ui.badge("Wireframe", color="warning").tooltip(f"More than {analysis.WALL_WIREFRAME_LIMIT} walls on screen at some point, all walls will show as wireframe")
+                else:
+                    ui.badge("Normal", color="positive").tooltip(f"Always less than {analysis.WALL_WIREFRAME_LIMIT} walls on screen, all walls will show normally.")
             ui.plotly(wfig).classes("w-full h-96")
 
         def _nden_content(self, den_dict: dict[str, dict[str, analysis.PlotDataContainer]]) -> None:
@@ -980,10 +983,11 @@ def _file_utils_tab() -> None:
             difficulty = self.storage.get("fileutils_ddiff")
             if difficulty is None:
                 return
-            ui.label("Wall density")
             if self.wall_densities is None:
+                ui.label("Wall density")
                 ui.spinner(size="xl")
             elif difficulty not in self.wall_densities or not self.wall_densities[difficulty]["combined"].max_value:
+                ui.label("Wall density")
                 ui.label("No data").classes("h-32")
             else:
                 self._wden_content(self.wall_densities[difficulty])
@@ -1096,7 +1100,7 @@ def _file_utils_tab() -> None:
             * Show stats
                 * Object counts per difficulty
                 * Hand position, velocity and acceleration plots
-                * Density plot for Walls (including checks for PC or Quest limitations)
+                * Density plot for Walls (including checks for wireframe and render limits)
                 * Density plot for Notes and Rails
             * See warnings about problematic sections (spiral distortions, headbanger notes)
 
