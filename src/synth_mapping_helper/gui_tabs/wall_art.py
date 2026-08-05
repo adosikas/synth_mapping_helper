@@ -598,14 +598,13 @@ def _wall_art_tab() -> None:
                 refimg_obj.delete()
                 refimg_obj = None
             if preview_scene is not None:
-                if refimg_url.value:
+                if app.storage.user.get("wall_art_ref_image"):
                     with preview_scene:
                         coords = np.array([[[-1/2,0,1/2],[1/2,0,1/2]],[[-1/2,0,-1/2],[1/2,0,-1/2]]]) * [refimg_width.parsed_value,0,refimg_height.parsed_value]
                         pos = (refimg_x.parsed_value, refimg_t.parsed_value*time_scale.parsed_value, refimg_y.parsed_value)
                         opacity = refimg_opacity.parsed_value
-                        if app.storage.user.get("wall_art_ref_image"):
-                            # add parameter to bypass cache
-                            refimg_obj = preview_scene.texture(f"/wall_art_ref_image?nocache={time()}", coords.tolist()).move(*pos).material(opacity=opacity)
+                        # add parameter to bypass cache
+                        refimg_obj = preview_scene.texture(f"/wall_art_ref_image?nocache={time()}", coords.tolist()).move(*pos).material(opacity=opacity)
                 wall_data = synth_format.DataContainer(walls=walls)
                 preview_scene.render(wall_data, preview_settings)
 
