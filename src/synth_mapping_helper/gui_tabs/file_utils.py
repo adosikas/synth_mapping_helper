@@ -593,6 +593,7 @@ def _file_utils_tab() -> None:
         def _wden_content(self, den_dict: dict[str, analysis.PlotDataContainer]) -> None:
             wfig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="Visible Walls (4s)"),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -631,6 +632,7 @@ def _file_utils_tab() -> None:
             # mostly the same thing as walls, but for combined notes and rail nodes
             nfig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="Visible (4s)"),
                     legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -658,6 +660,7 @@ def _file_utils_tab() -> None:
             # mostly the same thing as densities, but for total notes and walls
             nfig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="Count"),
                     legend=go.layout.Legend(x=-0.05, xanchor="right", y=1, yanchor="top", orientation="v", groupclick="toggleitem"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -684,6 +687,7 @@ def _file_utils_tab() -> None:
         def _hcurve_content(self, curves: dict[str, analysis.HAND_CURVE_TYPE]|None, warnings: list[analysis.Warning]|None, diff_data: synth_format.DataContainer) -> None:
             xfig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="X: right (+) <-> left (-)", range=(7,-7)),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -692,6 +696,7 @@ def _file_utils_tab() -> None:
             )
             yfig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="Y: down (-) <-> up (+)", range=(-5,5)),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -700,6 +705,7 @@ def _file_utils_tab() -> None:
             )
             vfig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="Velocity (m/s)"),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -708,6 +714,7 @@ def _file_utils_tab() -> None:
             )
             afig = go.Figure(
                 layout=go.Layout(
+                    xaxis=go.layout.XAxis(title="Beat"),
                     yaxis=go.layout.YAxis(title="Acceleration (m/s²)"),
                     legend=go.layout.Legend(x=0, xanchor="left", y=1, yanchor="bottom", orientation="h"),
                     margin=go.layout.Margin(l=0, r=0, t=0, b=0),
@@ -1003,7 +1010,7 @@ def _file_utils_tab() -> None:
             ui.label("Running counts")
             if self.running_counts is None:
                 ui.spinner(size="xl")
-            elif difficulty not in self.running_counts or not (self.running_counts[difficulty]["notes+rails"].max_value or self.running_counts[difficulty]["notes"].max_value):
+            elif difficulty not in self.running_counts or not self.running_counts[difficulty]["notes+rails"].max_value:
                 ui.label("No data").classes("h-32")
             else:
                 self._rcount_content(self.running_counts[difficulty])
