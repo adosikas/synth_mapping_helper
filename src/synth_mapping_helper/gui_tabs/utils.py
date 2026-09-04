@@ -78,8 +78,8 @@ class SMHInput(ui.input):
             if tab_id is not None:
                 storage_id = f"{tab_id}_{storage_id}"
             self.bind_value(app.storage.user, storage_id)
-        self.classes(f"w-{width} h-{height}")
-        self.props('dense input-style="text-align: right" no-error-icon')
+        self.classes(f"w-{width} h-{height} custom-error")
+        self.props('dense input-style="text-align: right"')
         self.storage_id = storage_id
         self.default_value = default_value
         if suffix:
@@ -111,8 +111,6 @@ class SMHInput(ui.input):
                     "click", lambda e: self.set_value(_negate(self.value))
                 ).bind_name_from(self, "value", _get_icon)
                 ui.tooltip("Click to negate")
-        with self.add_slot("error"):
-            ui.element().style("visiblity: hidden")
 
     def _validate(self, value: Any) -> None|str:
         if self.allow_empty and not value:
@@ -130,6 +128,7 @@ class SMHInput(ui.input):
         try:
             return utils.parse_number(self.value)
         except ValueError as ve:
+            self.value = self.default_value
             raise ParseInputError(input_id=self.storage_id or "input", value=self.value, exc=ve) from ve
 
 class PrettyJSONResponse(Response):
@@ -245,7 +244,7 @@ def handle_errors(func: Callable) -> Callable:
         try:
             yield
         except ParseInputError as pie:
-            error(msg=f"Error parsing {pie.input_id} value: {pie.value!r}", exc=pie.exc, context=pie.context, data=pie.value)
+            error(msg=f"Error parsing {pie.input_id} value. The default value has been restored.", exc=pie.exc, context=pie.context, data=pie.value)
         except PrettyError as pe:
             error(msg=pe.msg, exc=pe.exc, context=pe.context, data=pe.data)
         except BrokenProcessPool as bpe:

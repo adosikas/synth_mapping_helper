@@ -636,11 +636,14 @@ def _wall_art_tab() -> None:
             except ParseInputError as pie:
                 error(f"Error parsing preview setting: {pie.input_id}", pie, data=pie.value)
                 return
+
+        @handle_errors
         def _on_dstart(e: events.SceneDragEventArguments):
             nonlocal is_dragging
             is_dragging = True
             selection.start_drag(e.object_id)
 
+        @handle_errors
         def _on_dend(e: events.SceneDragEventArguments):
             if is_dragging:
                 selection.end_drag((e.x, e.z, round((e.y / time_scale.parsed_value)/time_step.parsed_value)*time_step.parsed_value))

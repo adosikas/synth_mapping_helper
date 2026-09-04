@@ -90,6 +90,18 @@ def entrypoint():
                 min-height: 0 !important;
                 padding: 0 !important;
             }
+            .q-input.custom-error .q-field__append {
+                pointer-events: none;
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                background: rgba(255, 0, 0, 0.2);
+                border-width: 1px;
+                border-color: red;
+                .q-icon {
+                    display: none;
+                }
+            }
         </style>""")
         with ui.header(elevated=True):
             with ui.tabs() as tabs:
