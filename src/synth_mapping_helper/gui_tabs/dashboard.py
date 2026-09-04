@@ -8,8 +8,8 @@ from nicegui import app, events, ui
 import pyperclip
 
 from .utils import *
-from .. import movement, pattern_generation, rails, synth_format
-from ..utils import parse_number, pretty_list, pretty_fraction, pretty_time_delta
+from .. import movement, pattern_generation, rails, synth_format, analysis
+from ..utils import parse_number, pretty_list, pretty_fraction, pretty_time_delta, beat_to_second
 
 def _safe_inverse(v: float) -> float:
     return 0.0 if v == 0 else 1/v
@@ -573,6 +573,45 @@ def spiral_spike_card(action_btn_cls: Any) -> None:
 def wall_spacing_card(action_btn_cls: Any) -> None:
     with ui.card():
         ui.label("Wall spacing")
+        def _wall_analysis(data: ClipboardDataContainer, **kwargs) -> None:
+            counts = data.get_counts()["walls"]
+            densities = {wt: float(d.max_value) for wt, d in analysis.wall_densities(data).items()}
+            combined = densities.pop("combined")
+            short_window = beat_to_second(data.selection_length, data.bpm) < analysis.RENDER_WINDOW_WALL
+            window = beat_to_second(data.selection_length, data.bpm) if short_window else analysis.RENDER_WINDOW_WALL
+                
+            with ui.dialog() as popup, ui.card():
+                with ui.row():
+                    ui.label(f"Peak density: {combined:.1f} over {window:.1f} s")
+                    ui.badge(
+                        'OK' if combined < analysis.WALL_WIREFRAME_LIMIT else ('Wireframe' if combined < analysis.WALL_RENDER_LIMIT else 'Some Hidden'),
+                        color='positive' if combined < analysis.WALL_WIREFRAME_LIMIT else ('warning' if combined < analysis.WALL_RENDER_LIMIT else 'negative'),
+                    )
+                if short_window:
+                    extrapolated = combined / window * analysis.RENDER_WINDOW_WALL
+                    with ui.card():
+                        ui.label("Selection was shorter than render window.").classes("text-warning")
+                        with ui.row():
+                            ui.label(f"Extrapolated: {extrapolated:.1f} over {analysis.RENDER_WINDOW_WALL:.1f} s")
+                            ui.badge(
+                                'OK' if extrapolated < analysis.WALL_WIREFRAME_LIMIT else ('Wireframe' if extrapolated < analysis.WALL_RENDER_LIMIT else 'Some Hidden'),
+                                color='positive' if extrapolated < analysis.WALL_WIREFRAME_LIMIT else ('warning' if extrapolated < analysis.WALL_RENDER_LIMIT else 'negative'),
+                            )
+                ui.label("Use the Wall Density plot in File Utils for more details")
+                ui.table(rows=[
+                    {"type": wt, "count": counts[wt], f"density over {window:.1f} s": round(d, 1)}|({f"density over {analysis.RENDER_WINDOW_WALL:.1f} s": round(d/window*analysis.RENDER_WINDOW_WALL, 1)} if short_window else {})
+                    for wt, d in densities.items() if d
+                ])
+                
+            popup.open()
+
+        with ui.row():
+            action_btn_cls(
+                tooltip="Analyse wall density (ignores filters)",
+                icon="query_stats",
+                func=_wall_analysis,
+                color="info",
+            ).classes("w-28")
         with ui.row():
             compress_interval = make_input("Spacing", "1/64", "compress_interval", suffix="b", tooltip="Space between walls")
             action_btn_cls(
@@ -584,7 +623,7 @@ def wall_spacing_card(action_btn_cls: Any) -> None:
         with ui.row():
             wall_limit = make_input("Walls/4s", 195, "spawn_limit", tooltip="200=wireframe limit, 500=spawn limit")
             action_btn_cls(
-                tooltip="Distribute walls to configured densit (ignores filters)",
+                tooltip="Distribute walls to configured density (ignores filters)",
                 icon="expand",
                 icon_angle=90,
                 func=lambda data, **kwargs: _space_walls(data, interval=(4*data.bpm/60)/wall_limit.parsed_value),
